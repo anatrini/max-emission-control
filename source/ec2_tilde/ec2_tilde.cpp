@@ -10,6 +10,60 @@
 
 using namespace c74::min;
 
+// Buffer management helper (inline to avoid separate compilation unit)
+namespace ec2_buffer {
+    inline std::shared_ptr<ec2::AudioBuffer<float>> loadFromMaxBuffer(const std::string& buffer_name) {
+        if (buffer_name.empty()) {
+            return nullptr;
+        }
+
+        // Create buffer reference
+        auto buf_ref = c74::max::buffer_ref_new(nullptr, c74::max::gensym(buffer_name.c_str()));
+        if (!buf_ref) {
+            return nullptr;
+        }
+
+        // Get buffer object
+        auto buffer = c74::max::buffer_ref_getobject(buf_ref);
+        if (!buffer) {
+            c74::max::object_free(buf_ref);
+            return nullptr;
+        }
+
+        // Get buffer info
+        long frames = c74::max::buffer_getframecount(buffer);
+        long channels = c74::max::buffer_getchannelcount(buffer);
+
+        if (frames == 0 || channels == 0) {
+            c74::max::object_free(buf_ref);
+            return nullptr;
+        }
+
+        // Lock and copy data
+        float* buffer_data = c74::max::buffer_locksamples(buffer);
+        if (!buffer_data) {
+            c74::max::object_free(buf_ref);
+            return nullptr;
+        }
+
+        // Create EC2 AudioBuffer
+        auto audio_buf = std::make_shared<ec2::AudioBuffer<float>>();
+        audio_buf->channels = static_cast<int>(channels);
+        audio_buf->frames = static_cast<int>(frames);
+        audio_buf->size = static_cast<int>(frames * channels);
+        audio_buf->data = new float[audio_buf->size];
+
+        // Copy data (Max buffer~ is interleaved)
+        std::copy(buffer_data, buffer_data + audio_buf->size, audio_buf->data);
+
+        // Unlock and cleanup
+        c74::max::buffer_unlocksamples(buffer);
+        c74::max::object_free(buf_ref);
+
+        return audio_buf;
+    }
+}
+
 class ec2_tilde : public object<ec2_tilde>, public mc_operator<> {
 public:
     MIN_DESCRIPTION {"EmissionControl2 granular synthesis with multichannel output (up to 16 channels)"};
@@ -161,6 +215,33 @@ public:
         range {0.0, 1.0}
     };
 
+    // BUFFER PARAMETERS (Phase 6)
+
+    attribute<symbol> buffer_name {
+        this, "buffer", "",
+        description {"Buffer~ name for audio source"},
+        setter { MIN_FUNCTION {
+            std::string name = std::string(args[0]);
+            if (!name.empty()) {
+                auto audio_buf = ec2_buffer::loadFromMaxBuffer(name);
+                if (audio_buf) {
+                    m_engine->setAudioBuffer(audio_buf, 0);
+                    cout << "ec2~: loaded buffer '" << name << "' (" << audio_buf->frames
+                         << " frames, " << audio_buf->channels << " channels)" << endl;
+                } else {
+                    cerr << "ec2~: failed to load buffer '" << name << "'" << endl;
+                }
+            }
+            return args;
+        }}
+    };
+
+    attribute<int> sound_file {
+        this, "soundfile", 0,
+        description {"Sound file index for polybuffer~ (0-based)"},
+        range {0, 15}
+    };
+
     // MESSAGES
 
     message<> dspsetup {
@@ -190,12 +271,53 @@ public:
     message<> m_read {
         this, "read",
         MIN_FUNCTION {
-            symbol filename = args[0];
-            cout << "ec2~ read message: " << filename << endl;
-            cout << "  (Note: Use Max buffer~ objects for audio - polybuffer~ support coming in Phase 5)" << endl;
+            if (args.empty()) {
+                cerr << "ec2~: read requires a buffer name argument" << endl;
+                return {};
+            }
 
-            // TODO Phase 5: Implement buffer~ / polybuffer~ reference
-            // For now, users should use buffer~ and we'll read from it
+            symbol buffer_sym = args[0];
+            std::string buffer_str = std::string(buffer_sym);
+
+            auto audio_buf = ec2_buffer::loadFromMaxBuffer(buffer_str);
+            if (audio_buf) {
+                m_engine->setAudioBuffer(audio_buf, 0);
+                buffer_name = buffer_sym;
+                cout << "ec2~: loaded buffer '" << buffer_str << "' (" << audio_buf->frames
+                     << " frames, " << audio_buf->channels << " channels)" << endl;
+            } else {
+                cerr << "ec2~: failed to load buffer '" << buffer_str << "'" << endl;
+            }
+
+            return {};
+        }
+    };
+
+    message<> polybuffer {
+        this, "polybuffer",
+        MIN_FUNCTION {
+            if (args.size() < 2) {
+                cerr << "ec2~: polybuffer requires basename and count arguments" << endl;
+                return {};
+            }
+
+            symbol basename = args[0];
+            int count = static_cast<int>(args[1]);
+
+            cout << "ec2~: loading polybuffer '" << std::string(basename) << "' with " << count << " buffers" << endl;
+
+            // Load all buffers
+            int loaded_count = 0;
+            for (int i = 0; i < count; ++i) {
+                std::string buf_name = std::string(basename) + "." + std::to_string(i);
+                auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_name);
+                if (audio_buf) {
+                    m_engine->setAudioBuffer(audio_buf, i);
+                    loaded_count++;
+                }
+            }
+
+            cout << "ec2~: loaded " << loaded_count << " of " << count << " polybuffer slots" << endl;
 
             return {};
         }
@@ -260,7 +382,7 @@ private:
         // Scanning
         params.scanBegin = scan_start;
         params.scanRange = scan_range;
-        params.soundFile = 0;  // TODO: implement buffer selection
+        params.soundFile = sound_file;  // Phase 6: Buffer selection
 
         // Spatial allocation (Phase 5)
         params.spatial.mode = static_cast<ec2::AllocationMode>(alloc_mode.get());

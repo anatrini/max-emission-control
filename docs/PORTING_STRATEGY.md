@@ -284,17 +284,67 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 7: LFO Modulators (Optional)
+### Phase 9: LFO Modulation System (Optional)
 **Goal**: Port EC2's LFO modulation system
 
 **Tasks**:
 1. Port `ecModulator` class
-2. Implement LFO-to-parameter routing
-3. Add LFO attributes (rate, shape, polarity, width)
+2. Implement 6 LFO generators
+3. LFO-to-parameter routing
+4. LFO shapes and rates
 
 **Deliverable**: Parameter modulation via LFOs
 
 **Commit**: "Add LFO modulation system"
+
+---
+
+### Phase 10: Max Help Patch
+**Goal**: Create interactive help patch
+
+**Tasks**:
+1. Create help patch from EC2_HELP_REFERENCE.md
+2. Example configurations
+3. Visual parameter demonstrations
+4. Audio examples
+
+**Deliverable**: Complete Max help file
+
+**Commit**: "Add interactive help patch and examples"
+
+---
+
+## Project Timeline
+
+### Completed Phases (Phases 1-5)
+- ✅ **Phase 1**: Extract utility classes (complete)
+- ✅ **Phase 2**: Port scheduler, envelope, filter (complete)
+- ✅ **Phase 3**: Port grain synthesis engine (complete)
+- ✅ **Phase 4**: Integrate with min-devkit (complete)
+- ✅ **Phase 5**: Multichannel spatial allocation (complete)
+
+### Active Development (Phases 6-7)
+- ⏳ **Phase 6**: Buffer management & audio loading (current)
+  - Priority: **High** - Required for audio playback
+  - Core functionality needed for external to produce sound
+
+- 📋 **Phase 7**: Parameter completion (next)
+  - Priority: **Medium** - Completes synthesis features
+  - Envelope shape, filter controls, pan, scan speed
+  - Weighted mode UI, cluster/mask
+
+### Future Enhancements (Phases 8-10)
+- 🎯 **Phase 8**: OSC control
+  - Priority: **Medium** - Performance and external control
+  - Native OSC parameter mapping
+
+- 🎵 **Phase 9**: LFO modulation
+  - Priority: **Low** - Optional, advanced feature
+  - Parameter modulation system
+
+- 📖 **Phase 10**: Max help patch
+  - Priority: **Medium** - User documentation
+  - Interactive examples and demonstrations
 
 ## Dependencies Decision Matrix
 
