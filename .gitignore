@@ -1,0 +1,10 @@
+build/
+cmake-build-*/
+*.dSYM/
+package/externals/
+package/media/
+max-sdk/
+my-min-devkit/
+.DS_Store
+*.user
+*.suo
