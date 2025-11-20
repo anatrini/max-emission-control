@@ -1,0 +1,8 @@
+{
+	"name": "ec2",
+	"version": "1.0.0",
+	"author": "Alessandro Anatrini",
+	"description": "EmissionControl2 granular synthesis Max/MSP external with multichannel output support",
+	"url": "https://github.com/anatrini/max-emission-control",
+	"license": "GPL-3.0"
+}
