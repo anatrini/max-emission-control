@@ -155,6 +155,12 @@ public:
         range {1.0, 1000.0}
     };
 
+    attribute<number> envelope_shape {
+        this, "envelope", 0.5,
+        description {"Envelope shape: 0.0=exponential decay, 0.5=tukey window (default), 1.0=reverse exponential"},
+        range {0.0, 1.0}
+    };
+
     attribute<number> scan_start {
         this, "scanstart", 0.0,
         description {"Scan start position (0.0-1.0)"},
@@ -171,6 +177,36 @@ public:
         this, "amp", 0.5,
         description {"Overall amplitude"},
         range {0.0, 1.0}
+    };
+
+    // FILTERING PARAMETERS
+
+    attribute<number> filter_freq {
+        this, "filterfreq", 22000.0,
+        description {"Filter cutoff frequency in Hz (22000 = no filtering)"},
+        range {20.0, 22000.0}
+    };
+
+    attribute<number> filter_resonance {
+        this, "resonance", 0.0,
+        description {"Filter resonance (0.0-1.0)"},
+        range {0.0, 1.0}
+    };
+
+    // STEREO PANNING
+
+    attribute<number> stereo_pan {
+        this, "pan", 0.0,
+        description {"Stereo pan position: -1.0=left, 0.0=center, 1.0=right (legacy stereo mode)"},
+        range {-1.0, 1.0}
+    };
+
+    // SCANNING PARAMETERS
+
+    attribute<number> scan_speed {
+        this, "scanspeed", 1.0,
+        description {"Scan speed multiplier (-32.0 to 32.0)"},
+        range {-32.0, 32.0}
     };
 
     // SPATIAL ALLOCATION PARAMETERS (Phase 5)
@@ -404,17 +440,18 @@ private:
         // Grain characteristics
         params.playbackRate = playback_rate;
         params.grainDuration = grain_duration;
-        params.envelope = 0.5f;  // TODO: add envelope attribute
-        params.pan = 0.0f;  // Legacy stereo pan
+        params.envelope = envelope_shape;
+        params.pan = stereo_pan;
         params.amplitude = amplitude;
 
         // Filtering
-        params.filterFreq = 1000.0f;  // TODO: add filter attributes
-        params.resonance = 0.0f;
+        params.filterFreq = filter_freq;
+        params.resonance = filter_resonance;
 
         // Scanning
         params.scanBegin = scan_start;
         params.scanRange = scan_range;
+        params.scanSpeed = scan_speed;
         params.soundFile = sound_file;  // Phase 6: Buffer selection
 
         // Spatial allocation (Phase 5)

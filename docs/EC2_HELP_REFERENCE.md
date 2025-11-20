@@ -96,7 +96,65 @@ Playback rate / transposition.
 Overall amplitude.
 Note: Automatic voice count compensation is applied to prevent volume increase with overlapping grains.
 
+### envelope (float, 0.0-1.0, default: 0.5)
+Grain envelope shape - morphs between three envelope types:
+- **0.0**: Exponential decay (sharp attack, exponential decay)
+- **0.0-0.5**: Interpolates between exponential decay and Tukey window
+- **0.5**: Tukey window (smooth raised-cosine envelope, most neutral)
+- **0.5-1.0**: Interpolates between Tukey window and reverse exponential
+- **1.0**: Reverse exponential (exponential growth, sharp release)
+
+The envelope shape significantly affects grain character:
+- Lower values (0.0-0.4): More percussive, sharp attack
+- Middle values (0.4-0.6): Smooth, natural
+- Higher values (0.6-1.0): Swelling, crescendo grains
+
+## Filtering Parameters
+
+### filterfreq (float, 20.0-22000.0 Hz, default: 22000.0)
+Filter cutoff frequency in Hertz.
+- **22000 Hz**: No filtering (bypassed)
+- **< 22000 Hz**: Lowpass filter applied to each grain
+- The filter is a 3-stage biquad cascade for steep rolloff
+
+Use filtering to:
+- Shape spectral content of grains
+- Create darker, muffled textures
+- Emphasize low frequencies in dense clouds
+
+### resonance (float, 0.0-1.0, default: 0.0)
+Filter resonance / Q factor.
+- **0.0**: No resonance (standard lowpass)
+- **> 0.0**: Emphasizes frequencies near cutoff
+- **High values (> 0.7)**: Creates resonant peak, adds "ringing" character
+
+Resonance interacts strongly with `filterfreq` and `duration`:
+- Long grains with resonance: sustained harmonic emphasis
+- Short grains with resonance: spectral "ping" effects
+
+## Stereo Panning
+
+### pan (float, -1.0-1.0, default: 0.0)
+Stereo pan position (legacy stereo mode only).
+- **-1.0**: Hard left
+- **0.0**: Center
+- **1.0**: Hard right
+
+**Important:** This parameter only affects stereo output (@outputs 2). For multichannel configurations, grain spatialization is controlled by the spatial allocator (see Multichannel Spatial Allocation section).
+
+Uses constant-power panning law for smooth spatial transitions.
+
 ## Scanning Parameters
+
+### scanspeed (float, -32.0-32.0, default: 1.0)
+Scan speed multiplier - controls how fast the playback position moves through the buffer.
+- **1.0**: Normal scanning speed
+- **> 1.0**: Faster scanning (move through buffer more quickly)
+- **< 1.0**: Slower scanning (linger in buffer regions)
+- **0.0**: Static position (no movement)
+- **Negative values**: Reverse scanning direction
+
+Interacts with `scanstart` and `scanrange` to create evolving textures.
 
 ### scanstart (float, 0.0-1.0, default: 0.0)
 Starting position in the source buffer.
@@ -380,10 +438,12 @@ The polybuffer message loads buffers named `<basename>.0`, `<basename>.1`, etc. 
 ```
 grainrate 40.0
 duration 150.0
+envelope 0.5
 async 0.3
 allocmode 2      // Random
 randspread 0.5
 spatialcorr 0.2
+filterfreq 22000.0  // No filtering
 ```
 Creates a dense, diffuse cloud with soft spatial randomization.
 
@@ -391,6 +451,7 @@ Creates a dense, diffuse cloud with soft spatial randomization.
 ```
 grainrate 20.0
 duration 200.0
+envelope 0.5
 allocmode 6      // Trajectory
 trajshape 0      // Sine
 trajrate 0.5
@@ -402,6 +463,7 @@ Smooth sinusoidal movement across all channels.
 ```
 grainrate 30.0
 duration 100.0
+envelope 0.4
 allocmode 5      // Pitchmap
 pitchmin 200.0
 pitchmax 2000.0
@@ -413,11 +475,50 @@ High-frequency grains to right channels, low to left.
 ```
 grainrate 8.0
 duration 80.0
+envelope 0.3     // Sharp attacks
 intermittency 0.3
 allocmode 1      // Round-robin
 rrstep 2
 ```
 Sparse, rhythmic jumps through even-numbered channels.
+
+### Configuration 5: Filtered Ambient Cloud
+```
+grainrate 35.0
+duration 300.0
+envelope 0.6     // Swelling envelopes
+filterfreq 800.0
+resonance 0.4
+allocmode 2      // Random
+randspread 0.7
+```
+Dark, resonant grains with swelling envelopes creating ambient textures.
+
+### Configuration 6: Percussive Scanning
+```
+grainrate 12.0
+duration 50.0
+envelope 0.2     // Sharp attack
+scanspeed 2.0    // Fast scanning
+scanrange 0.3
+filterfreq 4000.0
+allocmode 1      // Round-robin
+```
+Percussive grains scanning rapidly through buffer section.
+
+### Configuration 7: Stereo Shimmer (2 channels)
+```
+outputs 2
+grainrate 60.0
+duration 80.0
+envelope 0.7     // Reverse exponential
+playback 2.0     // Octave up
+pan 0.0          // Center
+filterfreq 12000.0
+resonance 0.3
+async 0.5
+```
+High-pitched shimmering texture with slight filtering.
 
 ---
 
@@ -476,14 +577,13 @@ All modes support:
 
 ## Future Enhancements (Not Yet Implemented)
 
-- Envelope shape control
-- Filter frequency and resonance parameters
 - LFO modulation system
 - Cluster/mask for channel subset selection
-- Weight arrays for weighted mode
+- Weight arrays for weighted mode (requires list/array message handling)
 - Distance-based 3D spatialization
 - OSC parameter control
 - Per-stream spatial allocation
+- Buffer~ change notifications (automatic reload on buffer~ modification)
 
 ---
 

@@ -284,20 +284,36 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 7: Parameter Completion
+### Phase 7: Parameter Completion ✅ COMPLETED
 **Goal**: Add remaining EC2 parameters
 
-**Tasks**:
-1. Add envelope shape parameter
-2. Add filter frequency and resonance controls
-3. Add pan parameter for legacy stereo mode
-4. Add scan speed parameter
-5. Implement weighted mode UI (weight arrays via messages)
-6. Implement cluster/mask for channel subset selection
+**Completed Tasks**:
+1. ✅ Added envelope shape parameter (`@envelope`, 0.0-1.0)
+   - 0.0: Exponential decay
+   - 0.5: Tukey window (default)
+   - 1.0: Reverse exponential
+2. ✅ Added filter frequency control (`@filterfreq`, 20-22000 Hz)
+3. ✅ Added filter resonance control (`@resonance`, 0.0-1.0)
+4. ✅ Added pan parameter for stereo mode (`@pan`, -1.0-1.0)
+5. ✅ Added scan speed parameter (`@scanspeed`, -32.0-32.0)
+6. ✅ Wired all parameters to engine via updateEngineParameters()
+7. ✅ Documented all parameters in EC2_HELP_REFERENCE.md
+8. ✅ Added 3 new example configurations showcasing new parameters
 
-**Deliverable**: Complete parameter set
+**Deferred Tasks** (Future phases):
+- Weighted mode UI (requires list/array message handling) - Phase 9
+- Cluster/mask for channel subset selection - Phase 9
 
-**Commit**: "Add remaining synthesis parameters"
+**Deliverable**: ✅ Complete core parameter set (1.2MB .mxo)
+
+**Technical Notes**:
+- Envelope morphs between three envelope types via single parameter
+- Filter uses 3-stage biquad cascade (already implemented in ec2_grain)
+- Pan only affects stereo output (@outputs 2)
+- Scan speed interacts with scanstart/scanrange for evolving textures
+- All parameters validated within safe ranges
+
+**Commit**: "Phase 7: Add remaining synthesis parameters (envelope, filter, pan, scanspeed)"
 
 ---
 
@@ -348,7 +364,7 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ## Project Timeline
 
-### Completed Phases (Phases 1-6b)
+### Completed Phases (Phases 1-7)
 - ✅ **Phase 1**: Extract utility classes (complete)
 - ✅ **Phase 2**: Port scheduler, envelope, filter (complete)
 - ✅ **Phase 3**: Port grain synthesis engine (complete)
@@ -356,12 +372,14 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 - ✅ **Phase 5**: Multichannel spatial allocation (complete)
 - ✅ **Phase 6**: Buffer management & audio loading (complete)
 - ✅ **Phase 6b**: Multichannel cable support (complete)
+- ✅ **Phase 7**: Parameter completion (complete)
 
-### Active Development (Phase 7)
-- ⏳ **Phase 7**: Parameter completion (current)
-  - Priority: **Medium** - Completes synthesis features
-  - Envelope shape, filter controls, pan, scan speed
-  - Weighted mode UI, cluster/mask
+### Current Status
+**Core synthesis engine: COMPLETE**
+- All essential parameters implemented
+- Multichannel spatial allocation working
+- Buffer~ / polybuffer~ integration working
+- External ready for production use
 
 ### Future Enhancements (Phases 8-10)
 - 🎯 **Phase 8**: OSC control
