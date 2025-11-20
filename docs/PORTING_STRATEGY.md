@@ -196,29 +196,80 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 5: Multichannel Architecture ⏳ NEXT
-**Goal**: Implement 16-channel output with grain routing and buffer~ integration
+### Phase 5: Multichannel Architecture ✅ COMPLETED
+**Goal**: Implement sophisticated multichannel grain distribution based on Roads's "Microsound"
 
-**Tasks**:
-1. Implement buffer~ / polybuffer~ reference API
-   - Use Max SDK `buffer_ref_*` API to read audio buffers
-   - Connect to engine's `setAudioBuffer()` method
-   - Handle buffer~ updates and notifications
-2. Extend audio output to N channels
-3. Implement grain-to-channel allocation strategies:
-   - **Mode 0**: Mono (all grains → all channels equally)
-   - **Mode 1**: Stereo (grains → L/R pan)
-   - **Mode 2**: Multichannel distribution (round-robin, spatial, etc.)
-4. Add `@spatialmode` attribute
-5. Test with `mc.ec2~` wrapper
+**Completed Tasks**:
+1. ✅ Implemented comprehensive spatial allocation system
+   - Created `ec2_spatial_allocator.h/cpp`
+   - 7 allocation modes: fixed, roundrobin, random, weighted, loadbalance, pitchmap, trajectory
+   - Grain metadata system (emission time, pitch, spectral features)
+   - State management for each mode
+2. ✅ Extended grain/voice pool for multichannel output
+   - Added `processMultichannel()` method to Grain class
+   - Multichannel panning gains per grain
+   - VoicePool routes to N channels
+3. ✅ Integrated allocator into engine
+   - Spatial allocator called per grain emission
+   - Parameters mapped from SynthParameters.spatial
+   - Grain emission time tracking
+4. ✅ Added 11 control parameters to ec2_tilde wrapper
+   - Mode selection, per-mode parameters
+   - All modes controllable via Max attributes
+5. ✅ Created comprehensive help documentation
+   - EC2_HELP_REFERENCE.md as maxhelp skeleton
+   - Detailed mode explanations with theory
+   - Usage examples and configurations
 
-**Deliverable**: Multichannel grain synthesis with buffer~ integration
+**Deliverable**: ✅ Multichannel grain synthesis (1.0MB .mxo)
 
-**Commit**: "Add multichannel output support with grain routing"
+**Technical Implementation**:
+- Constant-power panning between adjacent channels
+- PanningVector with 16-channel gain arrays
+- Trajectory evaluation with multiple waveforms
+- Pitchmap with logarithmic frequency scaling
+- Load-balance with tie-breaking strategies
+- Spatial correlation for random mode
+
+**Commit**: "Phase 5: Implement multichannel spatial allocation system"
 
 ---
 
-### Phase 6: OSC Control
+### Phase 6: Buffer Management & Audio Loading ⏳ NEXT
+**Goal**: Implement buffer~ / polybuffer~ reference API for audio file management
+
+**Tasks**:
+1. Create `ec2_buffer.h/cpp`
+2. Use Max SDK `buffer_ref_*` API to read audio buffers
+3. Connect to engine's `setAudioBuffer()` method
+4. Handle buffer~ updates and notifications
+5. Implement `read` message properly
+6. Support multiple buffer selection via `soundFile` parameter
+
+**Deliverable**: Full buffer~ / polybuffer~ integration
+
+**Commit**: "Implement buffer~ reference and audio loading"
+
+---
+
+### Phase 7: Parameter Completion
+**Goal**: Add remaining EC2 parameters
+
+**Tasks**:
+1. Add envelope shape parameter
+2. Add filter frequency and resonance controls
+3. Add pan parameter for legacy stereo mode
+4. Add scan speed parameter
+5. Implement weighted mode UI (weight arrays via messages)
+6. Implement cluster/mask for channel subset selection
+
+**Deliverable**: Complete parameter set
+
+**Commit**: "Add remaining synthesis parameters"
+
+---
+
+### Phase 8: OSC Control
 **Goal**: Add native OSC parameter control
 
 **Tasks**:

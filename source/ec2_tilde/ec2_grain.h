@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <cmath>
+#include <array>
 #include "ec2_constants.h"
 #include "ec2_utility.h"
 #include "ec2_envelope.h"
@@ -18,7 +19,6 @@ namespace ec2 {
 
 /**
  * Simplified grain parameters structure
- * (Full parameter system with modulation will be added in Phase 4)
  */
 struct GrainParameters {
   std::shared_ptr<AudioBuffer<float>> sourceBuffer;  // Audio buffer to read from
@@ -26,11 +26,15 @@ struct GrainParameters {
   float transposition;                               // Playback rate
   float durationMs;                                  // Grain duration in milliseconds
   float envelope;                                    // Envelope shape (0-1)
-  float pan;                                         // Pan position (-1 to 1)
+  float pan;                                         // Pan position (-1 to 1) [legacy stereo]
   float amplitudeDb;                                 // Amplitude in dB
   float filterFreq;                                  // Filter center frequency
   float resonance;                                   // Filter resonance (0-1)
   int* activeVoiceCount;                             // Pointer to active voice counter
+
+  // Multichannel spatial allocation (Phase 5)
+  std::array<float, MAX_AUDIO_OUTS> channelGains;   // Per-channel gains from spatial allocator
+  bool useMultichannelGains = false;                 // true = use channelGains, false = use pan
 };
 
 /**
@@ -47,12 +51,20 @@ public:
   void configure(const GrainParameters& params, float sampleRate);
 
   /**
-   * Process one frame of audio
+   * Process one frame of audio (stereo legacy mode)
    * @param outLeft  - Output for left channel
    * @param outRight - Output for right channel
    * @return true if grain is still active, false if done
    */
   bool process(float& outLeft, float& outRight);
+
+  /**
+   * Process one frame of audio (multichannel mode)
+   * @param outputs - Array of output channel pointers
+   * @param numChannels - Number of output channels
+   * @return true if grain is still active, false if done
+   */
+  bool processMultichannel(float** outputs, int numChannels);
 
   /**
    * Check if grain has finished
@@ -99,6 +111,10 @@ private:
   float mLeftGain = 0.707f;
   float mRightGain = 0.707f;
   static constexpr float PAN_CONST = 0.707106781f;  // sqrt(2)/2
+
+  // Multichannel gains (Phase 5)
+  std::array<float, MAX_AUDIO_OUTS> mChannelGains;
+  bool mUseMultichannelGains = false;
 
   // Active voice tracking
   int* mActiveVoiceCount = nullptr;

@@ -62,23 +62,19 @@ void VoicePool::processActiveVoices(float** outBuffers, int numChannels, int num
     Grain* grain = mActiveVoices[i];
 
     for (int frame = 0; frame < numFrames; ++frame) {
-      float left = 0.0f, right = 0.0f;
+      // Prepare per-frame output pointers
+      float* frameOutputs[MAX_AUDIO_OUTS];
+      for (int ch = 0; ch < numChannels; ++ch) {
+        frameOutputs[ch] = &outBuffers[ch][frame];
+      }
 
-      bool isActive = grain->process(left, right);
+      // Process grain (multichannel or stereo)
+      bool isActive = grain->processMultichannel(frameOutputs, numChannels);
 
       if (!isActive) {
         // Grain finished - release it
         releaseVoice(grain);
         break;  // Don't process more frames for this grain
-      }
-
-      // Mix to output buffers
-      // For now, just stereo output (Phase 5 will handle multichannel)
-      if (numChannels >= 1) {
-        outBuffers[0][frame] += left;
-      }
-      if (numChannels >= 2) {
-        outBuffers[1][frame] += right;
       }
     }
   }

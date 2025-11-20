@@ -45,8 +45,20 @@ void Grain::configure(const GrainParameters& params, float sampleRate) {
   int voiceCount = (mActiveVoiceCount != nullptr) ? *mActiveVoiceCount : 1;
   configureAmplitude(params.amplitudeDb, voiceCount);
 
-  // Configure panning
-  configurePan(params.pan, mAmp);
+  // Configure panning (stereo or multichannel)
+  if (params.useMultichannelGains) {
+    // Use multichannel gains from spatial allocator
+    mUseMultichannelGains = true;
+    mChannelGains = params.channelGains;
+    // Apply amplitude to all gains
+    for (float& gain : mChannelGains) {
+      gain *= mAmp;
+    }
+  } else {
+    // Use legacy stereo panning
+    mUseMultichannelGains = false;
+    configurePan(params.pan, mAmp);
+  }
 
   // Configure filter
   int sourceChannels = (mSource != nullptr) ? mSource->channels : 1;
@@ -139,10 +151,106 @@ bool Grain::process(float& outLeft, float& outRight) {
   return true;  // Grain still active
 }
 
+bool Grain::processMultichannel(float** outputs, int numChannels) {
+  // Check if envelope is done
+  if (mEnvelope.isDone()) {
+    if (mActiveVoiceCount != nullptr) {
+      (*mActiveVoiceCount)--;
+    }
+    return false;  // Grain finished
+  }
+
+  // Safety check
+  if (mSource == nullptr || mSource->size == 0) {
+    return true;
+  }
+
+  // Get envelope value
+  float envVal = mEnvelope();
+
+  // Get playback index
+  float sourceIndex = mPlaybackIndex();
+  int iSourceIndex = static_cast<int>(sourceIndex);
+
+  // Wrap index if out of bounds
+  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels || iSourceIndex < 0) {
+    sourceIndex = std::fmod(sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+    iSourceIndex = static_cast<int>(sourceIndex);
+    if (iSourceIndex < 0) {
+      sourceIndex += (mSource->frames - mSource->channels);
+      iSourceIndex += (mSource->frames - mSource->channels);
+    }
+  }
+
+  mSourceIndex = sourceIndex;
+
+  // Process based on source channel count
+  float currentSampleL = 0.0f;
+  float currentSampleR = 0.0f;
+
+  if (mSource->channels == 1) {
+    // Mono source - linear interpolation
+    mBefore = mSource->data[iSourceIndex];
+    mAfter = mSource->data[iSourceIndex + 1];
+    mDecimal = sourceIndex - iSourceIndex;
+    currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+    // Apply filter
+    if (!mBypassFilter) {
+      currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+    }
+
+    // Apply envelope
+    currentSampleL *= envVal;
+
+    // Distribute to channels using multichannel gains
+    int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+    for (int ch = 0; ch < maxCh; ++ch) {
+      outputs[ch][0] += currentSampleL * mChannelGains[ch];
+    }
+
+  } else if (mSource->channels == 2) {
+    // Stereo source - process left channel
+    mBefore = mSource->data[iSourceIndex * 2];
+    mAfter = mSource->data[iSourceIndex * 2 + 2];
+    mDecimal = sourceIndex - iSourceIndex;
+    currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+    if (!mBypassFilter) {
+      currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+    }
+
+    currentSampleL *= envVal;
+
+    // Process right channel
+    mBefore = mSource->get(iSourceIndex * 2 + 1);
+    mAfter = mSource->get(iSourceIndex * 2 + 3);
+    mDecimal = (sourceIndex + 1.0f) - (iSourceIndex + 1);
+    currentSampleR = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+    if (!mBypassFilter) {
+      currentSampleR = filterSample(currentSampleR, mCascadeFilterMix, true);
+    }
+
+    currentSampleR *= envVal;
+
+    // For stereo source, mix L+R and distribute to channels
+    float monoMix = (currentSampleL + currentSampleR) * 0.5f;
+    int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+    for (int ch = 0; ch < maxCh; ++ch) {
+      outputs[ch][0] += monoMix * mChannelGains[ch];
+    }
+  }
+
+  return true;  // Grain still active
+}
+
 void Grain::reset() {
   mEnvelope.reset();
   mSource = nullptr;
   mSourceIndex = 0.0f;
+  mUseMultichannelGains = false;
+  mChannelGains.fill(0.0f);
 }
 
 //=============================================================================

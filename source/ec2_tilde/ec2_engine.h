@@ -14,6 +14,7 @@
 #include "ec2_voice_pool.h"
 #include "ec2_grain.h"
 #include "ec2_utility.h"
+#include "ec2_spatial_allocator.h"
 
 namespace ec2 {
 
@@ -34,7 +35,7 @@ struct SynthParameters {
   float envelope = 0.5f;         // 0-1
 
   // Spatial
-  float pan = 0.0f;              // -1 to 1
+  float pan = 0.0f;              // -1 to 1 [legacy stereo]
   float amplitude = -6.0f;       // dB
 
   // Filtering
@@ -48,6 +49,9 @@ struct SynthParameters {
 
   // Sound file selection
   int soundFile = 0;             // Buffer index
+
+  // Multichannel spatial allocation (Phase 5)
+  SpatialParameters spatial;     // Spatial allocator parameters
 };
 
 /**
@@ -116,6 +120,7 @@ public:
 private:
   VoicePool mVoicePool;
   GrainScheduler mScheduler;
+  SpatialAllocator mSpatialAllocator;  // Phase 5: Multichannel allocation
   SynthParameters mParams;
 
   std::vector<std::shared_ptr<AudioBuffer<float>>> mAudioBuffers;
@@ -125,6 +130,7 @@ private:
   Line<double> mScanner;  // For scan position control (Phase 5)
 
   int mActiveVoiceCount = 0;
+  float mGrainEmissionTime = 0.0f;  // Track time for spatial allocator
 };
 
 }  // namespace ec2

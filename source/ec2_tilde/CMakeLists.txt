@@ -23,6 +23,7 @@ set(SOURCE_FILES
 	ec2_grain.cpp
 	ec2_voice_pool.cpp
 	ec2_engine.cpp
+	ec2_spatial_allocator.cpp
 )
 
 add_library(

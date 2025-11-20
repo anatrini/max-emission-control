@@ -54,6 +54,9 @@ void GranularEngine::updateParameters(const SynthParameters& params) {
   // Update scheduler
   mScheduler.configure(params.grainRate, params.async, params.intermittency);
   mScheduler.setPolyStream(SYNCHRONOUS, params.streams);
+
+  // Update spatial allocator (Phase 5)
+  mSpatialAllocator.updateParameters(params.spatial);
 }
 
 void GranularEngine::process(float** outBuffers, int numChannels, int numFrames) {
@@ -74,6 +77,17 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
       Grain* grain = mVoicePool.getFreeVoice();
 
       if (grain) {
+        // Create grain metadata for spatial allocator
+        GrainMetadata metadata;
+        metadata.emissionTime = mGrainEmissionTime;
+        metadata.pitch = mParams.playbackRate * 440.0f;  // Approximate pitch from playback rate
+        metadata.spectralCentroid = mParams.filterFreq;
+        metadata.streamId = 0;  // TODO: Implement stream routing
+        metadata.grainIndex = mActiveVoiceCount;
+
+        // Get spatial allocation (multichannel panning gains)
+        PanningVector panning = mSpatialAllocator.allocate(metadata);
+
         // Configure grain parameters
         GrainParameters grainParams;
         grainParams.sourceBuffer = currentBuffer;
@@ -81,11 +95,16 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
         grainParams.transposition = mParams.playbackRate;
         grainParams.durationMs = mParams.grainDuration;
         grainParams.envelope = mParams.envelope;
-        grainParams.pan = mParams.pan;
+        grainParams.pan = mParams.pan;  // Legacy stereo pan (fallback)
         grainParams.amplitudeDb = mParams.amplitude;
         grainParams.filterFreq = mParams.filterFreq;
         grainParams.resonance = mParams.resonance;
         grainParams.activeVoiceCount = &mActiveVoiceCount;
+
+        // Apply spatial allocation
+        grainParams.useMultichannelGains = (mParams.spatial.mode != AllocationMode::FIXED ||
+                                            mParams.spatial.numChannels > 2);
+        grainParams.channelGains = panning.gains;
 
         grain->configure(grainParams, mSampleRate);
         mActiveVoiceCount++;
@@ -95,6 +114,9 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
         // std::cout << "ec2~: out of voices!" << std::endl;
       }
     }
+
+    // Advance grain emission time
+    mGrainEmissionTime += 1.0f / mSampleRate;
 
     // Process all active grains for this frame
     for (int i = static_cast<int>(mVoicePool.getActiveVoiceCount()) - 1; i >= 0; --i) {

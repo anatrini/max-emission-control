@@ -94,10 +94,71 @@ public:
         range {0.0, 1.0}
     };
 
-    attribute<number> spatial_mode {
-        this, "spatialmode", 0,
-        description {"Spatial distribution mode (0=mono, 1=stereo, 2=multichannel)"},
-        range {0, 2}
+    // SPATIAL ALLOCATION PARAMETERS (Phase 5)
+
+    attribute<int> alloc_mode {
+        this, "allocmode", 1,  // Default: roundrobin
+        description {"Spatial allocation mode (0=fixed, 1=roundrobin, 2=random, 3=weighted, 4=loadbalance, 5=pitchmap, 6=trajectory)"},
+        range {0, 6}
+    };
+
+    // Fixed mode
+    attribute<int> fixed_channel {
+        this, "fixedchan", 0,
+        description {"Target channel for fixed mode (0-15)"},
+        range {0, 15}
+    };
+
+    // Round-robin mode
+    attribute<int> rr_step {
+        this, "rrstep", 1,
+        description {"Round-robin step size"},
+        range {1, 16}
+    };
+
+    // Random mode
+    attribute<number> random_spread {
+        this, "randspread", 0.0,
+        description {"Random mode panning spread (0.0-1.0)"},
+        range {0.0, 1.0}
+    };
+
+    attribute<number> spatial_corr {
+        this, "spatialcorr", 0.0,
+        description {"Spatial correlation between grains (0.0-1.0)"},
+        range {0.0, 1.0}
+    };
+
+    // Pitchmap mode
+    attribute<number> pitch_min {
+        this, "pitchmin", 20.0,
+        description {"Minimum pitch for pitchmap mode (Hz)"},
+        range {20.0, 20000.0}
+    };
+
+    attribute<number> pitch_max {
+        this, "pitchmax", 20000.0,
+        description {"Maximum pitch for pitchmap mode (Hz)"},
+        range {20.0, 20000.0}
+    };
+
+    // Trajectory mode
+    attribute<int> traj_shape {
+        this, "trajshape", 0,
+        description {"Trajectory shape (0=sine, 1=saw, 2=triangle, 3=randomwalk)"},
+        range {0, 3}
+    };
+
+    attribute<number> traj_rate {
+        this, "trajrate", 0.5,
+        description {"Trajectory rate in Hz"},
+        range {0.001, 100.0}
+    };
+
+    attribute<number> traj_depth {
+        this, "trajdepth", 1.0,
+        description {"Trajectory depth - proportion of channels used (0.0-1.0)"},
+        range {0.0, 1.0}
     };
 
     // MESSAGES
@@ -178,20 +239,51 @@ private:
     // Helper: update engine parameters from attributes
     void updateEngineParameters() {
         ec2::SynthParameters params;
+
+        // Grain scheduling
         params.grainRate = grain_rate;
         params.async = async;
         params.intermittency = intermittency;
         params.streams = streams;
+
+        // Grain characteristics
         params.playbackRate = playback_rate;
         params.grainDuration = grain_duration;
-        params.envelope = scan_start;  // Note: using scan_start temporarily for envelope
-        params.pan = 0.0f;  // TODO: add pan attribute
+        params.envelope = 0.5f;  // TODO: add envelope attribute
+        params.pan = 0.0f;  // Legacy stereo pan
         params.amplitude = amplitude;
+
+        // Filtering
         params.filterFreq = 1000.0f;  // TODO: add filter attributes
         params.resonance = 0.0f;
+
+        // Scanning
         params.scanBegin = scan_start;
         params.scanRange = scan_range;
         params.soundFile = 0;  // TODO: implement buffer selection
+
+        // Spatial allocation (Phase 5)
+        params.spatial.mode = static_cast<ec2::AllocationMode>(alloc_mode.get());
+        params.spatial.numChannels = m_num_channels;
+
+        // Fixed mode
+        params.spatial.fixedChannel = fixed_channel;
+
+        // Round-robin mode
+        params.spatial.roundRobinStep = rr_step;
+
+        // Random mode
+        params.spatial.spread = random_spread;
+        params.spatial.spatialCorr = spatial_corr;
+
+        // Pitchmap mode
+        params.spatial.pitchMin = pitch_min;
+        params.spatial.pitchMax = pitch_max;
+
+        // Trajectory mode
+        params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(traj_shape.get());
+        params.spatial.trajRate = traj_rate;
+        params.spatial.trajDepth = traj_depth;
 
         m_engine->updateParameters(params);
     }
