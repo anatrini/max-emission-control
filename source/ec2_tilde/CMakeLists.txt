@@ -18,6 +18,8 @@ include_directories(
 set(SOURCE_FILES
 	${PROJECT_NAME}.cpp
 	ec2_utility.cpp
+	ec2_scheduler.cpp
+	ec2_envelope.cpp
 )
 
 add_library(
