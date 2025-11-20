@@ -17,6 +17,7 @@ include_directories(
 
 set(SOURCE_FILES
 	${PROJECT_NAME}.cpp
+	ec2_utility.cpp
 )
 
 add_library(

@@ -4,6 +4,8 @@
 /// @license GPL-3.0
 
 #include "c74_min.h"
+#include "ec2_constants.h"
+#include "ec2_utility.h"
 
 using namespace c74::min;
 
@@ -99,7 +101,7 @@ public:
     message<> dspsetup {
         this, "dspsetup",
         MIN_FUNCTION {
-            cout << "ec2~ dspsetup: " << samplerate() << " Hz, vector size: " << vectorsize() << endl;
+            cout << "ec2~ dspsetup: " << samplerate() << " Hz" << endl;
 
             // TODO: Initialize EC2 audio engine here
             // - Set up grain scheduler

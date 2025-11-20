@@ -285,14 +285,18 @@ source/ec2_tilde/
 3. Get it compiling standalone
 4. Commit
 
-## Questions to Answer Before Proceeding
+## Decisions Made
 
-1. **Audio File Loading**: Bundle libsndfile or use Max buffer~ API?
-   - **Recommendation**: Start with libsndfile (easier), migrate to buffer~ later
-2. **Gamma DSP**: Bundle entire library or extract filter code only?
-   - **Recommendation**: Bundle Gamma headers (it's mostly header-only)
-3. **LFO System**: Port EC2's LFO system or leave for later?
-   - **Recommendation**: Phase 7 (optional), focus on core first
+1. **Audio File Loading**: ✅ **Use Max buffer~ / polybuffer~ API**
+   - `polybuffer~` is perfect for EC2's multi-file architecture
+   - Max-idiomatic: integrates with buffer~ ecosystem
+   - No memory duplication, users can use waveform~ editor
+   - Implementation: `ec2~ mypolybuffer` references polybuffer~ by name
+
+2. **Gamma DSP**: ✅ **Bundle Gamma headers** (mostly header-only)
+   - Extract just the Biquad filter code we need
+
+3. **LFO System**: ✅ **Phase 7** (optional), focus on core first
 
 ---
 
