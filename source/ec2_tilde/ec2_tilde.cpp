@@ -73,15 +73,16 @@ public:
 
     // Constructor
     ec2_tilde(const atoms& args = {}) {
-        // Parse arguments: ec2~ [num_channels]
+        // Parse arguments for backward compatibility: ec2~ [num_outputs]
         if (!args.empty()) {
-            int requested_channels = args[0];
-            if (requested_channels > 0 && requested_channels <= 16) {
-                m_num_channels = requested_channels;
+            int requested_outputs = args[0];
+            if (requested_outputs > 0 && requested_outputs <= 16) {
+                m_outputs = requested_outputs;
             }
         }
 
-        cout << "ec2~ initialized with " << m_num_channels << " output channels" << endl;
+        cout << "ec2~ initialized with " << m_outputs << " output"
+             << (m_outputs > 1 ? "s" : "") << endl;
 
         // Initialize synthesis engine
         m_engine = std::make_unique<ec2::GranularEngine>(2048);  // Max 2048 grains
@@ -89,10 +90,34 @@ public:
 
     // Multichannel configuration
     size_t mc_get_output_channel_count() const {
-        return m_num_channels;
+        return getOutputChannelCount();
     }
 
     // ATTRIBUTES (EC2 Parameters)
+
+    // MULTICHANNEL OUTPUT (Phase 6b)
+
+    attribute<int> mc {
+        this, "mc", 0,
+        description {"Output mode: 0=separated outputs (each requires its own cord), 1=multichannel cable (single blue/black cord)"},
+        range {0, 1},
+        setter { MIN_FUNCTION {
+            m_mc_mode = static_cast<int>(args[0]);
+            cout << "ec2~: output mode set to " << (m_mc_mode ? "multichannel cable" : "separated outputs") << endl;
+            return args;
+        }}
+    };
+
+    attribute<int> outputs {
+        this, "outputs", 2,
+        description {"Number of output channels (1-16, default 2)"},
+        range {1, 16},
+        setter { MIN_FUNCTION {
+            m_outputs = static_cast<int>(args[0]);
+            cout << "ec2~: output count set to " << m_outputs << endl;
+            return args;
+        }}
+    };
 
     attribute<number> grain_rate {
         this, "grainrate", 20.0,
@@ -355,8 +380,16 @@ public:
     }
 
 private:
-    int m_num_channels {2};  // Default to stereo
+    int m_mc_mode {0};      // Output mode: 0=separated outputs, 1=multichannel cable
+    int m_outputs {2};      // Number of output channels (1-16)
     std::unique_ptr<ec2::GranularEngine> m_engine;
+
+    // Helper: get effective output channel count
+    size_t getOutputChannelCount() const {
+        // @outputs controls the number of channels
+        // @mc only controls whether they're delivered as separated outputs or bundled in a multichannel cable
+        return m_outputs;
+    }
 
     // Helper: update engine parameters from attributes
     void updateEngineParameters() {
@@ -386,7 +419,7 @@ private:
 
         // Spatial allocation (Phase 5)
         params.spatial.mode = static_cast<ec2::AllocationMode>(alloc_mode.get());
-        params.spatial.numChannels = m_num_channels;
+        params.spatial.numChannels = static_cast<int>(getOutputChannelCount());
 
         // Fixed mode
         params.spatial.fixedChannel = fixed_channel;

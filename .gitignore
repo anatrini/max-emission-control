@@ -12,3 +12,6 @@ my-min-devkit/
 # Local progress tracking (not for git)
 docs/PROGRESS.md
 docs/multichannel_out_alloc
+
+# IDE
+.vscode/

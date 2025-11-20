@@ -12,7 +12,48 @@
 ```
 
 Arguments:
-- **num_channels** (int, optional): Number of output channels (1-16, default: 2)
+- **num_outputs** (int, optional): Number of output channels (1-16, default: 2)
+
+## Multichannel Output Configuration
+
+ec2~ supports flexible multichannel output routing with two independent controls:
+
+### @outputs (int, 1-16, default: 2)
+Sets the number of output channels. This controls HOW MANY outputs the external produces.
+
+```
+@outputs 2   // Stereo (default)
+@outputs 8   // 8 channels
+@outputs 16  // Maximum: 16 channels
+```
+
+### @mc (int, 0-1, default: 0)
+Controls the output delivery mode. This determines HOW the outputs are presented in Max.
+
+- **@mc 0** (default): **Separated outputs** - Each output channel requires its own Max cord/connection. This is the traditional Max behavior where you need to connect each output individually.
+
+- **@mc 1**: **Multichannel cable** - All outputs are bundled into a single blue/black multichannel cord. This is Max's MC (multichannel) cable system that carries multiple audio channels through a single connection.
+
+**Examples:**
+```
+// 8 separated outputs (requires 8 individual cords)
+@outputs 8
+@mc 0
+
+// 8 channels via single multichannel cable (1 blue/black cord)
+@outputs 8
+@mc 1
+
+// Stereo via multichannel cable
+@outputs 2
+@mc 1
+```
+
+**Important:** These two attributes are independent:
+- `@outputs` controls the NUMBER of channels
+- `@mc` controls the DELIVERY method (separated vs. bundled)
+
+You can have any number of outputs (1-16) delivered either as separated outputs (@mc 0) or as a multichannel cable (@mc 1).
 
 ## Grain Scheduling Parameters
 
@@ -289,6 +330,23 @@ trajdepth 1.0
 
 ---
 
+## Buffer Management
+
+### @buffer (symbol, default: "")
+Sets the buffer~ name to use as the audio source.
+
+```
+@buffer mybuffer   // Use buffer~ named "mybuffer"
+```
+
+### @soundfile (int, 0-15, default: 0)
+Selects which buffer to use when working with polybuffer~.
+
+```
+@soundfile 0   // Use first buffer in polybuffer~
+@soundfile 3   // Use fourth buffer in polybuffer~
+```
+
 ## Messages
 
 ### clear
@@ -298,12 +356,21 @@ Stops all currently active grains immediately.
 [clear(
 ```
 
-### read (not yet fully implemented)
-Load audio file into buffer.
+### read <buffer_name>
+Loads the specified buffer~ as the audio source.
 
 ```
-[read filename(
+[read mybuffer(   // Load buffer~ named "mybuffer"
 ```
+
+### polybuffer <basename> <count>
+Loads multiple buffers from a polybuffer~ collection.
+
+```
+[polybuffer mysounds 8(   // Load mysounds.0 through mysounds.7
+```
+
+The polybuffer message loads buffers named `<basename>.0`, `<basename>.1`, etc. Use the `@soundfile` attribute to select which buffer to play.
 
 ---
 
@@ -360,10 +427,19 @@ Sparse, rhythmic jumps through even-numbered channels.
 ec2~ automatically applies gain compensation based on active grain count using the 1/e law. This prevents volume increases when grains overlap densely.
 
 ### Multichannel Output
-Use Max's `mc.*` wrapper objects with ec2~:
+ec2~ has built-in multichannel support via the `@outputs` and `@mc` attributes. You do NOT need to use `mc.ec2~` wrapper.
+
+**Separated outputs (traditional Max):**
 ```
-[mc.ec2~ 8]   // 8-channel version
+[ec2~ @outputs 8 @mc 0]   // 8 separated outputs, connect each individually
 ```
+
+**Multichannel cable (single cord carries all channels):**
+```
+[ec2~ @outputs 8 @mc 1]   // 8 channels via single blue/black MC cable
+```
+
+See "Multichannel Output Configuration" section above for detailed explanation.
 
 ### Panning Laws
 - Stereo panning: Constant-power trigonometric law
@@ -400,7 +476,6 @@ All modes support:
 
 ## Future Enhancements (Not Yet Implemented)
 
-- Buffer~ / polybuffer~ integration for audio file management
 - Envelope shape control
 - Filter frequency and resonance parameters
 - LFO modulation system

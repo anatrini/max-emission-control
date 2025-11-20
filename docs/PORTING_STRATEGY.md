@@ -235,20 +235,52 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 6: Buffer Management & Audio Loading ⏳ NEXT
+### Phase 6: Buffer Management & Audio Loading ✅ COMPLETED
 **Goal**: Implement buffer~ / polybuffer~ reference API for audio file management
 
-**Tasks**:
-1. Create `ec2_buffer.h/cpp`
-2. Use Max SDK `buffer_ref_*` API to read audio buffers
-3. Connect to engine's `setAudioBuffer()` method
-4. Handle buffer~ updates and notifications
-5. Implement `read` message properly
-6. Support multiple buffer selection via `soundFile` parameter
+**Completed Tasks**:
+1. ✅ Implemented inline buffer loading (avoided duplicate symbol errors)
+2. ✅ Used Max SDK `buffer_ref_*` API to read audio buffers
+3. ✅ Connected to engine's `setAudioBuffer()` method
+4. ✅ Implemented `read` message for single buffer~ loading
+5. ✅ Implemented `polybuffer` message for multi-buffer loading
+6. ✅ Added `@buffer` attribute for buffer~ name
+7. ✅ Added `@soundfile` attribute (0-15) for buffer selection
 
-**Deliverable**: Full buffer~ / polybuffer~ integration
+**Deliverable**: ✅ Full buffer~ / polybuffer~ integration (1.2MB .mxo)
 
-**Commit**: "Implement buffer~ reference and audio loading"
+**Technical Notes**:
+- Buffer management implemented inline in `ec2_tilde.cpp` to avoid duplicate symbols
+- Uses `buffer_ref_new`, `buffer_locksamples`, `buffer_unlocksamples` API
+- Copies buffer data into EC2 AudioBuffer format (interleaved float)
+- Supports both single buffer~ and polybuffer~ workflows
+
+**Commit**: "Phase 6: Implement buffer~ reference and audio loading"
+
+---
+
+### Phase 6b: Multichannel Cable Support ✅ COMPLETED
+**Goal**: Add built-in multichannel cable output mode via @mc attribute
+
+**Completed Tasks**:
+1. ✅ Implemented `@mc` attribute (0=separated outputs, 1=multichannel cable)
+2. ✅ Implemented `@outputs` attribute (1-16 channels, default 2)
+3. ✅ Updated constructor to parse num_outputs argument
+4. ✅ Fixed `mc_get_output_channel_count()` to return `@outputs` value
+5. ✅ Documented multichannel configuration in EC2_HELP_REFERENCE.md
+6. ✅ Updated help reference with detailed examples
+
+**Deliverable**: ✅ Native multichannel cable support (1.2MB .mxo)
+
+**Technical Implementation**:
+- `@outputs` controls NUMBER of output channels (1-16)
+- `@mc` controls DELIVERY mode:
+  - @mc 0: Separated outputs (each channel needs its own Max cord)
+  - @mc 1: Multichannel cable (single blue/black cord carries all channels)
+- Both attributes are independent
+- No need for `mc.ec2~` wrapper - functionality is built-in via `mc_operator<>`
+
+**Commit**: "Phase 6b: Add multichannel cable output support via @mc attribute"
 
 ---
 
@@ -316,19 +348,17 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ## Project Timeline
 
-### Completed Phases (Phases 1-5)
+### Completed Phases (Phases 1-6b)
 - ✅ **Phase 1**: Extract utility classes (complete)
 - ✅ **Phase 2**: Port scheduler, envelope, filter (complete)
 - ✅ **Phase 3**: Port grain synthesis engine (complete)
 - ✅ **Phase 4**: Integrate with min-devkit (complete)
 - ✅ **Phase 5**: Multichannel spatial allocation (complete)
+- ✅ **Phase 6**: Buffer management & audio loading (complete)
+- ✅ **Phase 6b**: Multichannel cable support (complete)
 
-### Active Development (Phases 6-7)
-- ⏳ **Phase 6**: Buffer management & audio loading (current)
-  - Priority: **High** - Required for audio playback
-  - Core functionality needed for external to produce sound
-
-- 📋 **Phase 7**: Parameter completion (next)
+### Active Development (Phase 7)
+- ⏳ **Phase 7**: Parameter completion (current)
   - Priority: **Medium** - Completes synthesis features
   - Envelope shape, filter controls, pan, scan speed
   - Weighted mode UI, cluster/mask
