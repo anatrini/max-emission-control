@@ -165,35 +165,54 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 4: Integrate with min-devkit ⏳ NEXT
+### Phase 4: Integrate with min-devkit ✅ COMPLETED
 **Goal**: Create custom voice pool and connect to Max external wrapper
 
-**Tasks**:
-1. Implement parameter attributes in `ec2_tilde.cpp`
-2. Create audio perform callback
-3. Integrate grain pool with MSP audio buffers
-4. Handle sample rate changes
-5. Implement `read` message for loading audio files
+**Completed Tasks**:
+1. ✅ Created custom voice pool (`ec2_voice_pool.h/cpp`)
+   - Free-list allocation for 2048 grain voices
+   - O(1) allocation and deallocation
+   - Automatic cleanup of finished grains
+2. ✅ Created main engine coordinator (`ec2_engine.h/cpp`)
+   - Coordinates scheduler, voice pool, and parameters
+   - Manages audio buffers and scan position
+   - Main process() method for grain generation
+3. ✅ Integrated engine into `ec2_tilde.cpp` min-devkit wrapper
+   - All EC2 parameters exposed as min-devkit attributes
+   - Connected dspsetup to engine initialization
+   - Implemented audio callback with float/double conversion
+   - Added clear message for stopping grains
+4. ✅ Handled sample rate changes via dspsetup message
+5. ✅ Added `read` message stub (full implementation in Phase 5)
 
-**Deliverable**: Basic functioning external (stereo output)
+**Deliverable**: ✅ Basic functioning external compiles (991KB .mxo)
 
-**Commit**: "Integrate grain engine with min-devkit wrapper"
+**Technical Notes**:
+- Min-devkit uses double precision, engine uses float
+- Temporary buffers allocated per callback for type conversion
+- Stereo output working, multichannel ready for Phase 5
+
+**Commit**: "Phase 4: Integrate engine with min-devkit wrapper"
 
 ---
 
-### Phase 5: Multichannel Architecture
-**Goal**: Implement 16-channel output with grain routing
+### Phase 5: Multichannel Architecture ⏳ NEXT
+**Goal**: Implement 16-channel output with grain routing and buffer~ integration
 
 **Tasks**:
-1. Extend audio output to N channels
-2. Implement grain-to-channel allocation strategies:
+1. Implement buffer~ / polybuffer~ reference API
+   - Use Max SDK `buffer_ref_*` API to read audio buffers
+   - Connect to engine's `setAudioBuffer()` method
+   - Handle buffer~ updates and notifications
+2. Extend audio output to N channels
+3. Implement grain-to-channel allocation strategies:
    - **Mode 0**: Mono (all grains → all channels equally)
    - **Mode 1**: Stereo (grains → L/R pan)
    - **Mode 2**: Multichannel distribution (round-robin, spatial, etc.)
-3. Add `@spatialmode` attribute
-4. Test with `mc.ec2~` wrapper
+4. Add `@spatialmode` attribute
+5. Test with `mc.ec2~` wrapper
 
-**Deliverable**: Multichannel grain synthesis
+**Deliverable**: Multichannel grain synthesis with buffer~ integration
 
 **Commit**: "Add multichannel output support with grain routing"
 

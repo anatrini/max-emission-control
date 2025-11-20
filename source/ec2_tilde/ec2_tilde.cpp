@@ -6,6 +6,7 @@
 #include "c74_min.h"
 #include "ec2_constants.h"
 #include "ec2_utility.h"
+#include "ec2_engine.h"
 
 using namespace c74::min;
 
@@ -27,6 +28,9 @@ public:
         }
 
         cout << "ec2~ initialized with " << m_num_channels << " output channels" << endl;
+
+        // Initialize synthesis engine
+        m_engine = std::make_unique<ec2::GranularEngine>(2048);  // Max 2048 grains
     }
 
     // Multichannel configuration
@@ -103,10 +107,11 @@ public:
         MIN_FUNCTION {
             cout << "ec2~ dspsetup: " << samplerate() << " Hz" << endl;
 
-            // TODO: Initialize EC2 audio engine here
-            // - Set up grain scheduler
-            // - Initialize audio buffers
-            // - Configure sample rate
+            // Initialize engine with sample rate
+            m_engine->setSampleRate(static_cast<float>(samplerate()));
+
+            // Update engine parameters from attributes
+            updateEngineParameters();
 
             return {};
         }
@@ -116,7 +121,7 @@ public:
         this, "clear",
         MIN_FUNCTION {
             cout << "ec2~ clear: stopping all grains" << endl;
-            // TODO: Stop all active grains
+            m_engine->stopAllGrains();
             return {};
         }
     };
@@ -125,11 +130,11 @@ public:
         this, "read",
         MIN_FUNCTION {
             symbol filename = args[0];
-            cout << "ec2~ loading sound file: " << filename << endl;
+            cout << "ec2~ read message: " << filename << endl;
+            cout << "  (Note: Use Max buffer~ objects for audio - polybuffer~ support coming in Phase 5)" << endl;
 
-            // TODO: Load audio file into buffer
-            // - Support multiple simultaneous sound files
-            // - Use libsndfile or Max's buffer~ infrastructure
+            // TODO Phase 5: Implement buffer~ / polybuffer~ reference
+            // For now, users should use buffer~ and we'll read from it
 
             return {};
         }
@@ -137,45 +142,59 @@ public:
 
     // Audio processing
     void operator()(audio_bundle input, audio_bundle output) {
-        // Get number of output channels
+        // Update engine parameters from attributes (in case they changed)
+        updateEngineParameters();
+
+        // Get output configuration
         auto out_channels = output.channel_count();
         auto frame_count = output.frame_count();
 
-        // TODO: Replace this with actual EC2 grain synthesis
-        // For now, output silence
-        for (auto channel = 0; channel < out_channels; ++channel) {
-            auto out = output.samples(channel);
-            for (auto i = 0; i < frame_count; ++i) {
-                out[i] = 0.0;
-            }
+        // Allocate temporary float buffers (engine uses float, min-devkit uses double)
+        std::vector<std::vector<float>> tempBuffers(out_channels);
+        std::vector<float*> outBuffers(out_channels);
+
+        for (size_t ch = 0; ch < out_channels; ++ch) {
+            tempBuffers[ch].resize(frame_count, 0.0f);
+            outBuffers[ch] = tempBuffers[ch].data();
         }
 
-        /*
-         * GRAIN SYNTHESIS PIPELINE (to be implemented):
-         *
-         * 1. Update grain scheduler based on grain_rate and async
-         * 2. Trigger new grains based on scheduling
-         * 3. For each active grain:
-         *    - Read from source buffer at playback_rate
-         *    - Apply envelope (from scan position)
-         *    - Apply amplitude
-         *    - Assign to output channel based on spatial_mode
-         * 4. Mix all grains to output channels
-         * 5. Handle multichannel distribution:
-         *    - Mode 0 (mono): all grains to all channels equally
-         *    - Mode 1 (stereo): grains distributed L-R
-         *    - Mode 2 (multichannel): grains round-robin or spatially distributed
-         */
+        // Process synthesis engine
+        m_engine->process(outBuffers.data(), static_cast<int>(out_channels),
+                         static_cast<int>(frame_count));
+
+        // Copy float output to double output buffers
+        for (size_t ch = 0; ch < out_channels; ++ch) {
+            auto out_samples = output.samples(ch);
+            for (size_t i = 0; i < frame_count; ++i) {
+                out_samples[i] = static_cast<double>(tempBuffers[ch][i]);
+            }
+        }
     }
 
 private:
     int m_num_channels {2};  // Default to stereo
+    std::unique_ptr<ec2::GranularEngine> m_engine;
 
-    // TODO: Add EC2 synthesis engine members
-    // - Grain pool/scheduler
-    // - Audio buffers for loaded files
-    // - LFO modulators
-    // - Filter states
+    // Helper: update engine parameters from attributes
+    void updateEngineParameters() {
+        ec2::SynthParameters params;
+        params.grainRate = grain_rate;
+        params.async = async;
+        params.intermittency = intermittency;
+        params.streams = streams;
+        params.playbackRate = playback_rate;
+        params.grainDuration = grain_duration;
+        params.envelope = scan_start;  // Note: using scan_start temporarily for envelope
+        params.pan = 0.0f;  // TODO: add pan attribute
+        params.amplitude = amplitude;
+        params.filterFreq = 1000.0f;  // TODO: add filter attributes
+        params.resonance = 0.0f;
+        params.scanBegin = scan_start;
+        params.scanRange = scan_range;
+        params.soundFile = 0;  // TODO: implement buffer selection
+
+        m_engine->updateParameters(params);
+    }
 };
 
 MIN_EXTERNAL(ec2_tilde);

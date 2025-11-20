@@ -21,6 +21,8 @@ set(SOURCE_FILES
 	ec2_scheduler.cpp
 	ec2_envelope.cpp
 	ec2_grain.cpp
+	ec2_voice_pool.cpp
+	ec2_engine.cpp
 )
 
 add_library(
