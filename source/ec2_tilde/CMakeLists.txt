@@ -20,6 +20,7 @@ set(SOURCE_FILES
 	ec2_utility.cpp
 	ec2_scheduler.cpp
 	ec2_envelope.cpp
+	ec2_grain.cpp
 )
 
 add_library(

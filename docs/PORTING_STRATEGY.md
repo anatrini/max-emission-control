@@ -116,58 +116,57 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ## Porting Strategy - Phase by Phase
 
-### Phase 1: Extract Core Utility Classes ✅ (NEXT)
+### Phase 1: Extract Core Utility Classes ✅ COMPLETED
 **Goal**: Create standalone versions of utility classes without allolib dependencies
 
-**Tasks**:
-1. Copy `utility.h` → `source/ec2_tilde/ec2_utility.h`
-2. Copy `utility.cpp` → `source/ec2_tilde/ec2_utility.cpp`
-3. Copy `const.h` → `source/ec2_tilde/ec2_constants.h`
-4. Remove all allolib includes (`al::File`, `al::AudioIOData`)
-5. Replace `util::load()` to either:
-   - Keep libsndfile dependency (bundle it)
-   - OR use Max's `buffer~` API for file loading
-6. Strip RingBuffer visualization code (keep structure for potential reuse)
+**Completed Tasks**:
+1. ✅ Created `ec2_constants.h` with all synthesis constants
+2. ✅ Created `ec2_utility.h/cpp` with standalone DSP utilities
+3. ✅ Removed all allolib includes
+4. ✅ Extended MAX_AUDIO_OUTS from 2 to 16 channels
+5. ✅ Added multichannel spatial modes
 
-**Deliverable**: Standalone utility library that compiles
+**Deliverable**: ✅ Standalone utility library compiles (858KB .mxo)
 
-**Commit**: "Extract EC2 utility classes as standalone library"
+**Commit**: "Phase 1: Extract EC2 utility classes as standalone library"
 
 ---
 
-### Phase 2: Create Custom Voice Pool
-**Goal**: Replace `al::PolySynth` with custom grain voice management
+### Phase 2: Port Scheduler, Envelope, and Filter ✅ COMPLETED
+**Goal**: Create standalone grain scheduler, envelope generator, and filters
 
-**Tasks**:
-1. Create `GrainVoicePool` class (free list allocator)
-2. Implement voice allocation/deallocation
-3. Port `voiceScheduler` class (already standalone)
-4. Create base `GrainVoice` class (without allolib inheritance)
+**Completed Tasks**:
+1. ✅ Ported `voiceScheduler` → `ec2_scheduler.h/cpp` (GrainScheduler)
+2. ✅ Replaced `al::rnd::Random` with C++ `<random>`
+3. ✅ Ported `grainEnvelope` → `ec2_envelope.h/cpp` (GrainEnvelope)
+4. ✅ Created standalone `ec2_filter.h` (Biquad, replaces Gamma)
+5. ✅ Direct Form II filter implementation
 
-**Deliverable**: Voice management system
+**Deliverable**: ✅ All components compile (871KB .mxo)
 
-**Commit**: "Implement custom grain voice pool and scheduler"
-
----
-
-### Phase 3: Port Grain Synthesis Engine
-**Goal**: Extract grain DSP from allolib constraints
-
-**Tasks**:
-1. Port `Grain` class without `al::SynthVoice` inheritance
-2. Port `grainEnvelope` wrapper
-3. Integrate Gamma filters OR extract filter code
-4. Adapt `onProcess()` to work with raw float buffers
-5. Test grain synthesis in isolation
-
-**Deliverable**: Working grain voice that processes audio
-
-**Commit**: "Port grain synthesis engine to standalone implementation"
+**Commit**: "Phase 2: Add grain scheduler, envelope, and filter"
 
 ---
 
-### Phase 4: Integrate with min-devkit
-**Goal**: Connect grain engine to Max external wrapper
+### Phase 3: Port Grain Synthesis Engine ✅ COMPLETED
+**Goal**: Extract individual grain voice from allolib constraints
+
+**Completed Tasks**:
+1. ✅ Ported `Grain` class without `al::SynthVoice` inheritance
+2. ✅ Ported grain DSP processing loop
+3. ✅ Integrated GrainEnvelope and 3-stage Biquad filtering
+4. ✅ Implemented playback with interpolation
+5. ✅ Implemented constant-power panning
+6. ✅ Added voice count compensation
+
+**Deliverable**: ✅ Working grain voice compiles (884KB .mxo)
+
+**Commit**: "Phase 3: Port grain synthesis engine"
+
+---
+
+### Phase 4: Integrate with min-devkit ⏳ NEXT
+**Goal**: Create custom voice pool and connect to Max external wrapper
 
 **Tasks**:
 1. Implement parameter attributes in `ec2_tilde.cpp`

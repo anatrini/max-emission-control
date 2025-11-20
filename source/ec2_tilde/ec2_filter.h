@@ -13,6 +13,15 @@
 namespace ec2 {
 
 /**
+ * Filter type enumeration
+ */
+enum FilterType {
+  FILTER_LOWPASS,
+  FILTER_HIGHPASS,
+  FILTER_BANDPASS
+};
+
+/**
  * Biquad filter implementation
  * Direct Form II implementation for efficiency
  */
@@ -118,12 +127,6 @@ private:
   T b0, b1, b2;  // Feedforward
   T a1, a2;      // Feedback (a0 normalized to 1)
   T d1, d2;      // Delay line
-
-  enum FilterType {
-    FILTER_LOWPASS,
-    FILTER_HIGHPASS,
-    FILTER_BANDPASS
-  };
 };
 
 }  // namespace ec2

@@ -8,3 +8,6 @@ my-min-devkit/
 .DS_Store
 *.user
 *.suo
+
+# Local progress tracking (not for git)
+docs/PROGRESS.md
