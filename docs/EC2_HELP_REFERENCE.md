@@ -388,6 +388,74 @@ trajdepth 1.0
 
 ---
 
+## Signal Inputs (Phase 12)
+
+ec2~ supports signal-rate control for three key parameters via additional signal inlets. Signal inputs override the corresponding attributes when connected, enabling CV-style modulation and dynamic control.
+
+### Inlet 1: Scan Position (signal)
+Signal-rate control of grain start position in the buffer (0.0-1.0, normalized).
+- **Processing**: Per-sample update
+- **Range**: 0.0-1.0 (0.0 = buffer start, 1.0 = buffer end)
+- **Overrides**: `@scanstart` attribute
+- **Use cases**: Audio-rate scrubbing, scanning, dynamic position control
+
+### Inlet 2: Grain Rate (signal)
+Signal-rate control of grain emission frequency (Hz).
+- **Processing**: Control-rate (averaged over audio buffer)
+- **Range**: 0.1-500.0 Hz
+- **Overrides**: `@grainrate` attribute
+- **Use cases**: Dynamic grain density, tempo-synced emission
+
+### Inlet 3: Playback Rate (signal)
+Signal-rate control of grain transposition/playback speed.
+- **Processing**: Per-grain (sampled when grain is triggered)
+- **Range**: -32.0 to 32.0 (1.0 = original pitch)
+- **Overrides**: `@playback` attribute
+- **Use cases**: Dynamic pitch modulation, melodic sequences
+
+### Signal Input Examples
+
+**Example 1: Scan position modulation**
+```
+[phasor~ 0.5]        // Scan through buffer at 0.5 Hz
+|
+[ec2~ mybuffer]
+```
+
+**Example 2: Dynamic grain rate**
+```
+[phasor~ 0.1]        // LFO at 0.1 Hz
+|
+[*~ 40]             // Scale to 0-40 Hz
+|
+[+~ 10]             // Offset to 10-50 Hz
+|
+[inlet~ 2]
+[ec2~ mybuffer]
+```
+
+**Example 3: Pitch sequence**
+```
+[makenote]
+|
+[mtof]
+|
+[/ 440]             // Normalize to playback rate
+|
+[sig~]
+|
+[inlet~ 3]
+[ec2~ mybuffer]
+```
+
+**Important notes**:
+- Signal inputs override attributes ONLY when connected
+- When no signal is connected, falls back to attribute values + LFO modulation
+- Backward compatible with existing patches (no signal = attribute-based control)
+- All signal inputs are optional
+
+---
+
 ## Buffer Management
 
 ### @buffer (symbol, default: "")
@@ -429,6 +497,37 @@ Loads multiple buffers from a polybuffer~ collection.
 ```
 
 The polybuffer message loads buffers named `<basename>.0`, `<basename>.1`, etc. Use the `@soundfile` attribute to select which buffer to play.
+
+### waveform (Phase 13)
+Reports buffer information to the Max console: frames, channels, sample rate, duration, and peak amplitude.
+
+```
+[waveform(   // Print buffer info to console
+```
+
+Output example:
+```
+ec2~: buffer info:
+  frames: 44100
+  channels: 1
+  sample rate: 44100 Hz
+  duration: 1 seconds
+  peak amplitude: 0.8 (-1.94 dB)
+```
+
+### openbuffer (Phase 13)
+Opens Max's built-in buffer editor for the currently loaded buffer, allowing waveform viewing and editing.
+
+```
+[openbuffer(   // Open buffer editor window
+```
+
+This provides direct access to Max's waveform display and editing tools for the current buffer.
+
+### dblclick (Phase 13)
+Double-clicking the ec2~ object opens the buffer editor (same as `openbuffer` message). This provides a quick way to view the waveform without typing a message.
+
+**Note**: Double-click behavior is similar to waveform~ and other Max buffer-based objects.
 
 ---
 

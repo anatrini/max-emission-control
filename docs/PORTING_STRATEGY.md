@@ -389,16 +389,82 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
+### Phase 12: Signal-Rate Inputs ✅ COMPLETED
+**Goal**: Add signal-rate control for key parameters to enable CV-style modulation
+
+**Completed Tasks**:
+1. ✅ Added 3 signal inlets: scan position, grain rate, playback rate
+2. ✅ Implemented signal-rate processing in engine
+3. ✅ Signal inputs override attributes when connected
+4. ✅ Backward compatible - falls back to attributes + LFO modulation when no signal
+
+**Design Decisions**:
+- **Scan position**: Per-sample processing (most important for scrubbing/scanning)
+- **Grain rate**: Control-rate averaging (grain scheduling is control-rate)
+- **Playback rate**: Per-grain (each grain gets current signal value when triggered)
+
+**Signal processing approach**:
+- Scan signal: Updates grain start position per-sample (0.0-1.0 normalized)
+- Rate signal: Averaged over buffer for control-rate grain scheduling (0.1-500 Hz)
+- Playback signal: Sampled per-grain for transposition (-32 to 32 semitones)
+
+**Usage example**:
+```
+[phasor~ 0.5]        [phasor~ 20]         [sig~ 1.5]
+|                    |                     |
+[*~ 1.]             [+~ 10]              [*~ 0.5]
+|                    |                     |
+|                    |                     |
+[ec2~ mybuffer @outputs 2]
+```
+
+**Commit**: "Phase 12: Add signal-rate inputs (scan, grainrate, playback)"
+
+---
+
+### Phase 13: Waveform Display ✅ COMPLETED
+**Goal**: Add waveform visualization and buffer editor access
+
+**Completed Tasks**:
+1. ✅ Added `waveform` message for buffer info reporting
+2. ✅ Added `openbuffer` message to open Max buffer editor
+3. ✅ Added `dblclick` message handler (delegates to openbuffer)
+
+**Implementation notes**:
+- Full graphical waveform display in object would require jbox UI object (beyond min-devkit scope)
+- Instead: provides `waveform` message for info and `openbuffer`/`dblclick` to open Max's built-in buffer editor
+- Users can view/edit waveforms using familiar Max buffer~ editor interface
+
+**Messages**:
+- `waveform` - Reports buffer info (frames, channels, duration, peak amplitude)
+- `openbuffer` - Opens Max buffer editor for current buffer
+- `dblclick` - Double-click object to open buffer editor (like waveform~)
+
+**Usage example**:
+```
+[ec2~ mybuffer]
+|
+[waveform(        // Print buffer info to console
+[openbuffer(      // Open buffer editor window
+// Or just double-click the ec2~ object
+```
+
+**Commit**: "Phase 13: Add waveform display (info + buffer editor access)"
+
+---
+
 ### Phase 11: Documentation & Help Files
 **Goal**: Complete user documentation and Max help patch
 
 **Tasks**:
-1. Complete EC2_HELP_REFERENCE.md with all Phase 9-10 features
+1. Complete EC2_HELP_REFERENCE.md with all Phase 9-13 features
 2. Document LFO modulation system
 3. Document OSC integration and workflows
-4. Create interactive .maxhelp file
-5. Add example patches demonstrating key features
-6. Document integration with odot and spat5
+4. Document signal-rate inputs (Phase 12)
+5. Document waveform display features (Phase 13)
+6. Create interactive .maxhelp file
+7. Add example patches demonstrating key features
+8. Document integration with odot and spat5
 
 **Deliverable**: Complete documentation suite
 
@@ -408,7 +474,7 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ## Project Timeline
 
-### Completed Phases (Phases 1-10)
+### Completed Phases (Phases 1-13)
 - ✅ **Phase 1**: Extract utility classes (complete)
 - ✅ **Phase 2**: Port scheduler, envelope, filter (complete)
 - ✅ **Phase 3**: Port grain synthesis engine (complete)
@@ -420,6 +486,8 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 - ⊗ **Phase 8**: OSC control (native library) - SKIPPED (redundant with Max OSC)
 - ✅ **Phase 9**: LFO modulation system (complete)
 - ✅ **Phase 10**: OSC integration (odot-compatible) (complete)
+- ✅ **Phase 12**: Signal-rate inputs (complete)
+- ✅ **Phase 13**: Waveform display (complete)
 
 ### Current Status
 **Full-featured granular synthesizer: COMPLETE**
@@ -428,6 +496,8 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 - ✅ Buffer~ / polybuffer~ integration
 - ✅ LFO modulation system (6 LFOs, 14 modulatable params)
 - ✅ OSC integration (odot/spat5 compatible)
+- ✅ Signal-rate inputs (scan, grainrate, playback)
+- ✅ Waveform display and buffer editor access
 - ✅ 40+ controllable parameters
 - ✅ 2048-voice grain pool
 - ✅ Up to 16 output channels

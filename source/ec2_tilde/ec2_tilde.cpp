@@ -8,6 +8,11 @@
 #include "ec2_utility.h"
 #include "ec2_engine.h"
 
+// Max SDK includes for graphics (Phase 13)
+#include "ext_obex.h"
+#include "jgraphics.h"
+#include "jpatcher_api.h"
+
 using namespace c74::min;
 
 // Buffer management helper (inline to avoid separate compilation unit)
@@ -92,6 +97,11 @@ public:
     size_t mc_get_output_channel_count() const {
         return getOutputChannelCount();
     }
+
+    // SIGNAL INLETS (Phase 12)
+    inlet<> scan_in {this, "(signal) Scan position (0.0-1.0, overrides @scanstart)"};
+    inlet<> rate_in {this, "(signal) Grain rate in Hz (overrides @grainrate)"};
+    inlet<> playback_in {this, "(signal) Playback rate (overrides @playback)"};
 
     // OSC OUTLET (Phase 10)
     outlet<> osc_out {this, "(OSC bundle) Parameter state output"};
@@ -764,6 +774,83 @@ public:
         }
     };
 
+    message<> waveform {
+        this, "waveform",
+        MIN_FUNCTION {
+            // Phase 13: Report buffer waveform info (simplified approach)
+            // Full graphical display requires jbox UI object which is beyond min-devkit scope
+
+            int buffer_index = static_cast<int>(sound_file.get());
+            auto current_buffer = m_engine->getAudioBuffer(buffer_index);
+
+            if (!current_buffer || current_buffer->size == 0) {
+                cout << "ec2~: no buffer loaded" << endl;
+                return {};
+            }
+
+            cout << "ec2~: buffer info:" << endl;
+            cout << "  frames: " << current_buffer->frames << endl;
+            cout << "  channels: " << current_buffer->channels << endl;
+            float sr = m_engine->getSampleRate();
+            cout << "  sample rate: " << sr << " Hz" << endl;
+            cout << "  duration: " << (current_buffer->frames / sr) << " seconds" << endl;
+
+            // Calculate and report peak amplitude
+            float peak = 0.0f;
+            for (size_t i = 0; i < current_buffer->size; ++i) {
+                float abs_val = std::abs(current_buffer->data[i]);
+                if (abs_val > peak) peak = abs_val;
+            }
+            cout << "  peak amplitude: " << peak << " (" << (20.0 * log10(peak)) << " dB)" << endl;
+
+            return {};
+        }
+    };
+
+    message<> openbuffer {
+        this, "openbuffer",
+        MIN_FUNCTION {
+            // Phase 13: Open buffer editor
+            // This provides a way to view/edit the waveform using Max's built-in buffer editor
+
+            std::string buf_name_str = std::string(buffer_name.get());
+            if (buf_name_str.empty()) {
+                cout << "ec2~: no buffer loaded (use 'read' or 'polybuffer' message first)" << endl;
+                return {};
+            }
+
+            // Open buffer editor using Max SDK
+            auto buf_ref = c74::max::buffer_ref_new((c74::max::t_object*)this->maxobj(), buffer_name.get());
+            if (buf_ref) {
+                auto buffer = c74::max::buffer_ref_getobject(buf_ref);
+                if (buffer) {
+                    // Send 'wclose' then 'open' to ensure editor appears
+                    c74::max::object_method_typed(buffer, c74::max::gensym("wclose"), 0, nullptr, nullptr);
+                    c74::max::object_method_typed(buffer, c74::max::gensym("open"), 0, nullptr, nullptr);
+                    cout << "ec2~: opened buffer editor for '" << buf_name_str << "'" << endl;
+                } else {
+                    cerr << "ec2~: failed to get buffer object" << endl;
+                }
+                c74::max::object_free((c74::max::t_object*)buf_ref);
+            } else {
+                cerr << "ec2~: failed to create buffer reference" << endl;
+            }
+
+            return {};
+        }
+    };
+
+    message<> dblclick {
+        this, "dblclick",
+        MIN_FUNCTION {
+            // Phase 13: Double-click opens buffer editor (like waveform~)
+            // Delegate to openbuffer message
+            atoms a;
+            this->try_call("openbuffer", a);
+            return {};
+        }
+    };
+
     // Audio processing
     void operator()(audio_bundle input, audio_bundle output) {
         // Update engine parameters from attributes (in case they changed)
@@ -772,6 +859,7 @@ public:
         // Get output configuration
         auto out_channels = output.channel_count();
         auto frame_count = output.frame_count();
+        auto in_channels = input.channel_count();
 
         // Allocate temporary float buffers (engine uses float, min-devkit uses double)
         std::vector<std::vector<float>> tempBuffers(out_channels);
@@ -782,9 +870,47 @@ public:
             outBuffers[ch] = tempBuffers[ch].data();
         }
 
-        // Process synthesis engine
-        m_engine->process(outBuffers.data(), static_cast<int>(out_channels),
-                         static_cast<int>(frame_count));
+        // Process signal inputs (Phase 12)
+        // Signal inlets: 0=scan position, 1=grain rate, 2=playback rate
+        bool has_scan_signal = (in_channels > 0);
+        bool has_rate_signal = (in_channels > 1);
+        bool has_playback_signal = (in_channels > 2);
+
+        // Prepare signal buffers (convert double to float)
+        std::vector<float> scan_signal(frame_count);
+        std::vector<float> rate_signal(frame_count);
+        std::vector<float> playback_signal(frame_count);
+
+        if (has_scan_signal) {
+            auto scan_in = input.samples(0);
+            for (size_t i = 0; i < frame_count; ++i) {
+                scan_signal[i] = static_cast<float>(scan_in[i]);
+            }
+        }
+
+        if (has_rate_signal) {
+            auto rate_in = input.samples(1);
+            for (size_t i = 0; i < frame_count; ++i) {
+                rate_signal[i] = static_cast<float>(rate_in[i]);
+            }
+        }
+
+        if (has_playback_signal) {
+            auto pb_in = input.samples(2);
+            for (size_t i = 0; i < frame_count; ++i) {
+                playback_signal[i] = static_cast<float>(pb_in[i]);
+            }
+        }
+
+        // Process synthesis engine with signal inputs
+        m_engine->processWithSignals(
+            outBuffers.data(),
+            static_cast<int>(out_channels),
+            static_cast<int>(frame_count),
+            has_scan_signal ? scan_signal.data() : nullptr,
+            has_rate_signal ? rate_signal.data() : nullptr,
+            has_playback_signal ? playback_signal.data() : nullptr
+        );
 
         // Copy float output to double output buffers
         for (size_t ch = 0; ch < out_channels; ++ch) {

@@ -71,11 +71,30 @@ void GranularEngine::updateParameters(const SynthParameters& params) {
 }
 
 void GranularEngine::process(float** outBuffers, int numChannels, int numFrames) {
+  // Delegate to processWithSignals with no signal inputs
+  processWithSignals(outBuffers, numChannels, numFrames, nullptr, nullptr, nullptr);
+}
+
+void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int numFrames,
+                                       const float* scanSignal, const float* rateSignal,
+                                       const float* playbackSignal) {
   // Process LFOs once per audio callback (Phase 9)
   processLFOs();
 
   // Apply modulation to control-rate parameters (Phase 9)
-  float modulatedGrainRate = applyModulation(mParams.grainRate, mParams.modGrainRate, 0.1f, 500.0f);
+  // If signal inputs provided, average them for control-rate params (Phase 12)
+  float modulatedGrainRate;
+  if (rateSignal) {
+    // Average the grain rate signal over the buffer
+    float avg = 0.0f;
+    for (int i = 0; i < numFrames; ++i) {
+      avg += rateSignal[i];
+    }
+    modulatedGrainRate = std::max(0.1f, std::min(avg / numFrames, 500.0f));
+  } else {
+    modulatedGrainRate = applyModulation(mParams.grainRate, mParams.modGrainRate, 0.1f, 500.0f);
+  }
+
   float modulatedAsync = applyModulation(mParams.async, mParams.modAsync, 0.0f, 1.0f);
   float modulatedIntermittency = applyModulation(mParams.intermittency, mParams.modIntermittency, 0.0f, 1.0f);
   int modulatedStreams = static_cast<int>(applyModulation(static_cast<float>(mParams.streams),
@@ -96,21 +115,40 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
   float modulatedScanRange = applyModulation(mParams.scanRange, mParams.modScanRange, 0.0f, 1.0f);
   float modulatedScanSpeed = applyModulation(mParams.scanSpeed, mParams.modScanSpeed, -32.0f, 32.0f);
 
-  // Update scan index with modulated parameters
-  // TODO: Implement full scanner with modulatedScanSpeed
-  mCurrentScanIndex = modulatedScanBegin * currentBuffer->frames;
+  // Initialize scan index with modulated parameters if no signal input
+  if (!scanSignal) {
+    mCurrentScanIndex = modulatedScanBegin * currentBuffer->frames;
+  }
 
   // Process frame by frame
   for (int frame = 0; frame < numFrames; ++frame) {
     // Check if scheduler wants to trigger a new grain
     if (mScheduler.trigger()) {
+      // Update scan position from signal input if provided (Phase 12)
+      // Sample just-in-time when grain is triggered for efficiency
+      if (scanSignal) {
+        // Clamp scan signal to 0.0-1.0 range
+        float scanPos = std::max(0.0f, std::min(scanSignal[frame], 1.0f));
+        mCurrentScanIndex = scanPos * currentBuffer->frames;
+      }
+
       Grain* grain = mVoicePool.getFreeVoice();
 
       if (grain) {
         // Create grain metadata for spatial allocator
         GrainMetadata metadata;
         metadata.emissionTime = mGrainEmissionTime;
-        metadata.pitch = mParams.playbackRate * 440.0f;  // Approximate pitch from playback rate
+
+        // Get playback rate for this grain (Phase 12: use signal if provided)
+        float grainPlaybackRate;
+        if (playbackSignal) {
+          // Clamp playback signal to valid range
+          grainPlaybackRate = std::max(-32.0f, std::min(playbackSignal[frame], 32.0f));
+        } else {
+          grainPlaybackRate = applyModulation(mParams.playbackRate, mParams.modPlaybackRate, -32.0f, 32.0f);
+        }
+
+        metadata.pitch = grainPlaybackRate * 440.0f;  // Approximate pitch from playback rate
         metadata.spectralCentroid = mParams.filterFreq;
         metadata.streamId = 0;  // TODO: Implement stream routing
         metadata.grainIndex = mActiveVoiceCount;
@@ -118,8 +156,7 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
         // Get spatial allocation (multichannel panning gains)
         PanningVector panning = mSpatialAllocator.allocate(metadata);
 
-        // Apply modulation to parameters (Phase 9)
-        float modulatedPlaybackRate = applyModulation(mParams.playbackRate, mParams.modPlaybackRate, -32.0f, 32.0f);
+        // Apply modulation to other parameters (Phase 9)
         float modulatedDuration = applyModulation(mParams.grainDuration, mParams.modGrainDuration, 1.0f, 1000.0f);
         float modulatedEnvelope = applyModulation(mParams.envelope, mParams.modEnvelope, 0.0f, 1.0f);
         float modulatedPan = applyModulation(mParams.pan, mParams.modPan, -1.0f, 1.0f);
@@ -131,7 +168,7 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
         GrainParameters grainParams;
         grainParams.sourceBuffer = currentBuffer;
         grainParams.currentIndex = mCurrentScanIndex;
-        grainParams.transposition = modulatedPlaybackRate;
+        grainParams.transposition = grainPlaybackRate;  // Use signal-rate or modulated value
         grainParams.durationMs = modulatedDuration;
         grainParams.envelope = modulatedEnvelope;
         grainParams.pan = modulatedPan;  // Legacy stereo pan (fallback)

@@ -133,6 +133,19 @@ public:
   void process(float** outBuffers, int numChannels, int numFrames);
 
   /**
+   * Process audio with signal-rate inputs (Phase 12)
+   * @param outBuffers - Array of output buffers (one per channel)
+   * @param numChannels - Number of output channels
+   * @param numFrames - Number of frames to process
+   * @param scanSignal - Optional scan position signal (0.0-1.0), nullptr = use params
+   * @param rateSignal - Optional grain rate signal (Hz), nullptr = use params
+   * @param playbackSignal - Optional playback rate signal, nullptr = use params
+   */
+  void processWithSignals(float** outBuffers, int numChannels, int numFrames,
+                         const float* scanSignal, const float* rateSignal,
+                         const float* playbackSignal);
+
+  /**
    * Stop all active grains
    */
   void stopAllGrains();
