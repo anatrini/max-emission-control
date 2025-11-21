@@ -14,11 +14,9 @@
 
 namespace ec2 {
 
-Grain::Grain() {
-  mEnvelope.reset();
-}
+Grain::Grain() { mEnvelope.reset(); }
 
-void Grain::configure(const GrainParameters& params, float sampleRate) {
+void Grain::configure(const GrainParameters &params, float sampleRate) {
   mSource = params.sourceBuffer;
   mActiveVoiceCount = params.activeVoiceCount;
 
@@ -31,7 +29,8 @@ void Grain::configure(const GrainParameters& params, float sampleRate) {
 
   // Set duration
   mDurationS = params.durationMs / 1000.0f;
-  if (mDurationS <= 0.0f) mDurationS = 0.001f;
+  if (mDurationS <= 0.0f)
+    mDurationS = 0.001f;
 
   // Configure envelope
   mEnvelope.setSamplingRate(sampleRate);
@@ -51,7 +50,7 @@ void Grain::configure(const GrainParameters& params, float sampleRate) {
     mUseMultichannelGains = true;
     mChannelGains = params.channelGains;
     // Apply amplitude to all gains
-    for (float& gain : mChannelGains) {
+    for (float &gain : mChannelGains) {
       gain *= mAmp;
     }
   } else {
@@ -65,7 +64,7 @@ void Grain::configure(const GrainParameters& params, float sampleRate) {
   configureFilter(params.filterFreq, params.resonance, sourceChannels);
 }
 
-bool Grain::process(float& outLeft, float& outRight) {
+bool Grain::process(float &outLeft, float &outRight) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
@@ -73,7 +72,7 @@ bool Grain::process(float& outLeft, float& outRight) {
     }
     outLeft = 0.0f;
     outRight = 0.0f;
-    return false;  // Grain finished
+    return false; // Grain finished
   }
 
   // Safety check
@@ -83,6 +82,24 @@ bool Grain::process(float& outLeft, float& outRight) {
     return true;
   }
 
+  // Dispatch to optimized template
+  if (mSource->channels == 1) {
+    if (mBypassFilter) {
+      return processTemplate<1, false>(outLeft, outRight);
+    } else {
+      return processTemplate<1, true>(outLeft, outRight);
+    }
+  } else {
+    if (mBypassFilter) {
+      return processTemplate<2, false>(outLeft, outRight);
+    } else {
+      return processTemplate<2, true>(outLeft, outRight);
+    }
+  }
+}
+
+template <int SourceChannels, bool FilterActive>
+bool Grain::processTemplate(float &outLeft, float &outRight) {
   // Get envelope value
   float envVal = mEnvelope();
 
@@ -91,8 +108,12 @@ bool Grain::process(float& outLeft, float& outRight) {
   int iSourceIndex = static_cast<int>(sourceIndex);
 
   // Wrap index if out of bounds
-  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels || iSourceIndex < 0) {
-    sourceIndex = std::fmod(sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+  // Note: This wrapping logic could also be optimized but we'll keep it for
+  // safety
+  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
+      iSourceIndex < 0) {
+    sourceIndex = std::fmod(
+        sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
     iSourceIndex = static_cast<int>(sourceIndex);
     if (iSourceIndex < 0) {
       sourceIndex += (mSource->frames - mSource->channels);
@@ -102,11 +123,10 @@ bool Grain::process(float& outLeft, float& outRight) {
 
   mSourceIndex = sourceIndex;
 
-  // Process based on source channel count
   float currentSampleL = 0.0f;
   float currentSampleR = 0.0f;
 
-  if (mSource->channels == 1) {
+  if constexpr (SourceChannels == 1) {
     // Mono source - linear interpolation
     mBefore = mSource->data[iSourceIndex];
     mAfter = mSource->data[iSourceIndex + 1];
@@ -114,7 +134,7 @@ bool Grain::process(float& outLeft, float& outRight) {
     currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
     // Apply filter
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
     }
 
@@ -122,14 +142,14 @@ bool Grain::process(float& outLeft, float& outRight) {
     outLeft = currentSampleL * envVal * mLeftGain;
     outRight = currentSampleL * envVal * mRightGain;
 
-  } else if (mSource->channels == 2) {
+  } else { // SourceChannels == 2
     // Stereo source - process left channel
     mBefore = mSource->data[iSourceIndex * 2];
     mAfter = mSource->data[iSourceIndex * 2 + 2];
     mDecimal = sourceIndex - iSourceIndex;
     currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
     }
 
@@ -141,23 +161,23 @@ bool Grain::process(float& outLeft, float& outRight) {
     mDecimal = (sourceIndex + 1.0f) - (iSourceIndex + 1);
     currentSampleR = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleR = filterSample(currentSampleR, mCascadeFilterMix, true);
     }
 
     outRight = currentSampleR * envVal * mRightGain;
   }
 
-  return true;  // Grain still active
+  return true; // Grain still active
 }
 
-bool Grain::processMultichannel(float** outputs, int numChannels) {
+bool Grain::processMultichannel(float **outputs, int numChannels) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
       (*mActiveVoiceCount)--;
     }
-    return false;  // Grain finished
+    return false; // Grain finished
   }
 
   // Safety check
@@ -173,8 +193,10 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
   int iSourceIndex = static_cast<int>(sourceIndex);
 
   // Wrap index if out of bounds
-  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels || iSourceIndex < 0) {
-    sourceIndex = std::fmod(sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
+      iSourceIndex < 0) {
+    sourceIndex = std::fmod(
+        sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
     iSourceIndex = static_cast<int>(sourceIndex);
     if (iSourceIndex < 0) {
       sourceIndex += (mSource->frames - mSource->channels);
@@ -184,11 +206,49 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
 
   mSourceIndex = sourceIndex;
 
-  // Process based on source channel count
+  // Dispatch to optimized template
+  if (mSource->channels == 1) {
+    if (mBypassFilter) {
+      return processMultichannelTemplate<1, false>(outputs, numChannels);
+    } else {
+      return processMultichannelTemplate<1, true>(outputs, numChannels);
+    }
+  } else {
+    if (mBypassFilter) {
+      return processMultichannelTemplate<2, false>(outputs, numChannels);
+    } else {
+      return processMultichannelTemplate<2, true>(outputs, numChannels);
+    }
+  }
+}
+
+template <int SourceChannels, bool FilterActive>
+bool Grain::processMultichannelTemplate(float **outputs, int numChannels) {
+  // Get envelope value
+  float envVal = mEnvelope();
+
+  // Get playback index
+  float sourceIndex = mPlaybackIndex();
+  int iSourceIndex = static_cast<int>(sourceIndex);
+
+  // Wrap index if out of bounds
+  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
+      iSourceIndex < 0) {
+    sourceIndex = std::fmod(
+        sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+    iSourceIndex = static_cast<int>(sourceIndex);
+    if (iSourceIndex < 0) {
+      sourceIndex += (mSource->frames - mSource->channels);
+      iSourceIndex += (mSource->frames - mSource->channels);
+    }
+  }
+
+  mSourceIndex = sourceIndex;
+
   float currentSampleL = 0.0f;
   float currentSampleR = 0.0f;
 
-  if (mSource->channels == 1) {
+  if constexpr (SourceChannels == 1) {
     // Mono source - linear interpolation
     mBefore = mSource->data[iSourceIndex];
     mAfter = mSource->data[iSourceIndex + 1];
@@ -196,7 +256,7 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
     currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
     // Apply filter
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
     }
 
@@ -209,14 +269,14 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
       outputs[ch][0] += currentSampleL * mChannelGains[ch];
     }
 
-  } else if (mSource->channels == 2) {
+  } else { // SourceChannels == 2
     // Stereo source - process left channel
     mBefore = mSource->data[iSourceIndex * 2];
     mAfter = mSource->data[iSourceIndex * 2 + 2];
     mDecimal = sourceIndex - iSourceIndex;
     currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
     }
 
@@ -228,7 +288,7 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
     mDecimal = (sourceIndex + 1.0f) - (iSourceIndex + 1);
     currentSampleR = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
 
-    if (!mBypassFilter) {
+    if constexpr (FilterActive) {
       currentSampleR = filterSample(currentSampleR, mCascadeFilterMix, true);
     }
 
@@ -242,7 +302,7 @@ bool Grain::processMultichannel(float** outputs, int numChannels) {
     }
   }
 
-  return true;  // Grain still active
+  return true; // Grain still active
 }
 
 void Grain::reset() {
@@ -278,7 +338,7 @@ void Grain::configurePan(float pan, float amp) {
   // pan: -1 (left) to +1 (right)
   // Using trigonometric pan law for constant power
 
-  float panRad = pan * M_PI / 4.0f;  // Map to -π/4 to +π/4
+  float panRad = pan * M_PI / 4.0f; // Map to -π/4 to +π/4
   float cosVal = std::cos(panRad);
   float sinVal = std::sin(panRad);
 
@@ -304,7 +364,9 @@ void Grain::configureFilter(float freq, float resonance, int sourceChannels) {
 
   // Configure left channel filters
   mBpf1L.setBandpass(freq, mSampleRate, resonance);
-  mBpf2L.setBandpass(freq, mSampleRate, std::log(resProcess + 1.0f) / 49.5f);  // Logarithmic for middle stage
+  mBpf2L.setBandpass(freq, mSampleRate,
+                     std::log(resProcess + 1.0f) /
+                         49.5f); // Logarithmic for middle stage
   mBpf3L.setBandpass(freq, mSampleRate, resonance);
 
   // Configure right channel filters (if stereo)
@@ -350,4 +412,4 @@ float Grain::filterSample(float sample, float cascadeMix, bool isRightChannel) {
   return solo * (1.0f - cascadeMix) + cascade * cascadeMix;
 }
 
-}  // namespace ec2
+} // namespace ec2

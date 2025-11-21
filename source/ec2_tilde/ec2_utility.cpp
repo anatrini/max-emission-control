@@ -5,8 +5,8 @@
  */
 
 #include "ec2_utility.h"
-#include <cmath>
 #include <cassert>
+#include <cmath>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -22,10 +22,18 @@ namespace ec2 {
 // FastTrig Implementation
 //=============================================================================
 
+// Static member definitions
+float FastTrig::COS_TABLE[FastTrig::CIRCLE];
+bool FastTrig::tableBuilt = false;
+
 void FastTrig::buildTrigTable() {
+  if (tableBuilt)
+    return;
+
   for (int i = 0; i < CIRCLE; i++) {
     COS_TABLE[i] = std::cos(M_PI * static_cast<float>(i) / HALF_CIRCLE);
   }
+  tableBuilt = true;
 }
 
 float FastTrig::getCosImpliedPiFactor(float x) {
@@ -45,12 +53,35 @@ float Expo::operator()() {
   if (!mReverse) {
     // Forward exponential decay envelope
     if (mX < mThresholdX * 0.01f) {
-      // Initial ramp up
-      mY = std::pow(static_cast<float>(M_E), 100.0f * mX - mThresholdX);
+      // Initial ramp up (Phase 0)
+      if (mCurrentPhase != 0) {
+        mCurrentPhase = 0;
+        // Calculate multiplier for: exp(100 * x - threshold)
+        // dY/step = exp(100 * dx)
+        mMultiplier = std::exp(100.0f * mIncrementX);
+        // Initialize Y if needed, but here we rely on continuity or reset
+        // Re-calculate Y exactly at start of phase to avoid drift?
+        // For now, just use the formula for the first sample of phase if
+        // needed, but mY is stateful. Let's stick to the formula for the very
+        // first sample, then multiply.
+        mY = std::pow(static_cast<float>(M_E), 100.0f * mX - mThresholdX);
+      } else {
+        mY *= mMultiplier;
+      }
       mX += mIncrementX;
     } else if (mX < mThresholdX) {
-      // Main decay
-      mY = std::pow(static_cast<float>(M_E), -1.0f * mX + (mThresholdX * 0.01f));
+      // Main decay (Phase 1)
+      if (mCurrentPhase != 1) {
+        mCurrentPhase = 1;
+        // Calculate multiplier for: exp(-1 * x + (threshold * 0.01))
+        // dY/step = exp(-1 * dx)
+        mMultiplier = std::exp(-1.0f * mIncrementX);
+        // Recalculate Y to ensure continuity/correctness at phase transition
+        mY = std::pow(static_cast<float>(M_E),
+                      -1.0f * mX + (mThresholdX * 0.01f));
+      } else {
+        mY *= mMultiplier;
+      }
       mX += mIncrementX;
     } else {
       // Done
@@ -60,15 +91,35 @@ float Expo::operator()() {
   } else {
     // Reverse exponential (growth) envelope
     if (mX < mThresholdX * 0.92761758634f) {
-      mY = std::pow(static_cast<float>(M_E), 0.9f * (mX - mThresholdX + 0.5f));
+      // Growth (Phase 0)
+      if (mCurrentPhase != 0) {
+        mCurrentPhase = 0;
+        // exp(0.9 * (x - threshold + 0.5))
+        // dY/step = exp(0.9 * dx)
+        mMultiplier = std::exp(0.9f * mIncrementX);
+        mY =
+            std::pow(static_cast<float>(M_E), 0.9f * (mX - mThresholdX + 0.5f));
+      } else {
+        mY *= mMultiplier;
+      }
       mX += mIncrementX;
     } else if (mX < mThresholdX * 0.95f) {
-      // Small sustain
+      // Small sustain (Phase 1)
       mY = 1.0f;
       mX += mIncrementX;
+      mCurrentPhase = 1;
     } else if (mX < mThresholdX) {
-      // Quick release
-      mY = std::pow(static_cast<float>(M_E), -20.0f * (mX - (mThresholdX * 0.95f)));
+      // Quick release (Phase 2)
+      if (mCurrentPhase != 2) {
+        mCurrentPhase = 2;
+        // exp(-20 * (x - (threshold * 0.95)))
+        // dY/step = exp(-20 * dx)
+        mMultiplier = std::exp(-20.0f * mIncrementX);
+        mY = std::pow(static_cast<float>(M_E),
+                      -20.0f * (mX - (mThresholdX * 0.95f)));
+      } else {
+        mY *= mMultiplier;
+      }
       mX += mIncrementX;
     } else {
       // Done
@@ -80,7 +131,8 @@ float Expo::operator()() {
 }
 
 void Expo::reset() {
-  if (mTotalS <= 0) mTotalS = 1;
+  if (mTotalS <= 0)
+    mTotalS = 1;
   if (mThresholdY <= 0) {
     mThresholdY = 0.001f;
     mThresholdX = -1.0f * std::log(0.001f);
@@ -88,6 +140,7 @@ void Expo::reset() {
   mX = 0;
   mY = mThresholdY;
   mIncrementX = (mThresholdX / mTotalS);
+  mCurrentPhase = -1; // Force phase init
 }
 
 void Expo::set(float seconds, bool reverse, float threshold) {
@@ -117,7 +170,7 @@ float Tukey::operator()() {
   if (currentS < (alphaTotalS / 2)) {
     // Attack phase
     value = 0.5f * (1.0f + fastTrig.getCosImpliedPiFactor(
-      (2.0f * currentS / alphaTotalS) - 1.0f));
+                               (2.0f * currentS / alphaTotalS) - 1.0f));
     currentS++;
   } else if (currentS <= totalS * (1.0f - alpha / 2.0f)) {
     // Sustain phase
@@ -125,8 +178,10 @@ float Tukey::operator()() {
     currentS++;
   } else if (currentS <= totalS) {
     // Release phase
-    value = 0.5f * (1.0f + fastTrig.getCosImpliedPiFactor(
-      (2.0f * currentS / alphaTotalS) - (2.0f / alpha) + 1.0f));
+    value =
+        0.5f *
+        (1.0f + fastTrig.getCosImpliedPiFactor((2.0f * currentS / alphaTotalS) -
+                                               (2.0f / alpha) + 1.0f));
     currentS++;
   } else {
     // Done - reset
@@ -136,7 +191,8 @@ float Tukey::operator()() {
 }
 
 void Tukey::reset() {
-  if (totalS <= 0) totalS = 1;
+  if (totalS <= 0)
+    totalS = 1;
   currentS = 0;
   value = 0;
   alphaTotalS = totalS * alpha;
@@ -153,4 +209,4 @@ void Tukey::set(float seconds) {
   reset();
 }
 
-}  // namespace ec2
+} // namespace ec2

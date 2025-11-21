@@ -133,18 +133,20 @@ All documentation verified for accuracy and completeness.
 Ready for Phase 11 (help file creation)."
 
 -----------------------------------------------------------------------
-COMMIT 4: README and Distribution Guide
+COMMIT 4: README, Binary Distribution, and Precompiled External
 -----------------------------------------------------------------------
 
 git add README.md
 git add docs/BINARY_DISTRIBUTION_GUIDE.md
+git add ARCHITECTURE_FIX.md
+git add externals/
 
-git commit -m "Documentation: Update README and add binary distribution guide
+git commit -m "Distribution: Add precompiled binary and documentation
 
 Updates README.md to reflect current v1.0-beta status:
 - Updated features list (all Phase 12/13 features)
 - Clear build instructions for macOS
-- Installation options (precompiled vs build from source)
+- Installation from externals/ folder
 - Troubleshooting section
 - System requirements
 - Updated development status (Phase 13 complete)
@@ -158,11 +160,25 @@ Adds BINARY_DISTRIBUTION_GUIDE.md:
 - Security considerations (code signing)
 - Versioning strategy for beta/rc/stable releases
 
-Modified files:
-- README.md: Complete rewrite reflecting production-ready status
-- docs/BINARY_DISTRIBUTION_GUIDE.md: New comprehensive guide
+Adds precompiled binary in externals/ folder:
+- ec2~.mxo for Apple Silicon (M1/M2/M3)
+- arm64 architecture only (not universal)
+- Fixes 'incorrect architecture' error in Max 9
+- 486KB Release build, optimized
+- Extended attributes cleared (xattr)
 
-Purpose: Prepare for v1.0-beta binary release"
+Adds ARCHITECTURE_FIX.md:
+- Explains universal binary issue
+- Documents arm64 extraction process
+- Installation instructions
+
+Modified files:
+- README.md: Complete rewrite with externals/ folder
+- docs/BINARY_DISTRIBUTION_GUIDE.md: New comprehensive guide
+- ARCHITECTURE_FIX.md: New architecture fix documentation
+- externals/ec2~.mxo: Precompiled arm64 binary (NEW)
+
+Purpose: Enable immediate testing on M1/M2/M3 Macs without building"
 
 -----------------------------------------------------------------------
 OPTIONAL: Tag Release

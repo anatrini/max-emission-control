@@ -1,18 +1,19 @@
 /**
  * ec2_utility.h
  * Utility classes for EC2 granular synthesis
- * Adapted from EmissionControl2 for Max/MSP (standalone, no allolib dependencies)
+ * Adapted from EmissionControl2 for Max/MSP (standalone, no allolib
+ * dependencies)
  */
 
 #ifndef EC2_UTILITY_H
 #define EC2_UTILITY_H
 
-#include <cmath>
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
 #include "ec2_constants.h"
+#include <cmath>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace ec2 {
 
@@ -29,14 +30,14 @@ private:
   static const int MASK_CIRCLE = CIRCLE - 1;
   static const int HALF_CIRCLE = CIRCLE / 2;
   static const int QUARTER_CIRCLE = CIRCLE / 4;
-  float COS_TABLE[CIRCLE];
+  static float COS_TABLE[CIRCLE];
+  static bool tableBuilt;
 };
 
 /**
  * Line generator - moves from one value to another over time
  */
-template <typename T>
-class Line {
+template <typename T> class Line {
 public:
   Line() : mSamplingRate(DEFAULT_SAMPLE_RATE) {}
   Line(T samplingRate) : mSamplingRate(samplingRate) {}
@@ -56,7 +57,8 @@ public:
     start = v;
     target = t;
     seconds = s;
-    if (seconds <= 0) seconds = 1.0 / mSamplingRate;
+    if (seconds <= 0)
+      seconds = 1.0 / mSamplingRate;
     increment = (target - value) / (seconds * mSamplingRate);
   }
 
@@ -100,6 +102,10 @@ private:
   float mSamplingRate = DEFAULT_SAMPLE_RATE;
   bool mReverse = false;
   int mTotalS = 1;
+
+  // Optimization: Recursive multiplication
+  float mMultiplier = 1.0f;
+  int mCurrentPhase = 0; // 0: Attack, 1: Decay/Sustain, 2: Release
 };
 
 /**
@@ -135,34 +141,34 @@ private:
  * Audio buffer with interpolation
  * This will be adapted to interface with Max buffer~ API
  */
-template <typename T>
-class AudioBuffer {
+template <typename T> class AudioBuffer {
 public:
-  T* data = nullptr;
+  T *data = nullptr;
   unsigned size = 0;
   int channels = 1;
   unsigned frames = 0;
   std::string filePath;
 
   virtual ~AudioBuffer() {
-    if (data) delete[] data;
+    if (data)
+      delete[] data;
   }
 
   void deleteBuffer() {
-    if (data) delete[] data;
+    if (data)
+      delete[] data;
     data = nullptr;
     size = 0;
   }
 
-  T& operator[](unsigned index) { return data[index]; }
+  T &operator[](unsigned index) { return data[index]; }
   T operator[](const T index) const { return get(index); }
 
-  T get(unsigned index) const {
-    return (index < size) ? data[index] : 0;
-  }
+  T get(unsigned index) const { return (index < size) ? data[index] : 0; }
 
   void resize(unsigned n) {
-    if (data) delete[] data;
+    if (data)
+      delete[] data;
     size = n;
     if (n == 0) {
       data = nullptr;
@@ -178,11 +184,14 @@ public:
    * Get interpolated value at fractional index
    */
   T getInterpolated(float index) const {
-    if (size == 0) return 0;
+    if (size == 0)
+      return 0;
 
     // Wrap index
-    while (index < 0) index += size;
-    while (index >= size) index -= size;
+    while (index < 0)
+      index += size;
+    while (index >= size)
+      index -= size;
 
     return raw(index);
   }
@@ -199,7 +208,8 @@ public:
    * Add value at fractional index (for granular synthesis)
    */
   void add(const float index, const T value) {
-    if (size == 0) return;
+    if (size == 0)
+      return;
 
     const unsigned i = static_cast<unsigned>(std::floor(index));
     const unsigned j = (i >= (size - channels)) ? 0 : i + channels;
@@ -212,16 +222,12 @@ public:
 /**
  * Helper function to convert dB to linear amplitude
  */
-inline float dbToLinear(float db) {
-  return std::pow(10.0f, db / 20.0f);
-}
+inline float dbToLinear(float db) { return std::pow(10.0f, db / 20.0f); }
 
 /**
  * Helper function to convert linear amplitude to dB
  */
-inline float linearToDb(float linear) {
-  return 20.0f * std::log10(linear);
-}
+inline float linearToDb(float linear) { return 20.0f * std::log10(linear); }
 
 /**
  * Map a normalized value [0,1] to a range [min, max]
@@ -236,6 +242,6 @@ inline float mapRange(float val, float min, float max, bool isLog = false) {
   return min + val * (max - min);
 }
 
-}  // namespace ec2
+} // namespace ec2
 
-#endif  // EC2_UTILITY_H
+#endif // EC2_UTILITY_H

@@ -24,15 +24,18 @@ ec2~ is a port of [EmissionControl2](https://github.com/EmissionControl2/Emissio
 
 **For Apple Silicon (M1/M2/M3) Macs:**
 
-1. Download `ec2~.mxo` from the [Releases](https://github.com/yourusername/max-emission-control/releases) page
-2. Place `ec2~.mxo` in one of these locations:
-   - `~/Documents/Max 8/Library/` (user library)
-   - `/Applications/Max.app/Contents/Resources/C74/externals/` (global, requires admin)
-   - Your Max project folder
+The precompiled binary is included in the `externals/` folder of this repository.
+
+1. **From repository**:
+   ```bash
+   cp -r externals/ec2~.mxo ~/Documents/Max\ 9/Library/
+   ```
+
+2. **Or download** from the [Releases](https://github.com/yourusername/max-emission-control/releases) page
 
 **Note**: macOS may block the external on first run (unsigned binary). To allow:
 ```bash
-xattr -cr ~/Documents/Max\ 8/Library/ec2~.mxo
+xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
 ```
 
 ### Option 2: Build from Source
@@ -115,18 +118,26 @@ For comprehensive documentation, see the `ec2~.maxhelp` file (coming soon).
    cmake --build . --config Release
    ```
 
+   **Note for M1/M2/M3 Macs**: The build creates a universal binary. Extract arm64 only:
+   ```bash
+   cd /path/to/max-emission-control
+   cp -r ~/Documents/dev/externals/ec2~.mxo externals/
+   lipo externals/ec2~.mxo/Contents/MacOS/ec2~ -thin arm64 -output externals/ec2~.mxo/Contents/MacOS/ec2~
+   xattr -cr externals/ec2~.mxo
+   ```
+
 6. **Locate the built external**
 
    The compiled `ec2~.mxo` will be in:
    ```
-   /Users/yourusername/Documents/dev/externals/ec2~.mxo
+   externals/ec2~.mxo
    ```
 
 ### Installation After Building
 
 Copy `ec2~.mxo` to your Max externals folder:
 ```bash
-cp -r ~/Documents/dev/externals/ec2~.mxo ~/Documents/Max\ 8/Library/
+cp -r externals/ec2~.mxo ~/Documents/Max\ 9/Library/
 ```
 
 ---
@@ -163,6 +174,8 @@ Test the external in Max:
 
 ```
 max-emission-control/
+├── externals/              # Precompiled binaries
+│   └── ec2~.mxo            # M1/M2/M3 binary (arm64)
 ├── source/
 │   └── ec2_tilde/          # External source code
 │       ├── ec2_tilde.cpp   # Min-devkit wrapper
@@ -227,21 +240,21 @@ git submodule update --init --recursive
 
 ## Development Status
 
-**Current Version**: 1.0-beta (Phase 13 complete)
+**Current Version**: 1.0-beta
 
 ### Completed
-- ✅ Core granular synthesis engine (Phases 1-4)
-- ✅ Spatial allocation system (Phase 5)
-- ✅ Buffer management (Phase 6)
-- ✅ Multichannel cable support (Phase 6b)
-- ✅ Complete parameter system (Phase 7)
-- ✅ LFO modulation (Phase 9)
-- ✅ OSC integration (Phase 10)
-- ✅ Signal-rate inputs (Phase 12)
-- ✅ Waveform display (Phase 13)
+- ✅ Core granular synthesis engine
+- ✅ Spatial allocation system
+- ✅ Buffer management
+- ✅ Multichannel cable support
+- ✅ Complete parameter system
+- ✅ LFO modulation
+- ✅ OSC integration
+- ✅ Signal-rate inputs
+- ✅ Waveform display
 
 ### In Progress
-- 📋 Interactive help file and examples (Phase 11)
+- 📋 Interactive help file and examples
 
 ### Planned
 See `docs/FUTURE_TODO.md` for roadmap
@@ -269,7 +282,7 @@ Contributions are welcome! Please:
 - **Karl Yerkes** - Spatial audio
 
 ### Max/MSP Port (ec2~)
-- **Alessandro Anatrini** - Porting and development
+- **Alessandro Anatrini** - Max porting and grain multichannel allocation logic 
 
 ### Theoretical Foundation
 - Curtis Roads - *Microsound* (MIT Press, 2001)
@@ -312,11 +325,10 @@ Special thanks to:
 - Cycling '74 for Max/MSP and Min-DevKit
 - Curtis Roads for pioneering granular synthesis research
 - The EmissionControl2 development team
-- The Max/MSP community
 
 ---
 
-**Status**: Production-ready (pending Phase 11 documentation)
+**Status**: Production-ready
 **Platform**: macOS (Apple Silicon + Intel)
-**Max Version**: 8.0+
+**Max Version**: 9.0+
 **Last Updated**: 2025-11-21
