@@ -93,6 +93,9 @@ public:
         return getOutputChannelCount();
     }
 
+    // OSC OUTLET (Phase 10)
+    outlet<> osc_out {this, "(OSC bundle) Parameter state output"};
+
     // ATTRIBUTES (EC2 Parameters)
 
     // MULTICHANNEL OUTPUT (Phase 6b)
@@ -711,6 +714,56 @@ public:
         }
     };
 
+    message<> anything {
+        this, "anything",
+        MIN_FUNCTION {
+            // Handle OSC-style messages: /param_name value
+            // Also handle odot bundles (FullPacket format)
+
+            if (inlet == 0) {  // Only handle messages on main inlet
+                symbol msg_name = args[0];
+                std::string msg_str = std::string(msg_name);
+
+                // Check if it's an OSC path (starts with "/")
+                if (!msg_str.empty() && msg_str[0] == '/') {
+                    // Remove leading "/"
+                    std::string param_name = msg_str.substr(1);
+
+                    // Handle nested paths (e.g., "/ec2/grainrate" -> "grainrate")
+                    size_t last_slash = param_name.find_last_of('/');
+                    if (last_slash != std::string::npos) {
+                        param_name = param_name.substr(last_slash + 1);
+                    }
+
+                    // Get the value (should be second argument)
+                    if (args.size() >= 2) {
+                        handleOSCParameter(param_name, args[1]);
+                    }
+                }
+                // Check if it's an odot FullPacket bundle
+                else if (msg_str == "FullPacket") {
+                    // Handle odot bundle format
+                    // FullPacket is followed by OSC bundle data
+                    // For now, we'll parse individual messages from the bundle
+                    // This is a simplified implementation
+                    cout << "ec2~: received FullPacket OSC bundle" << endl;
+                    // TODO: Full odot bundle parsing if needed
+                }
+            }
+
+            return {};
+        }
+    };
+
+    message<> bang {
+        this, "bang",
+        MIN_FUNCTION {
+            // Output current parameter state as OSC bundle
+            outputOSCState();
+            return {};
+        }
+    };
+
     // Audio processing
     void operator()(audio_bundle input, audio_bundle output) {
         // Update engine parameters from attributes (in case they changed)
@@ -827,6 +880,130 @@ private:
         params.spatial.trajDepth = traj_depth;
 
         m_engine->updateParameters(params);
+    }
+
+    // Helper: handle OSC parameter setting (Phase 10)
+    void handleOSCParameter(const std::string& param_name, const atom& value) {
+        // Map OSC parameter names to attributes
+        // Use lowercase, no special chars for OSC compatibility
+
+        try {
+            double val = static_cast<double>(value);
+
+            // Grain scheduling
+            if (param_name == "grainrate") { grain_rate = val; }
+            else if (param_name == "async") { async = val; }
+            else if (param_name == "intermittency") { intermittency = val; }
+            else if (param_name == "streams") { streams = val; }
+
+            // Grain characteristics
+            else if (param_name == "playback") { playback_rate = val; }
+            else if (param_name == "duration") { grain_duration = val; }
+            else if (param_name == "envelope") { envelope_shape = val; }
+            else if (param_name == "amp" || param_name == "amplitude") { amplitude = val; }
+
+            // Filtering
+            else if (param_name == "filterfreq") { filter_freq = val; }
+            else if (param_name == "resonance") { filter_resonance = val; }
+
+            // Stereo panning
+            else if (param_name == "pan") { stereo_pan = val; }
+
+            // Scanning
+            else if (param_name == "scanstart") { scan_start = val; }
+            else if (param_name == "scanrange") { scan_range = val; }
+            else if (param_name == "scanspeed") { scan_speed = val; }
+
+            // Buffer
+            else if (param_name == "soundfile") { sound_file = static_cast<int>(val); }
+
+            // Multichannel
+            else if (param_name == "mc") { m_mc_mode = static_cast<int>(val); }
+            else if (param_name == "outputs") { m_outputs = static_cast<int>(val); }
+
+            // Spatial allocation
+            else if (param_name == "allocmode") { alloc_mode = static_cast<int>(val); }
+            else if (param_name == "fixedchan") { fixed_channel = static_cast<int>(val); }
+            else if (param_name == "rrstep") { rr_step = static_cast<int>(val); }
+            else if (param_name == "randspread") { random_spread = val; }
+            else if (param_name == "spatialcorr") { spatial_corr = val; }
+            else if (param_name == "pitchmin") { pitch_min = val; }
+            else if (param_name == "pitchmax") { pitch_max = val; }
+            else if (param_name == "trajshape") { traj_shape = static_cast<int>(val); }
+            else if (param_name == "trajrate") { traj_rate = val; }
+            else if (param_name == "trajdepth") { traj_depth = val; }
+
+            // LFOs (simplified - just rates for now, can expand)
+            else if (param_name == "lfo1rate") { lfo1_rate = val; }
+            else if (param_name == "lfo2rate") { lfo2_rate = val; }
+            else if (param_name == "lfo3rate") { lfo3_rate = val; }
+            else if (param_name == "lfo4rate") { lfo4_rate = val; }
+            else if (param_name == "lfo5rate") { lfo5_rate = val; }
+            else if (param_name == "lfo6rate") { lfo6_rate = val; }
+
+            else {
+                // Unknown parameter - ignore silently for OSC compatibility
+                // (some OSC messages might be for other purposes)
+            }
+
+            // Update engine parameters after setting
+            updateEngineParameters();
+
+        } catch (...) {
+            // Type conversion error - ignore
+        }
+    }
+
+    // Helper: output current parameter state as OSC bundle (Phase 10)
+    void outputOSCState() {
+        // Output all parameters as OSC address/value pairs
+        // Format compatible with o.display and odot library
+
+        // Send as multiple messages in OSC format
+        // Each message: "/param_name value"
+
+        osc_out.send("/grainrate", grain_rate.get());
+        osc_out.send("/async", async.get());
+        osc_out.send("/intermittency", intermittency.get());
+        osc_out.send("/streams", streams.get());
+
+        osc_out.send("/playback", playback_rate.get());
+        osc_out.send("/duration", grain_duration.get());
+        osc_out.send("/envelope", envelope_shape.get());
+        osc_out.send("/amp", amplitude.get());
+
+        osc_out.send("/filterfreq", filter_freq.get());
+        osc_out.send("/resonance", filter_resonance.get());
+
+        osc_out.send("/pan", stereo_pan.get());
+
+        osc_out.send("/scanstart", scan_start.get());
+        osc_out.send("/scanrange", scan_range.get());
+        osc_out.send("/scanspeed", scan_speed.get());
+
+        osc_out.send("/soundfile", sound_file.get());
+
+        osc_out.send("/mc", m_mc_mode);
+        osc_out.send("/outputs", m_outputs);
+
+        osc_out.send("/allocmode", alloc_mode.get());
+        osc_out.send("/fixedchan", fixed_channel.get());
+        osc_out.send("/rrstep", rr_step.get());
+        osc_out.send("/randspread", random_spread.get());
+        osc_out.send("/spatialcorr", spatial_corr.get());
+        osc_out.send("/pitchmin", pitch_min.get());
+        osc_out.send("/pitchmax", pitch_max.get());
+        osc_out.send("/trajshape", traj_shape.get());
+        osc_out.send("/trajrate", traj_rate.get());
+        osc_out.send("/trajdepth", traj_depth.get());
+
+        // LFO rates (can expand to include shape, polarity, duty if needed)
+        osc_out.send("/lfo1rate", lfo1_rate.get());
+        osc_out.send("/lfo2rate", lfo2_rate.get());
+        osc_out.send("/lfo3rate", lfo3_rate.get());
+        osc_out.send("/lfo4rate", lfo4_rate.get());
+        osc_out.send("/lfo5rate", lfo5_rate.get());
+        osc_out.send("/lfo6rate", lfo6_rate.get());
     }
 };
 

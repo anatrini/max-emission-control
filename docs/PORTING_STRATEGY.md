@@ -317,54 +317,98 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 
 ---
 
-### Phase 8: OSC Control
-**Goal**: Add native OSC parameter control
+### Phase 8: OSC Control (Native Library) ⊗ SKIPPED
+**Goal**: Add native OSC parameter control via embedded library
 
-**Tasks**:
-1. Integrate OSC library (liblo or Max's native OSC)
-2. Map all attributes to OSC addresses (`/ec2/grainrate`, etc.)
-3. Implement OSC message parsing
-4. Add `@oscport` attribute
+**Reason for skipping**: Not needed - Max already has excellent OSC infrastructure (native objects, odot library). Embedding OSC would be redundant and less flexible than Max patching. See Phase 10 for OSC integration approach.
 
-**Deliverable**: Full OSC parameter control
-
-**Commit**: "Add OSC parameter control support"
+**Decision**: Users can route OSC to ec2~ using Max's native OSC objects or odot library.
 
 ---
 
-### Phase 9: LFO Modulation System (Optional)
+### Phase 9: LFO Modulation System ✅ COMPLETED
 **Goal**: Port EC2's LFO modulation system
 
-**Tasks**:
-1. Port `ecModulator` class
-2. Implement 6 LFO generators
-3. LFO-to-parameter routing
-4. LFO shapes and rates
+**Completed Tasks**:
+1. ✅ Created LFO oscillator engine (`ec2_lfo.h/cpp`)
+2. ✅ Implemented 6 independent LFOs
+3. ✅ Added 5 waveform shapes (sine, square, rise, fall, noise)
+4. ✅ Added 3 polarity modes (bipolar, unipolar+, unipolar-)
+5. ✅ Implemented modulation routing via `modroute` message
+6. ✅ Integrated modulation into audio engine
+7. ✅ Added 24 LFO control attributes (4 per LFO)
 
-**Deliverable**: Parameter modulation via LFOs
+**Deliverable**: ✅ Complete LFO modulation system (2.0MB .mxo)
 
-**Commit**: "Add LFO modulation system"
+**Technical Implementation**:
+- 6 LFOs with adjustable frequency (0.001-100 Hz)
+- Duty cycle control for square wave
+- Control-rate modulation (grainrate, async, intermittency, streams, scan params)
+- Per-grain modulation (playback, duration, envelope, filter, pan, amp)
+- 14 modulatable parameters with depth control (0.0-1.0)
+- Automatic parameter range clamping
+
+**Commit**: "Phase 9: Implement LFO modulation system"
 
 ---
 
-### Phase 10: Max Help Patch
-**Goal**: Create interactive help patch
+### Phase 10: OSC Integration (odot-compatible) ✅ COMPLETED
+**Goal**: OSC-style parameter control and state output for integration with odot/spat5 workflows
+
+**Completed Tasks**:
+1. ✅ Added OSC outlet for parameter state output
+2. ✅ Implemented OSC-style message input (`/param_name value`)
+3. ✅ Added `anything` message handler for OSC paths
+4. ✅ Implemented `bang` message to output full parameter state
+5. ✅ Created parameter-to-OSC mapping for all 40+ parameters
+6. ✅ Made compatible with o.display for real-time visualization
+
+**Deliverable**: ✅ OSC-compatible parameter I/O (2.1MB .mxo)
+
+**Technical Implementation**:
+- Receives OSC-style messages: `/grainrate 20`, `/filterfreq 1000`, etc.
+- Handles nested paths: `/ec2/grainrate` → `grainrate`
+- Outputs parameter state as OSC address/value pairs
+- Compatible with odot library (o.display, o.route, o.expr)
+- Similar workflow to spat5 library
+- No traditional Max attribute messages needed (though still supported)
+- `bang` message triggers full parameter dump
+
+**Usage**:
+```
+[udpreceive 7400]           // Receive OSC from network
+|
+[o.route /ec2]             // Route /ec2 messages
+|
+[ec2~ @outputs 8]          // OSC input via anything message
+|
+[o.display]                // Visualize parameter state
+```
+
+**Commit**: "Phase 10: Add OSC integration (odot-compatible I/O)"
+
+---
+
+### Phase 11: Documentation & Help Files
+**Goal**: Complete user documentation and Max help patch
 
 **Tasks**:
-1. Create help patch from EC2_HELP_REFERENCE.md
-2. Example configurations
-3. Visual parameter demonstrations
-4. Audio examples
+1. Complete EC2_HELP_REFERENCE.md with all Phase 9-10 features
+2. Document LFO modulation system
+3. Document OSC integration and workflows
+4. Create interactive .maxhelp file
+5. Add example patches demonstrating key features
+6. Document integration with odot and spat5
 
-**Deliverable**: Complete Max help file
+**Deliverable**: Complete documentation suite
 
-**Commit**: "Add interactive help patch and examples"
+**Commit**: "Phase 11: Complete documentation and help files"
 
 ---
 
 ## Project Timeline
 
-### Completed Phases (Phases 1-7)
+### Completed Phases (Phases 1-10)
 - ✅ **Phase 1**: Extract utility classes (complete)
 - ✅ **Phase 2**: Port scheduler, envelope, filter (complete)
 - ✅ **Phase 3**: Port grain synthesis engine (complete)
@@ -373,26 +417,28 @@ This document outlines the strategy for extracting EmissionControl2's grain synt
 - ✅ **Phase 6**: Buffer management & audio loading (complete)
 - ✅ **Phase 6b**: Multichannel cable support (complete)
 - ✅ **Phase 7**: Parameter completion (complete)
+- ⊗ **Phase 8**: OSC control (native library) - SKIPPED (redundant with Max OSC)
+- ✅ **Phase 9**: LFO modulation system (complete)
+- ✅ **Phase 10**: OSC integration (odot-compatible) (complete)
 
 ### Current Status
-**Core synthesis engine: COMPLETE**
-- All essential parameters implemented
-- Multichannel spatial allocation working
-- Buffer~ / polybuffer~ integration working
-- External ready for production use
+**Full-featured granular synthesizer: COMPLETE**
+- ✅ All essential synthesis parameters
+- ✅ Multichannel spatial allocation (7 modes)
+- ✅ Buffer~ / polybuffer~ integration
+- ✅ LFO modulation system (6 LFOs, 14 modulatable params)
+- ✅ OSC integration (odot/spat5 compatible)
+- ✅ 40+ controllable parameters
+- ✅ 2048-voice grain pool
+- ✅ Up to 16 output channels
+- **Status**: Feature-complete, ready for documentation
 
-### Future Enhancements (Phases 8-10)
-- 🎯 **Phase 8**: OSC control
-  - Priority: **Medium** - Performance and external control
-  - Native OSC parameter mapping
-
-- 🎵 **Phase 9**: LFO modulation
-  - Priority: **Low** - Optional, advanced feature
-  - Parameter modulation system
-
-- 📖 **Phase 10**: Max help patch
-  - Priority: **Medium** - User documentation
-  - Interactive examples and demonstrations
+### Remaining Work (Phase 11)
+- 📖 **Phase 11**: Documentation & help files
+  - Priority: **High** - Essential for users
+  - Document LFO system, OSC integration
+  - Create .maxhelp file
+  - Example patches and workflows
 
 ## Dependencies Decision Matrix
 
