@@ -24,6 +24,7 @@ set(SOURCE_FILES
 	ec2_voice_pool.cpp
 	ec2_engine.cpp
 	ec2_spatial_allocator.cpp
+	ec2_lfo.cpp
 )
 
 add_library(

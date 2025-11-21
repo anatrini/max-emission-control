@@ -14,6 +14,12 @@ GranularEngine::GranularEngine(size_t maxVoices)
 
   mAudioBuffers.resize(1);  // Start with one buffer slot
   mScanner.setSamplingRate(DEFAULT_SAMPLE_RATE);
+
+  // Initialize LFOs (Phase 9)
+  for (int i = 0; i < MAX_LFOS; ++i) {
+    mLFOs[i].setSampleRate(DEFAULT_SAMPLE_RATE);
+    mLFOValues[i] = 0.0f;
+  }
 }
 
 void GranularEngine::initialize(float sampleRate) {
@@ -30,6 +36,11 @@ void GranularEngine::setSampleRate(float sampleRate) {
     mSampleRate = sampleRate;
     mScheduler.setSamplingRate(sampleRate);
     mScanner.setSamplingRate(sampleRate);
+
+    // Update LFO sample rates (Phase 9)
+    for (int i = 0; i < MAX_LFOS; ++i) {
+      mLFOs[i].setSampleRate(sampleRate);
+    }
   }
 }
 
@@ -60,15 +71,34 @@ void GranularEngine::updateParameters(const SynthParameters& params) {
 }
 
 void GranularEngine::process(float** outBuffers, int numChannels, int numFrames) {
+  // Process LFOs once per audio callback (Phase 9)
+  processLFOs();
+
+  // Apply modulation to control-rate parameters (Phase 9)
+  float modulatedGrainRate = applyModulation(mParams.grainRate, mParams.modGrainRate, 0.1f, 500.0f);
+  float modulatedAsync = applyModulation(mParams.async, mParams.modAsync, 0.0f, 1.0f);
+  float modulatedIntermittency = applyModulation(mParams.intermittency, mParams.modIntermittency, 0.0f, 1.0f);
+  int modulatedStreams = static_cast<int>(applyModulation(static_cast<float>(mParams.streams),
+                                                          mParams.modStreams, 1.0f, 20.0f));
+
+  // Update scheduler with modulated parameters
+  mScheduler.configure(modulatedGrainRate, modulatedAsync, modulatedIntermittency);
+  mScheduler.setPolyStream(SYNCHRONOUS, modulatedStreams);
+
   // Safety check - need at least one buffer
   auto currentBuffer = getAudioBuffer(mParams.soundFile);
   if (!currentBuffer || currentBuffer->size == 0) {
     return;  // No audio to process
   }
 
-  // Update scan index (simple version for now)
-  // Phase 5 will implement full scanner with speed control
-  mCurrentScanIndex = mParams.scanBegin * currentBuffer->frames;
+  // Apply modulation to scan parameters (Phase 9)
+  float modulatedScanBegin = applyModulation(mParams.scanBegin, mParams.modScanBegin, 0.0f, 1.0f);
+  float modulatedScanRange = applyModulation(mParams.scanRange, mParams.modScanRange, 0.0f, 1.0f);
+  float modulatedScanSpeed = applyModulation(mParams.scanSpeed, mParams.modScanSpeed, -32.0f, 32.0f);
+
+  // Update scan index with modulated parameters
+  // TODO: Implement full scanner with modulatedScanSpeed
+  mCurrentScanIndex = modulatedScanBegin * currentBuffer->frames;
 
   // Process frame by frame
   for (int frame = 0; frame < numFrames; ++frame) {
@@ -88,17 +118,26 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
         // Get spatial allocation (multichannel panning gains)
         PanningVector panning = mSpatialAllocator.allocate(metadata);
 
+        // Apply modulation to parameters (Phase 9)
+        float modulatedPlaybackRate = applyModulation(mParams.playbackRate, mParams.modPlaybackRate, -32.0f, 32.0f);
+        float modulatedDuration = applyModulation(mParams.grainDuration, mParams.modGrainDuration, 1.0f, 1000.0f);
+        float modulatedEnvelope = applyModulation(mParams.envelope, mParams.modEnvelope, 0.0f, 1.0f);
+        float modulatedPan = applyModulation(mParams.pan, mParams.modPan, -1.0f, 1.0f);
+        float modulatedAmplitude = applyModulation(mParams.amplitude, mParams.modAmplitude, 0.0f, 1.0f);
+        float modulatedFilterFreq = applyModulation(mParams.filterFreq, mParams.modFilterFreq, 20.0f, 22000.0f);
+        float modulatedResonance = applyModulation(mParams.resonance, mParams.modResonance, 0.0f, 1.0f);
+
         // Configure grain parameters
         GrainParameters grainParams;
         grainParams.sourceBuffer = currentBuffer;
         grainParams.currentIndex = mCurrentScanIndex;
-        grainParams.transposition = mParams.playbackRate;
-        grainParams.durationMs = mParams.grainDuration;
-        grainParams.envelope = mParams.envelope;
-        grainParams.pan = mParams.pan;  // Legacy stereo pan (fallback)
-        grainParams.amplitudeDb = mParams.amplitude;
-        grainParams.filterFreq = mParams.filterFreq;
-        grainParams.resonance = mParams.resonance;
+        grainParams.transposition = modulatedPlaybackRate;
+        grainParams.durationMs = modulatedDuration;
+        grainParams.envelope = modulatedEnvelope;
+        grainParams.pan = modulatedPan;  // Legacy stereo pan (fallback)
+        grainParams.amplitudeDb = modulatedAmplitude;
+        grainParams.filterFreq = modulatedFilterFreq;
+        grainParams.resonance = modulatedResonance;
         grainParams.activeVoiceCount = &mActiveVoiceCount;
 
         // Apply spatial allocation
@@ -131,6 +170,51 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
 void GranularEngine::stopAllGrains() {
   mVoicePool.stopAll();
   mActiveVoiceCount = 0;
+}
+
+// LFO System (Phase 9)
+
+LFO* GranularEngine::getLFO(int index) {
+  if (index < 0 || index >= MAX_LFOS) {
+    return nullptr;
+  }
+  return &mLFOs[index];
+}
+
+void GranularEngine::processLFOs() {
+  // Process all LFOs once per audio callback
+  // This updates mLFOValues which are then used for modulation
+  for (int i = 0; i < MAX_LFOS; ++i) {
+    mLFOValues[i] = mLFOs[i].process();
+  }
+}
+
+float GranularEngine::applyModulation(float baseValue, const ModulationParameters& modParams,
+                                     float minValue, float maxValue) {
+  // If no LFO assigned or depth is zero, return base value
+  if (modParams.lfoSource == 0 || modParams.depth == 0.0f) {
+    return baseValue;
+  }
+
+  // Get LFO index (lfoSource is 1-6, array index is 0-5)
+  int lfoIndex = modParams.lfoSource - 1;
+  if (lfoIndex < 0 || lfoIndex >= MAX_LFOS) {
+    return baseValue;
+  }
+
+  // Get current LFO value
+  float lfoValue = mLFOValues[lfoIndex];
+
+  // Calculate modulation range
+  float range = maxValue - minValue;
+  float modAmount = lfoValue * modParams.depth * range;
+
+  // Apply modulation and clamp to valid range
+  float modulatedValue = baseValue + modAmount;
+  if (modulatedValue < minValue) modulatedValue = minValue;
+  if (modulatedValue > maxValue) modulatedValue = maxValue;
+
+  return modulatedValue;
 }
 
 }  // namespace ec2

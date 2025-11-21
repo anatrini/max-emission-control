@@ -303,6 +303,278 @@ public:
         range {0, 15}
     };
 
+    // LFO PARAMETERS (Phase 9)
+
+    // LFO 1
+    attribute<int> lfo1_shape {
+        this, "lfo1shape", 0,
+        description {"LFO1 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(0);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo1_rate {
+        this, "lfo1rate", 1.0,
+        description {"LFO1 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(0);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo1_polarity {
+        this, "lfo1polarity", 0,
+        description {"LFO1 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(0);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo1_duty {
+        this, "lfo1duty", 0.5,
+        description {"LFO1 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(0);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
+    // LFO 2
+    attribute<int> lfo2_shape {
+        this, "lfo2shape", 0,
+        description {"LFO2 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(1);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo2_rate {
+        this, "lfo2rate", 1.0,
+        description {"LFO2 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(1);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo2_polarity {
+        this, "lfo2polarity", 0,
+        description {"LFO2 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(1);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo2_duty {
+        this, "lfo2duty", 0.5,
+        description {"LFO2 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(1);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
+    // LFO 3
+    attribute<int> lfo3_shape {
+        this, "lfo3shape", 0,
+        description {"LFO3 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(2);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo3_rate {
+        this, "lfo3rate", 1.0,
+        description {"LFO3 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(2);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo3_polarity {
+        this, "lfo3polarity", 0,
+        description {"LFO3 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(2);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo3_duty {
+        this, "lfo3duty", 0.5,
+        description {"LFO3 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(2);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
+    // LFO 4
+    attribute<int> lfo4_shape {
+        this, "lfo4shape", 0,
+        description {"LFO4 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(3);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo4_rate {
+        this, "lfo4rate", 1.0,
+        description {"LFO4 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(3);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo4_polarity {
+        this, "lfo4polarity", 0,
+        description {"LFO4 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(3);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo4_duty {
+        this, "lfo4duty", 0.5,
+        description {"LFO4 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(3);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
+    // LFO 5
+    attribute<int> lfo5_shape {
+        this, "lfo5shape", 0,
+        description {"LFO5 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(4);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo5_rate {
+        this, "lfo5rate", 1.0,
+        description {"LFO5 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(4);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo5_polarity {
+        this, "lfo5polarity", 0,
+        description {"LFO5 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(4);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo5_duty {
+        this, "lfo5duty", 0.5,
+        description {"LFO5 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(4);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
+    // LFO 6
+    attribute<int> lfo6_shape {
+        this, "lfo6shape", 0,
+        description {"LFO6 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
+        range {0, 4},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(5);
+            if (lfo) lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo6_rate {
+        this, "lfo6rate", 1.0,
+        description {"LFO6 frequency in Hz"},
+        range {0.001, 100.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(5);
+            if (lfo) lfo->setFrequency(args[0]);
+            return args;
+        }}
+    };
+
+    attribute<int> lfo6_polarity {
+        this, "lfo6polarity", 0,
+        description {"LFO6 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
+        range {0, 2},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(5);
+            if (lfo) lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
+            return args;
+        }}
+    };
+
+    attribute<number> lfo6_duty {
+        this, "lfo6duty", 0.5,
+        description {"LFO6 duty cycle (for square wave)"},
+        range {0.0, 1.0},
+        setter { MIN_FUNCTION {
+            auto lfo = m_engine->getLFO(5);
+            if (lfo) lfo->setDuty(args[0]);
+            return args;
+        }}
+    };
+
     // MESSAGES
 
     message<> dspsetup {
@@ -384,6 +656,61 @@ public:
         }
     };
 
+    message<> modroute {
+        this, "modroute",
+        MIN_FUNCTION {
+            if (args.size() < 2) {
+                cerr << "ec2~: modroute requires parameter name and LFO number (or 'none')" << endl;
+                cerr << "      usage: modroute <param> <lfo_num> [depth]" << endl;
+                cerr << "      example: modroute grainrate 1 0.5" << endl;
+                return {};
+            }
+
+            symbol param_sym = args[0];
+            std::string param_name = std::string(param_sym);
+
+            // Get modulation parameters reference
+            ec2::ModulationParameters* modParams = getModulationParameters(param_name);
+            if (!modParams) {
+                cerr << "ec2~: unknown parameter '" << param_name << "'" << endl;
+                return {};
+            }
+
+            // Check if clearing modulation
+            if (args.size() == 2) {
+                symbol lfo_arg = args[1];
+                std::string lfo_str = std::string(lfo_arg);
+                if (lfo_str == "none" || lfo_str == "0") {
+                    modParams->lfoSource = 0;
+                    modParams->depth = 0.0f;
+                    cout << "ec2~: cleared modulation from " << param_name << endl;
+                    return {};
+                }
+            }
+
+            // Setting modulation
+            int lfo_num = args[1];
+            float depth = (args.size() >= 3) ? static_cast<float>(args[2]) : 0.5f;
+
+            if (lfo_num < 0 || lfo_num > 6) {
+                cerr << "ec2~: LFO number must be 0-6 (0=none, 1-6=LFO1-6)" << endl;
+                return {};
+            }
+
+            modParams->lfoSource = lfo_num;
+            modParams->depth = std::max(0.0f, std::min(depth, 1.0f));
+
+            if (lfo_num == 0) {
+                cout << "ec2~: cleared modulation from " << param_name << endl;
+            } else {
+                cout << "ec2~: routed LFO" << lfo_num << " to " << param_name
+                     << " (depth " << modParams->depth << ")" << endl;
+            }
+
+            return {};
+        }
+    };
+
     // Audio processing
     void operator()(audio_bundle input, audio_bundle output) {
         // Update engine parameters from attributes (in case they changed)
@@ -425,6 +752,28 @@ private:
         // @outputs controls the number of channels
         // @mc only controls whether they're delivered as separated outputs or bundled in a multichannel cable
         return m_outputs;
+    }
+
+    // Helper: get modulation parameters for a given parameter name (Phase 9)
+    ec2::ModulationParameters* getModulationParameters(const std::string& param_name) {
+        auto& params = m_engine->getParameters();
+
+        if (param_name == "grainrate") return const_cast<ec2::ModulationParameters*>(&params.modGrainRate);
+        if (param_name == "async") return const_cast<ec2::ModulationParameters*>(&params.modAsync);
+        if (param_name == "intermittency") return const_cast<ec2::ModulationParameters*>(&params.modIntermittency);
+        if (param_name == "streams") return const_cast<ec2::ModulationParameters*>(&params.modStreams);
+        if (param_name == "playback") return const_cast<ec2::ModulationParameters*>(&params.modPlaybackRate);
+        if (param_name == "duration") return const_cast<ec2::ModulationParameters*>(&params.modGrainDuration);
+        if (param_name == "envelope") return const_cast<ec2::ModulationParameters*>(&params.modEnvelope);
+        if (param_name == "filterfreq") return const_cast<ec2::ModulationParameters*>(&params.modFilterFreq);
+        if (param_name == "resonance") return const_cast<ec2::ModulationParameters*>(&params.modResonance);
+        if (param_name == "pan") return const_cast<ec2::ModulationParameters*>(&params.modPan);
+        if (param_name == "amp") return const_cast<ec2::ModulationParameters*>(&params.modAmplitude);
+        if (param_name == "scanstart") return const_cast<ec2::ModulationParameters*>(&params.modScanBegin);
+        if (param_name == "scanrange") return const_cast<ec2::ModulationParameters*>(&params.modScanRange);
+        if (param_name == "scanspeed") return const_cast<ec2::ModulationParameters*>(&params.modScanSpeed);
+
+        return nullptr;
     }
 
     // Helper: update engine parameters from attributes

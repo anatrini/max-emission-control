@@ -15,8 +15,12 @@
 #include "ec2_grain.h"
 #include "ec2_utility.h"
 #include "ec2_spatial_allocator.h"
+#include "ec2_lfo.h"
 
 namespace ec2 {
+
+// Maximum number of LFOs
+constexpr int MAX_LFOS = 6;
 
 /**
  * Synthesis parameters
@@ -52,6 +56,22 @@ struct SynthParameters {
 
   // Multichannel spatial allocation (Phase 5)
   SpatialParameters spatial;     // Spatial allocator parameters
+
+  // Modulation routing (Phase 9)
+  ModulationParameters modGrainRate;
+  ModulationParameters modAsync;
+  ModulationParameters modIntermittency;
+  ModulationParameters modStreams;
+  ModulationParameters modPlaybackRate;
+  ModulationParameters modGrainDuration;
+  ModulationParameters modEnvelope;
+  ModulationParameters modFilterFreq;
+  ModulationParameters modResonance;
+  ModulationParameters modPan;
+  ModulationParameters modAmplitude;
+  ModulationParameters modScanBegin;
+  ModulationParameters modScanRange;
+  ModulationParameters modScanSpeed;
 };
 
 /**
@@ -100,6 +120,11 @@ public:
   const SynthParameters& getParameters() const { return mParams; }
 
   /**
+   * Get mutable reference to parameters (for modulation routing)
+   */
+  SynthParameters& getParameters() { return mParams; }
+
+  /**
    * Process audio
    * @param outBuffers - Array of output buffers (one per channel)
    * @param numChannels - Number of output channels
@@ -117,6 +142,27 @@ public:
    */
   int getActiveVoiceCount() const { return mVoicePool.getActiveVoiceCount(); }
 
+  /**
+   * Get LFO by index (0-5)
+   */
+  LFO* getLFO(int index);
+
+  /**
+   * Process all LFOs (call once per audio callback)
+   */
+  void processLFOs();
+
+  /**
+   * Apply modulation to a parameter value
+   * @param baseValue - The base parameter value
+   * @param modParams - Modulation parameters (source LFO + depth)
+   * @param minValue - Minimum allowed value
+   * @param maxValue - Maximum allowed value
+   * @return Modulated value
+   */
+  float applyModulation(float baseValue, const ModulationParameters& modParams,
+                       float minValue, float maxValue);
+
 private:
   VoicePool mVoicePool;
   GrainScheduler mScheduler;
@@ -131,6 +177,10 @@ private:
 
   int mActiveVoiceCount = 0;
   float mGrainEmissionTime = 0.0f;  // Track time for spatial allocator
+
+  // LFO system (Phase 9)
+  LFO mLFOs[MAX_LFOS];
+  float mLFOValues[MAX_LFOS];  // Current LFO values (updated once per audio callback)
 };
 
 }  // namespace ec2
