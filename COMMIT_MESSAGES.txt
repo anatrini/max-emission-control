@@ -1,5 +1,5 @@
 =======================================================================
-GIT COMMIT COMMANDS FOR PHASE 12 & 13
+GIT COMMIT COMMANDS FOR PHASE 12 & 13 + CRASH FIX
 =======================================================================
 
 Execute these commands in order from the repository root directory.
@@ -181,14 +181,54 @@ Modified files:
 Purpose: Enable immediate testing on M1/M2/M3 Macs without building"
 
 -----------------------------------------------------------------------
+COMMIT 5: Crash Fix - LFO Attribute Setter Null Checks
+-----------------------------------------------------------------------
+
+git add source/ec2_tilde/ec2_tilde.cpp
+git add externals/
+git add CRASH_FIX_SUMMARY.md
+git add COMMIT_MESSAGES.txt
+
+git commit -m "Critical Fix: Resolve Max 9 crash on object load
+
+Fixes crash caused by null pointer dereference during attribute
+initialization. Min-devkit initializes attributes before the
+constructor body runs, but LFO attribute setters were accessing
+m_engine (std::unique_ptr) before it was initialized.
+
+Problem:
+- Max 9 crashed immediately when loading ec2~ object
+- Exception: EXC_BAD_ACCESS (SIGABRT) at 0x0000000000000010
+- Stack trace showed crash in lfo1_shape lambda during attribute init
+- All 24 LFO attribute setters called m_engine->getLFO(N) without
+  checking if m_engine was nullptr
+
+Solution:
+- Added 'if (!m_engine) return args;' to all 24 LFO attribute setters
+- Setters now safely return without accessing m_engine during init
+- Engine initialization completes, then setters work normally
+
+Modified files:
+- source/ec2_tilde/ec2_tilde.cpp: Add null checks to all LFO setters
+  (lines 328, 340, 351, 363, 376, 388, 400, 412, 425, 437, 449, 461,
+   474, 486, 498, 510, 523, 535, 547, 559, 572, 584, 596, 608)
+- externals/ec2~.mxo: Rebuilt binary with crash fix (484KB, arm64)
+- externals/BUILD_INFO.txt: Updated build information
+- CRASH_FIX_SUMMARY.md: Complete crash fix documentation
+- COMMIT_MESSAGES.txt: Updated to include this commit
+
+Tested: Build successful, ready for Max 9 testing
+Status: Critical crash fix complete"
+
+-----------------------------------------------------------------------
 OPTIONAL: Tag Release
 -----------------------------------------------------------------------
 
 # After all commits, optionally tag this as v1.0-beta (pre-help-file)
 
-git tag -a v1.0-beta -m "Version 1.0 Beta - Feature Complete
+git tag -a v1.0-beta -m "Version 1.0 Beta - Feature Complete (Stable)
 
-All synthesis features implemented:
+All synthesis features implemented and crash-free:
 - Core granular synthesis engine (2048 voices, 16 channels)
 - 7 spatial allocation modes
 - LFO modulation system (6 LFOs, 14 parameters)
@@ -196,9 +236,13 @@ All synthesis features implemented:
 - Signal-rate inputs (scan, grain rate, playback)
 - Waveform display and buffer editor access
 
+Crash fixes:
+- Fixed null pointer dereference in LFO attribute setters
+- Object loads cleanly in Max 9 on Apple Silicon
+
 Pending: Phase 11 (interactive help file and examples)
 
-This is a beta release pending user documentation completion."
+This is a stable beta release pending user documentation completion."
 
 -----------------------------------------------------------------------
 VERIFICATION COMMANDS
@@ -206,10 +250,10 @@ VERIFICATION COMMANDS
 
 # After committing, verify with:
 
-git log --oneline -4
-# Should show all four commits
+git log --oneline -5
+# Should show all five commits
 
-git diff HEAD~4
+git diff HEAD~5
 # Should show all changes since before Phase 12
 
 git status

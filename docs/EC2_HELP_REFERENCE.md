@@ -498,6 +498,77 @@ Loads multiple buffers from a polybuffer~ collection.
 
 The polybuffer message loads buffers named `<basename>.0`, `<basename>.1`, etc. Use the `@soundfile` attribute to select which buffer to play.
 
+### /set <buffer_name> [buffer_name2 ...]
+OSC-style message to load one or more buffers by name. This is equivalent to the `read` message but uses OSC format for integration with OSC-based control systems.
+
+**Format**: `/set buffer_name` or `/set buffer1 buffer2 buffer3 ...`
+
+```
+[message /set mybuffer(        // Load single buffer via OSC
+[message /set buf1 buf2 buf3(  // Load multiple buffers via OSC
+|
+[ec2~]
+```
+
+**Multiple buffer support**: When multiple buffer names are provided, they are loaded as a polybuffer-style collection indexed from 0. You can switch between them using the `@soundfile` attribute.
+
+**Examples**:
+```
+// Load single buffer
+[message /set mysample(
+|
+[ec2~]
+
+// Load three buffers and select the second one
+[message /set sound1 sound2 sound3(
+|
+[ec2~ @soundfile 1]  // Use sound2 (index 1)
+```
+
+**OSC Compatibility**: This message follows OSC naming conventions (message starts with `/`) and is compatible with odot, spat5, and other OSC-based Max workflows.
+
+### Inlet Configuration
+ec2~ has **4 inlets total**:
+
+- **Inlet 0** (leftmost): **Messages and OSC commands** - Accepts all messages including `/set`, `/grainrate`, `read`, `polybuffer`, `clear`, etc. All OSC messages (messages starting with `/`) must be sent to this inlet.
+- **Inlet 1**: **Signal input** - Scan position (0.0-1.0), overrides `@scanstart` when connected
+- **Inlet 2**: **Signal input** - Grain rate (Hz), overrides `@grainrate` when connected  
+- **Inlet 3**: **Signal input** - Playback rate, overrides `@playback` when connected
+
+```
+Messages/OSC    Scan~   Rate~   Playback~
+     |            |       |        |
+     [ec2~ mybuffer @outputs 4]
+```
+
+### Outlet Configuration
+ec2~ outlets depend on the `@mc` attribute:
+
+**When @mc=0 (separated outputs, default)**:
+- **Outlets 0 to (@outputs-1)**: Individual signal outputs for each channel
+- **Last outlet**: OSC bundle debug output
+
+Example with `@outputs 4`:
+```
+     [ec2~ @outputs 4 @mc 0]
+      |    |    |    |     |
+     ch0  ch1  ch2  ch3  OSC
+```
+
+**When @mc=1 (multichannel cable)**:
+- **Outlet 0**: Multichannel signal output (blue/black MC cable) carrying all `@outputs` channels
+- **Outlet 1**: OSC bundle debug output
+
+Example with `@outputs 8 @mc 1`:
+```
+     [ec2~ @outputs 8 @mc 1]
+      |              |
+   MC (8ch)        OSC
+```
+
+The OSC outlet outputs parameter state when the object receives a `bang` message. Use this for debugging or for routing parameter state to other Max objects.
+
+
 ### waveform (Phase 13)
 Reports buffer information to the Max console: frames, channels, sample rate, duration, and peak amplitude.
 
