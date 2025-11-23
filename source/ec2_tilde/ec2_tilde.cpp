@@ -71,7 +71,7 @@ loadFromMaxBuffer(const std::string &buffer_name) {
 }
 } // namespace ec2_buffer
 
-class ec2_tilde : public object<ec2_tilde>, public mc_operator<> {
+class ec2_tilde : public object<ec2_tilde> {
 private:
   // CRITICAL: These members MUST be declared first, before any attributes,
   // because C++ initializes members in declaration order.
@@ -79,6 +79,10 @@ private:
   int m_mc_mode{0}; // Output mode: 0=separated outputs, 1=multichannel cable
   int m_outputs{2}; // Number of output channels (1-16)
   std::unique_ptr<ec2::GranularEngine> m_engine;
+
+  // Dynamic outlet storage (Max SDK)
+  std::vector<void *> m_signal_outlets;
+  void *m_osc_outlet{nullptr};
 
 public:
   MIN_DESCRIPTION{"EmissionControl2 granular synthesis with multichannel "
@@ -97,15 +101,15 @@ public:
       }
     }
 
-    cout << "ec2~ initialized with " << m_outputs << " output"
-         << (m_outputs > 1 ? "s" : "") << endl;
-
     // Initialize synthesis engine
     m_engine = std::make_unique<ec2::GranularEngine>(2048); // Max 2048 grains
-  }
 
-  // Multichannel configuration
-  size_t mc_get_output_channel_count() const { return getOutputChannelCount(); }
+    // Create outlets dynamically using Max SDK
+    createOutlets();
+
+    cout << "ec2~ initialized with " << m_outputs << " output"
+         << (m_outputs > 1 ? "s" : "") << ", mc=" << m_mc_mode << endl;
+  }
 
   // SIGNAL INLETS (Phase 12)
   inlet<> scan_in{this,
@@ -113,13 +117,8 @@ public:
   inlet<> rate_in{this, "(signal) Grain rate in Hz (overrides @grainrate)"};
   inlet<> playback_in{this, "(signal) Playback rate (overrides @playback)"};
 
-  // SIGNAL OUTLETS
-  // The mc_operator<> will handle the actual multichannel output routing
-  // We need to declare signal outlets explicitly
-  outlet<> audio_out{this, "(signal) Audio output", "signal"};
-
-  // OSC OUTLET (Phase 10)
-  outlet<> osc_out{this, "(OSC bundle) Parameter state output"};
+  // NOTE: Signal outlets are created DYNAMICALLY in createOutlets()
+  // OSC outlet is also created dynamically and stored in m_osc_outlet
 
   // ATTRIBUTES (EC2 Parameters)
 
@@ -129,25 +128,30 @@ public:
       this, "mc", 0,
       description{"Output mode: 0=separated outputs (each requires its own "
                   "cord), 1=multichannel cable (single blue/black cord)"},
-      range{0, 1}, setter{MIN_FUNCTION{m_mc_mode = static_cast<int>(args[0]);
-  cout << "ec2~: output mode set to "
-       << (m_mc_mode ? "multichannel cable" : "separated outputs") << endl;
-  return args;
-}
-}
-}
-;
+      range{0, 1},
+      setter{MIN_FUNCTION{
+          int new_mc = static_cast<int>(args[0]);
+          if (new_mc != m_mc_mode) {
+              m_mc_mode = new_mc;
+              recreateOutlets();
+              cout << "ec2~: @mc set to " << m_mc_mode << " (outlets recreated)" << endl;
+          }
+          return args;
+      }}};
 
 attribute<int> outputs{
     this, "outputs", 2,
     description{"Number of output channels (1-16, default 2)"}, range{1, 16},
-    setter{MIN_FUNCTION{m_outputs = static_cast<int>(args[0]);
-cout << "ec2~: output count set to " << m_outputs << endl;
-return args;
-}
-}
-}
-;
+    setter{MIN_FUNCTION{
+        int new_outputs = static_cast<int>(args[0]);
+        if (new_outputs != m_outputs) {
+            m_outputs = new_outputs;
+            recreateOutlets();
+            cout << "ec2~: @outputs set to " << m_outputs << " (outlets recreated)" << endl;
+        }
+        return args;
+    }}};
+
 
 attribute<number> grain_rate{this, "grainrate", 20.0,
                              description{"Grain emission rate in Hz"},
@@ -602,18 +606,23 @@ return args;
 
 message<> dspsetup{
     this, "dspsetup",
-    MIN_FUNCTION{cout << "ec2~ dspsetup: " << samplerate() << " Hz" << endl;
+    MIN_FUNCTION{
+        double sr = c74::max::sys_getsr();
+        cout << "ec2~ dspsetup: " << sr << " Hz" << endl;
 
-// Initialize engine with sample rate
-m_engine->setSampleRate(static_cast<float>(samplerate()));
+        // Initialize engine with sample rate
+        m_engine->setSampleRate(static_cast<float>(sr));
 
-// Update engine parameters from attributes
-updateEngineParameters();
+        // Update engine parameters from attributes
+        updateEngineParameters();
 
-return {};
-}
-}
-;
+        // Add to DSP chain using Max SDK
+        c74::max::object_method(
+            maxobj(), c74::max::gensym("dsp_add64"),
+            maxobj(), perform64_static, 0, this);
+
+        return {};
+    }};
 
 message<> clear{this, "clear",
                 MIN_FUNCTION{cout << "ec2~ clear: stopping all grains" << endl;
@@ -906,74 +915,83 @@ return {};
 }
 ;
 
-// Audio processing
-void operator()(audio_bundle input, audio_bundle output) {
-  // Update engine parameters from attributes (in case they changed)
-  updateEngineParameters();
-
-  // Get output configuration
-  auto out_channels = output.channel_count();
-  auto frame_count = output.frame_count();
-  auto in_channels = input.channel_count();
-
-  // Allocate temporary float buffers (engine uses float, min-devkit uses
-  // double)
-  std::vector<std::vector<float>> tempBuffers(out_channels);
-  std::vector<float *> outBuffers(out_channels);
-
-  for (size_t ch = 0; ch < out_channels; ++ch) {
-    tempBuffers[ch].resize(frame_count, 0.0f);
-    outBuffers[ch] = tempBuffers[ch].data();
+  // DSP64 Perform callback - static wrapper
+  static void perform64_static(c74::max::t_object *dsp64, double **ins,
+                                long numins, double **outs, long numouts,
+                                long sampleframes, long flags, void *userparam) {
+    ec2_tilde *self = static_cast<ec2_tilde *>(userparam);
+    self->perform64(ins, numins, outs, numouts, sampleframes);
   }
 
-  // Process signal inputs (Phase 12)
-  // Signal inlets: 0=scan position, 1=grain rate, 2=playback rate
-  bool has_scan_signal = (in_channels > 0);
-  bool has_rate_signal = (in_channels > 1);
-  bool has_playback_signal = (in_channels > 2);
+  // DSP64 Perform callback - actual processing
+  void perform64(double **ins, long numins, double **outs, long numouts,
+                 long sampleframes) {
+    // Update engine parameters from attributes
+    updateEngineParameters();
 
-  // Prepare signal buffers (convert double to float)
-  std::vector<float> scan_signal(frame_count);
-  std::vector<float> rate_signal(frame_count);
-  std::vector<float> playback_signal(frame_count);
+    // Allocate temporary float buffers (engine uses float, Max uses double)
+    std::vector<std::vector<float>> tempBuffers(m_outputs);
+    std::vector<float *> outBuffers(m_outputs);
 
-  if (has_scan_signal) {
-    auto scan_in = input.samples(0);
-    for (size_t i = 0; i < frame_count; ++i) {
-      scan_signal[i] = static_cast<float>(scan_in[i]);
+    for (int ch = 0; ch < m_outputs; ++ch) {
+      tempBuffers[ch].resize(sampleframes, 0.0f);
+      outBuffers[ch] = tempBuffers[ch].data();
+    }
+
+    // Process signal inputs (Phase 12)
+    // Signal inlets: 0=scan, 1=grain rate, 2=playback rate
+    bool has_scan = (numins > 0);
+    bool has_rate = (numins > 1);
+    bool has_playback = (numins > 2);
+
+    // Convert signal inputs from double to float
+    std::vector<float> scan_signal(sampleframes);
+    std::vector<float> rate_signal(sampleframes);
+    std::vector<float> playback_signal(sampleframes);
+
+    if (has_scan) {
+      for (long i = 0; i < sampleframes; ++i) {
+        scan_signal[i] = static_cast<float>(ins[0][i]);
+      }
+    }
+
+    if (has_rate) {
+      for (long i = 0; i < sampleframes; ++i) {
+        rate_signal[i] = static_cast<float>(ins[1][i]);
+      }
+    }
+
+    if (has_playback) {
+      for (long i = 0; i < sampleframes; ++i) {
+        playback_signal[i] = static_cast<float>(ins[2][i]);
+      }
+    }
+
+    // Process synthesis engine with signal inputs
+    m_engine->processWithSignals(
+        outBuffers.data(), m_outputs, static_cast<int>(sampleframes),
+        has_scan ? scan_signal.data() : nullptr,
+        has_rate ? rate_signal.data() : nullptr,
+        has_playback ? playback_signal.data() : nullptr);
+
+    // Route output to outlets based on @mc mode
+    if (m_mc_mode == 1) {
+      // Multichannel mode: all channels bundled into first outlet
+      // Max MC outlets expect all channels in the first numouts channels
+      for (int ch = 0; ch < m_outputs && ch < numouts; ++ch) {
+        for (long i = 0; i < sampleframes; ++i) {
+          outs[ch][i] = static_cast<double>(tempBuffers[ch][i]);
+        }
+      }
+    } else {
+      // Separated mode: each channel to its own outlet
+      for (int ch = 0; ch < m_outputs && ch < numouts; ++ch) {
+        for (long i = 0; i < sampleframes; ++i) {
+          outs[ch][i] = static_cast<double>(tempBuffers[ch][i]);
+        }
+      }
     }
   }
-
-  if (has_rate_signal) {
-    auto rate_in = input.samples(1);
-    for (size_t i = 0; i < frame_count; ++i) {
-      rate_signal[i] = static_cast<float>(rate_in[i]);
-    }
-  }
-
-  if (has_playback_signal) {
-    auto pb_in = input.samples(2);
-    for (size_t i = 0; i < frame_count; ++i) {
-      playback_signal[i] = static_cast<float>(pb_in[i]);
-    }
-  }
-
-  // Process synthesis engine with signal inputs
-  m_engine->processWithSignals(
-      outBuffers.data(), static_cast<int>(out_channels),
-      static_cast<int>(frame_count),
-      has_scan_signal ? scan_signal.data() : nullptr,
-      has_rate_signal ? rate_signal.data() : nullptr,
-      has_playback_signal ? playback_signal.data() : nullptr);
-
-  // Copy float output to double output buffers
-  for (size_t ch = 0; ch < out_channels; ++ch) {
-    auto out_samples = output.samples(ch);
-    for (size_t i = 0; i < frame_count; ++i) {
-      out_samples[i] = static_cast<double>(tempBuffers[ch][i]);
-    }
-  }
-}
 
 private:
 // Helper: get effective output channel count
@@ -1191,54 +1209,57 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
 
 // Helper: output current parameter state as OSC bundle (Phase 10)
 void outputOSCState() {
-  // Output all parameters as OSC address/value pairs
-  // Format compatible with o.display and odot library
+  // TODO: Implement OSC output using Max SDK outlet
+  // For now, OSC output is disabled with dynamic outlets
+  cout << "ec2~: OSC output not yet implemented with dynamic outlets" << endl;
+}
 
-  // Send as multiple messages in OSC format
-  // Each message: "/param_name value"
+// Helper: Create outlets dynamically based on @outputs and @mc
+void createOutlets() {
+  auto max_obj = (c74::max::t_object *)maxobj();
 
-  osc_out.send("/grainrate", grain_rate.get());
-  osc_out.send("/async", async.get());
-  osc_out.send("/intermittency", intermittency.get());
-  osc_out.send("/streams", streams.get());
+  // Create outlets from right to left (Max convention)
+  // Rightmost outlet: OSC (message outlet)
+  m_osc_outlet = c74::max::outlet_new(max_obj, nullptr);
 
-  osc_out.send("/playback", playback_rate.get());
-  osc_out.send("/duration", grain_duration.get());
-  osc_out.send("/envelope", envelope_shape.get());
-  osc_out.send("/amp", amplitude.get());
+  // Signal outlets (created right to left)
+  if (m_mc_mode == 1) {
+    // Multichannel mode: Create 1 MC signal outlet
+    void *mc_outlet = c74::max::outlet_new(max_obj, "multichannelsignal");
+    m_signal_outlets.insert(m_signal_outlets.begin(), mc_outlet);
 
-  osc_out.send("/filterfreq", filter_freq.get());
-  osc_out.send("/resonance", filter_resonance.get());
+    cout << "ec2~: created 1 MC outlet (" << m_outputs << " channels)"
+         << endl;
+  } else {
+    // Separated mode: Create N separate signal outlets (right to left)
+    for (int i = m_outputs - 1; i >= 0; --i) {
+      void *sig_outlet = c74::max::outlet_new(max_obj, "signal");
+      m_signal_outlets.insert(m_signal_outlets.begin(), sig_outlet);
+    }
 
-  osc_out.send("/pan", stereo_pan.get());
+    cout << "ec2~: created " << m_outputs << " separate signal outlets"
+         << endl;
+  }
 
-  osc_out.send("/scanstart", scan_start.get());
-  osc_out.send("/scanrange", scan_range.get());
-  osc_out.send("/scanspeed", scan_speed.get());
+  cout << "ec2~: Total outlets: " << m_signal_outlets.size() + 1
+       << " (signal + OSC)" << endl;
+}
 
-  osc_out.send("/soundfile", sound_file.get());
+// Helper: Recreate outlets when @outputs or @mc changes
+void recreateOutlets() {
+  // Delete all existing outlets (in reverse order)
+  if (m_osc_outlet) {
+    c74::max::outlet_delete(m_osc_outlet);
+    m_osc_outlet = nullptr;
+  }
 
-  osc_out.send("/mc", m_mc_mode);
-  osc_out.send("/outputs", m_outputs);
+  for (auto it = m_signal_outlets.rbegin(); it != m_signal_outlets.rend(); ++it) {
+    c74::max::outlet_delete(*it);
+  }
+  m_signal_outlets.clear();
 
-  osc_out.send("/allocmode", alloc_mode.get());
-  osc_out.send("/fixedchan", fixed_channel.get());
-  osc_out.send("/rrstep", rr_step.get());
-  osc_out.send("/randspread", random_spread.get());
-  osc_out.send("/spatialcorr", spatial_corr.get());
-  osc_out.send("/pitchmin", pitch_min.get());
-  osc_out.send("/pitchmax", pitch_max.get());
-  osc_out.send("/trajshape", traj_shape.get());
-  osc_out.send("/trajrate", traj_rate.get());
-  osc_out.send("/trajdepth", traj_depth.get());
-
-  // LFO rates (can expand to include shape, polarity, duty if needed)
-  osc_out.send("/lfo1rate", lfo1_rate.get());
-  osc_out.send("/lfo2rate", lfo2_rate.get());
-  osc_out.send("/lfo3rate", lfo3_rate.get());
-  osc_out.send("/lfo4rate", lfo4_rate.get());
-  osc_out.send("/lfo5rate", lfo5_rate.get());
-  osc_out.send("/lfo6rate", lfo6_rate.get());
+  // Recreate outlets with new configuration
+  createOutlets();
 }
 }
 ;

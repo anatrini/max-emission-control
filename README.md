@@ -246,12 +246,13 @@ git submodule update --init --recursive
 - ✅ Core granular synthesis engine
 - ✅ Spatial allocation system
 - ✅ Buffer management
-- ✅ Multichannel cable support
+- ✅ Multichannel cable support (@mc attribute)
+- ✅ Dynamic outlet management (runtime outlet changes)
 - ✅ Complete parameter system
-- ✅ LFO modulation
+- ✅ LFO modulation (6 LFOs)
 - ✅ OSC integration
-- ✅ Signal-rate inputs
-- ✅ Waveform display
+- ✅ Signal-rate inputs (scan, rate, playback)
+- ✅ Waveform display and buffer editor
 
 ### In Progress
 - 📋 Interactive help file and examples
@@ -330,5 +331,5 @@ Special thanks to:
 
 **Status**: Production-ready
 **Platform**: macOS (Apple Silicon + Intel)
-**Max Version**: 9.0+
-**Last Updated**: 2025-11-21
+**Max Version**: 8.0+
+**Last Updated**: 2025-11-23

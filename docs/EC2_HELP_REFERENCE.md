@@ -527,6 +527,49 @@ OSC-style message to load one or more buffers by name. This is equivalent to the
 
 **OSC Compatibility**: This message follows OSC naming conventions (message starts with `/`) and is compatible with odot, spat5, and other OSC-based Max workflows.
 
+### modroute <parameter> <lfo_num> [depth]
+Routes an LFO to modulate a synthesis parameter. This is the primary message for setting up LFO modulation.
+
+**Format**: `modroute parameter_name lfo_number [depth]`
+
+**Parameters**:
+- **parameter_name** (symbol): Name of the parameter to modulate (see LFO Modulation System section for full list)
+- **lfo_number** (int, 0-6): Which LFO to use (1-6), or 0/"none" to clear modulation
+- **depth** (float, 0.0-1.0, optional): Modulation depth (default: 0.5)
+
+**Examples**:
+```
+[message modroute grainrate 1 0.5(    // LFO1 modulates grain rate, depth 0.5
+[message modroute filterfreq 2 0.8(   // LFO2 modulates filter, depth 0.8
+[message modroute playback 3 0.3(     // LFO3 modulates pitch, depth 0.3
+[message modroute grainrate none(     // Clear modulation from grain rate
+[message modroute filterfreq 0(       // Also clears modulation (0 = none)
+|
+[ec2~]
+```
+
+**Modulatable Parameters**:
+- Grain scheduling: `grainrate`, `async`, `intermittency`, `streams`
+- Grain characteristics: `playback`, `duration`, `envelope`, `amp`
+- Filtering: `filterfreq`, `resonance`
+- Panning: `pan` (stereo mode only)
+- Scanning: `scanstart`, `scanrange`, `scanspeed`
+
+See the **LFO Modulation System** section for detailed examples and usage patterns.
+
+### bang
+Outputs the current parameter state as an OSC bundle through the rightmost outlet. Useful for debugging or sending state to other objects.
+
+```
+[bang(
+|
+[ec2~]
+|
+[print]   // Print OSC bundle to console
+```
+
+**Note**: Full OSC bundle output is currently limited - see OSC outlet documentation.
+
 ### Inlet Configuration
 ec2~ has **4 inlets total**:
 
@@ -745,13 +788,261 @@ All modes support:
 
 ---
 
+## LFO Modulation System (Phase 9)
+
+ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) that can be routed to modulate any synthesis parameter. This enables dynamic, evolving textures without external control signals.
+
+### Available LFOs
+
+Each LFO (LFO1 through LFO6) has four control attributes:
+
+#### LFO Shape Attributes
+- **lfo1shape** through **lfo6shape** (int, 0-4, default: 0)
+  - **0**: Sine wave - Smooth, periodic modulation
+  - **1**: Square wave - Abrupt switching between two values
+  - **2**: Rise (ascending sawtooth) - Linear upward ramp
+  - **3**: Fall (descending sawtooth) - Linear downward ramp
+  - **4**: Noise - Random sample-and-hold values
+
+#### LFO Rate Attributes
+- **lfo1rate** through **lfo6rate** (float, 0.001-100.0 Hz, default: 1.0)
+  - Controls the frequency/speed of the LFO oscillation
+
+#### LFO Polarity Attributes
+- **lfo1polarity** through **lfo6polarity** (int, 0-2, default: 0)
+  - **0**: Bipolar - Output range: -1.0 to +1.0
+  - **1**: Unipolar+ - Output range: 0.0 to +1.0
+  - **2**: Unipolar- - Output range: -1.0 to 0.0
+
+#### LFO Duty Cycle Attributes
+- **lfo1duty** through **lfo6duty** (float, 0.0-1.0, default: 0.5)
+  - For square wave shape only: controls the high/low time ratio
+  - 0.5 = 50% duty cycle (equal high/low times)
+  - 0.25 = 25% high, 75% low
+  - 0.75 = 75% high, 25% low
+
+### Modulation Routing
+
+Use the `modroute` message to connect LFOs to synthesis parameters:
+
+**Format**: `modroute <parameter_name> <lfo_number> [depth]`
+- **parameter_name**: Name of the parameter to modulate (see list below)
+- **lfo_number**: Which LFO to use (1-6), or 0/"none" to clear modulation
+- **depth**: Modulation depth (0.0-1.0, default: 0.5)
+
+**Modulatable Parameters**:
+- `grainrate` - Grain emission rate
+- `async` - Asynchronicity
+- `intermittency` - Intermittency probability
+- `streams` - Number of streams
+- `playback` - Playback rate/pitch
+- `duration` - Grain duration
+- `envelope` - Envelope shape
+- `filterfreq` - Filter cutoff frequency
+- `resonance` - Filter resonance
+- `pan` - Stereo pan (stereo mode only)
+- `amp` - Amplitude
+- `scanstart` - Scan start position
+- `scanrange` - Scan range
+- `scanspeed` - Scan speed
+
+### Modulation Examples
+
+**Example 1: Slow grain rate variation**
+```
+@lfo1shape 0          // Sine wave
+@lfo1rate 0.2         // 0.2 Hz (5 second cycle)
+@lfo1polarity 1       // Unipolar+ (0.0 to 1.0)
+[modroute grainrate 1 0.5(   // Modulate grain rate with LFO1, depth 0.5
+```
+
+**Example 2: Rhythmic filter sweep**
+```
+@lfo2shape 2          // Rise (sawtooth up)
+@lfo2rate 2.0         // 2 Hz
+@lfo2polarity 1       // Unipolar+
+[modroute filterfreq 2 0.8(   // Modulate filter with LFO2, depth 0.8
+```
+
+**Example 3: Random pitch variation**
+```
+@lfo3shape 4          // Noise (random)
+@lfo3rate 5.0         // 5 Hz update rate
+@lfo3polarity 0       // Bipolar (-1 to +1)
+[modroute playback 3 0.3(     // Subtle random pitch variation
+```
+
+**Example 4: Pulsing amplitude**
+```
+@lfo4shape 1          // Square wave
+@lfo4rate 1.5         // 1.5 Hz
+@lfo4duty 0.25        // 25% duty cycle (short pulses)
+@lfo4polarity 1       // Unipolar+
+[modroute amp 4 0.7(          // Pulsing volume
+```
+
+**Example 5: Clear modulation**
+```
+[modroute grainrate none(     // Remove modulation from grainrate
+[modroute filterfreq 0(        // Also removes modulation (0 = none)
+```
+
+### Multiple LFO Routing
+
+You can use different LFOs on different parameters simultaneously:
+
+```
+[modroute grainrate 1 0.4(    // LFO1 modulates grain rate
+[modroute filterfreq 2 0.6(   // LFO2 modulates filter frequency
+[modroute pan 3 0.5(          // LFO3 modulates stereo pan
+```
+
+**Note**: Each parameter can only have ONE LFO assigned at a time. Sending a new modroute message to a parameter overwrites the previous routing.
+
+### LFO Implementation Details
+
+- All LFOs run continuously in the background at sample rate
+- Modulation is applied multiplicatively based on depth:
+  - `modulated_value = base_value + (lfo_output * depth * parameter_range)`
+- LFO phases are independent (no phase-locking between LFOs)
+- LFOs are not reset when changing attributes (continuous operation)
+
+---
+
+## OSC Parameter Control (Phase 10)
+
+ec2~ supports OSC-style messages for parameter control, enabling integration with OSC-based workflows (odot, spat5, etc.).
+
+### OSC Message Format
+
+Send messages to inlet 0 in the format: `/parameter_name value`
+
+**Examples**:
+```
+[message /grainrate 50(       // Set grain rate to 50 Hz
+[message /filterfreq 1200(    // Set filter to 1200 Hz
+[message /allocmode 2(        // Set allocation mode to random
+[message /lfo1rate 0.5(       // Set LFO1 rate to 0.5 Hz
+```
+
+### Supported OSC Parameters
+
+All attribute names can be used as OSC messages by adding a `/` prefix and using lowercase:
+
+**Grain Scheduling**:
+- `/grainrate`, `/async`, `/intermittency`, `/streams`
+
+**Grain Characteristics**:
+- `/playback`, `/duration`, `/envelope`, `/amp`
+
+**Filtering**:
+- `/filterfreq`, `/resonance`
+
+**Panning**:
+- `/pan`
+
+**Scanning**:
+- `/scanstart`, `/scanrange`, `/scanspeed`
+
+**Buffer**:
+- `/soundfile`
+
+**Multichannel**:
+- `/mc`, `/outputs`
+
+**Spatial Allocation**:
+- `/allocmode`, `/fixedchan`, `/rrstep`, `/randspread`, `/spatialcorr`
+- `/pitchmin`, `/pitchmax`
+- `/trajshape`, `/trajrate`, `/trajdepth`
+
+**LFO Parameters**:
+- `/lfo1rate`, `/lfo2rate`, `/lfo3rate`, `/lfo4rate`, `/lfo5rate`, `/lfo6rate`
+- (All other LFO attributes also supported)
+
+### OSC Integration Example
+
+```
+// Using odot
+[o.route /ec2]
+|
+[o.pack /grainrate /filterfreq]
+|
+[message /grainrate 30 /filterfreq 800(
+|
+[ec2~]
+```
+
+**Note**: ec2~ accepts OSC messages directly - you don't need o.route for simple parameter setting. OSC format is simply a convenient naming convention.
+
+---
+
+## Dynamic Outlet Management
+
+ec2~ supports **dynamic outlet recreation** - the number and type of outlets can be changed at runtime by modifying the `@outputs` or `@mc` attributes. This is a unique feature enabled by the Max SDK implementation.
+
+### How It Works
+
+When you change `@outputs` or `@mc`:
+1. All existing outlets are deleted
+2. New outlets are created with the updated configuration
+3. Max automatically updates the visual representation in your patcher
+4. **Important**: Any connected patch cords will be disconnected and need to be reconnected
+
+### Dynamic Changes Examples
+
+**Example 1: Change channel count**
+```
+// Start with stereo
+[ec2~ @outputs 2 @mc 0]
+
+// Later: expand to 8 channels (message box)
+[message outputs 8(
+|
+[ec2~]
+
+// Result: Object now has 8 separate signal outlets + 1 OSC outlet
+```
+
+**Example 2: Switch between separated and MC cable**
+```
+// Start with 4 separated outputs
+[ec2~ @outputs 4 @mc 0]
+
+// Switch to multichannel cable
+[message mc 1(
+|
+[ec2~]
+
+// Result: Now has 1 MC outlet (carrying 4 channels) + 1 OSC outlet
+```
+
+**Example 3: Complete reconfiguration**
+```
+// Start with 2 separated outputs
+[ec2~ @outputs 2 @mc 0]
+
+// Reconfigure to 16-channel MC cable
+[message outputs 16, mc 1(
+|
+[ec2~]
+
+// Result: 1 MC outlet with 16 channels + 1 OSC outlet
+```
+
+### Best Practices for Dynamic Outlets
+
+1. **Initial Setup**: Set `@outputs` and `@mc` at object creation when possible to avoid reconnecting cables
+2. **Reconnect Cables**: After changing outlet configuration, reconnect any audio cables
+3. **Live Performance**: Avoid changing outlet configuration during performance (causes audio glitches)
+4. **Preset Management**: When using presets, ensure `@outputs` and `@mc` are saved/recalled consistently
+
+---
+
 ## Future Enhancements (Not Yet Implemented)
 
-- LFO modulation system
 - Cluster/mask for channel subset selection
 - Weight arrays for weighted mode (requires list/array message handling)
 - Distance-based 3D spatialization
-- OSC parameter control
 - Per-stream spatial allocation
 - Buffer~ change notifications (automatic reload on buffer~ modification)
 
