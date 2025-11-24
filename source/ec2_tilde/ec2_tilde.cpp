@@ -133,43 +133,21 @@ public:
     createOutlets();
   }
 
-  // Max class setup - called once when class is registered
-  message<> maxclass_setup{
-    this, "maxclass_setup",
-    MIN_FUNCTION{
-      // Register FullPacket handler using Max SDK directly
-      // The min API can't properly handle FullPacket pointer arguments
-      c74::max::t_class* c = args[0];
-      c74::max::class_addmethod(
-        c,
-        (c74::max::method)fullpacket_handler_static,
-        "FullPacket",
-        c74::max::A_GIMME,
-        0
-      );
-      return {};
-    }
-  };
+  // Note: FullPacket handler is registered via Max SDK in ext_main()
+  // Cannot use min API message<> for FullPacket because it can't handle pointer atoms correctly
 
-  // Static Max SDK FullPacket handler
-  static void fullpacket_handler_static(ec2_tilde* self, c74::max::t_symbol* s, long argc, c74::max::t_atom* argv) {
-    if (argc >= 2 && argv) {
-      long bundle_size = c74::max::atom_getlong(&argv[0]);
-      long bundle_ptr = c74::max::atom_getlong(&argv[1]);
+  // Public method for external FullPacket handler to call
+  void handleFullPacket(unsigned char* data, size_t size) {
+    if (data && size > 0 && size < 1048576) {
+      // Suppress OSC output during batch parsing
+      m_suppress_osc_output = true;
 
-      if (bundle_ptr && bundle_size > 0 && bundle_size < 1048576) {
-        unsigned char* data = reinterpret_cast<unsigned char*>(bundle_ptr);
+      // Parse the OSC bundle
+      parseOSCBundle(data, size);
 
-        // Suppress OSC output during batch parsing
-        self->m_suppress_osc_output = true;
-
-        // Parse the OSC bundle
-        self->parseOSCBundle(data, static_cast<size_t>(bundle_size));
-
-        // Re-enable OSC output and send bundle
-        self->m_suppress_osc_output = false;
-        self->sendOSCBundle();
-      }
+      // Re-enable OSC output and send bundle
+      m_suppress_osc_output = false;
+      sendOSCBundle();
     }
   }
 
@@ -1637,4 +1615,33 @@ void recreateOutlets() {
 }
 ;
 
-MIN_EXTERNAL(ec2_tilde);
+// Max SDK FullPacket handler (must be outside the class for proper C linkage)
+void ec2_fullpacket_handler(ec2_tilde* self, c74::max::t_symbol* s, long argc, c74::max::t_atom* argv) {
+  if (self && argc >= 2 && argv) {
+    long bundle_size = c74::max::atom_getlong(&argv[0]);
+    long bundle_ptr = c74::max::atom_getlong(&argv[1]);
+
+    if (bundle_ptr && bundle_size > 0) {
+      unsigned char* data = reinterpret_cast<unsigned char*>(bundle_ptr);
+      self->handleFullPacket(data, static_cast<size_t>(bundle_size));
+    }
+  }
+}
+
+// Custom class initialization to add FullPacket handler
+void ext_main(void* r) {
+  // Call the min API initialization first
+  c74::min::wrap_as_max_external<ec2_tilde>("ec2~", __FILE__, nullptr);
+
+  // Get the class pointer from the min API wrapper
+  // After wrap_as_max_external is called, we can access the class via class_findbyname
+  c74::max::t_class* c = c74::max::class_findbyname(c74::max::CLASS_BOX, c74::max::gensym("ec2~"));
+
+  if (c) {
+    // Now add the custom FullPacket handler using Max SDK
+    c74::max::class_addmethod(c, (c74::max::method)ec2_fullpacket_handler, "FullPacket", c74::max::A_GIMME, 0);
+  }
+}
+
+// Don't use MIN_EXTERNAL macro since we have custom ext_main
+// MIN_EXTERNAL(ec2_tilde);
