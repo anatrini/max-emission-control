@@ -775,30 +775,27 @@ else if (msg_str == "FullPacket") {
   // args[0] = "FullPacket", args[1] = size, args[2] = pointer
   if (args.size() >= 3) {
     try {
-      // Get bundle size from second atom (args[1])
-      c74::max::t_atom* size_atom = (c74::max::t_atom*)&args[1];
-      c74::max::t_atom* ptr_atom = (c74::max::t_atom*)&args[2];
+      // Extract size and pointer using min API atom conversion
+      long bundle_size_val = 0;
+      long bundle_ptr_val = 0;
 
-      if (!size_atom || !ptr_atom) return {};
+      // Try to get size from args[1]
+      try {
+        bundle_size_val = static_cast<long>(args[1]);
+      } catch (...) {
+        // Try as double
+        bundle_size_val = static_cast<long>(static_cast<double>(args[1]));
+      }
 
-      size_t bundle_size = 0;
-      unsigned char* bundle_ptr = nullptr;
-
-      // Extract size
-      if (c74::max::atom_gettype(size_atom) == c74::max::A_LONG) {
-        bundle_size = c74::max::atom_getlong(size_atom);
-      } else if (c74::max::atom_gettype(size_atom) == c74::max::A_FLOAT) {
-        bundle_size = (size_t)c74::max::atom_getfloat(size_atom);
-      } else {
+      // Try to get pointer from args[2]
+      try {
+        bundle_ptr_val = static_cast<long>(args[2]);
+      } catch (...) {
         return {};
       }
 
-      // Extract pointer
-      if (c74::max::atom_gettype(ptr_atom) == c74::max::A_LONG) {
-        bundle_ptr = (unsigned char*)c74::max::atom_getlong(ptr_atom);
-      } else {
-        return {};
-      }
+      size_t bundle_size = static_cast<size_t>(bundle_size_val);
+      unsigned char* bundle_ptr = reinterpret_cast<unsigned char*>(bundle_ptr_val);
 
       // Validate pointer and size
       if (bundle_ptr && bundle_size > 0 && bundle_size < 1048576) { // Max 1MB sanity check
@@ -1154,6 +1151,25 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
       handleOSCParameter(param_name, (double)value);
 
       offset += 4;
+      break; // Only use first argument
+
+    } else if (tag == 's') {
+      // String (null-terminated, padded to 4-byte boundary)
+      std::string str_value;
+      while (offset < size && data[offset] != '\0') {
+        str_value += (char)data[offset++];
+      }
+
+      // Handle string parameter (e.g., buffer name)
+      if (param_name == "buffer") {
+        // Load buffer by name
+        auto audio_buf = ec2_buffer::loadFromMaxBuffer(str_value);
+        if (audio_buf) {
+          m_engine->setAudioBuffer(audio_buf, 0);
+          buffer_name = c74::max::gensym(str_value.c_str());
+        }
+      }
+
       break; // Only use first argument
 
     } else {
@@ -1550,11 +1566,9 @@ void sendOSCBundle() {
   writeOSCMessage(m_osc_bundle_buffer, "/trajdepth", traj_depth);
   writeOSCMessage(m_osc_bundle_buffer, "/soundfile", sound_file.get());
 
-  // Buffer name (as string - special handling needed)
+  // Buffer name (always send, even if empty, for consistency)
   std::string buf_name = std::string(buffer_name.get());
-  if (!buf_name.empty()) {
-    writeOSCMessageString(m_osc_bundle_buffer, "/buffer", buf_name);
-  }
+  writeOSCMessageString(m_osc_bundle_buffer, "/buffer", buf_name.empty() ? "" : buf_name);
 
   // LFO Parameters (24 total: 6 LFOs × 4 params each)
   if (m_engine) {
