@@ -14,6 +14,85 @@
 Arguments:
 - **num_outputs** (int, optional): Number of output channels (1-16, default: 2)
 
+## Messages vs Attributes
+
+ec2~ follows Max best practices by using **attributes** for structural configuration and **messages** for performance parameters.
+
+### Attributes (@ prefix)
+Used for configuration that affects object structure:
+- `@outputs` - Number of output channels (changes outlet count)
+- `@mc` - Multichannel cable mode (changes outlet type)
+- `@buffer` - Source buffer name
+- `@allocmode` - Spatial allocation mode
+- Allocation mode parameters (e.g., `@fixedchan`, `@rrstep`)
+
+**Set at creation or via attribute messages:**
+```
+[ec2~ @outputs 8 @mc 1]           // At creation
+[message outputs 16(               // Runtime change
+```
+
+### Messages (no prefix)
+Used for real-time performance control of synthesis parameters:
+
+**Grain Scheduling:**
+- `grainrate` - Grain emission rate (Hz)
+- `async` - Asynchronicity
+- `intermittency` - Grain sparsity
+- `streams` - Number of grain streams
+
+**Grain Characteristics:**
+- `duration` - Grain duration (ms)
+- `playback` - Playback rate/pitch
+- `amp` - Amplitude
+- `envelope` - Envelope shape
+
+**Filtering:**
+- `filterfreq` - Filter cutoff frequency
+- `resonance` - Filter resonance
+
+**Spatial:**
+- `pan` - Stereo panning
+
+**Scanning:**
+- `scanstart` - Scan start position
+- `scanrange` - Scan range
+- `scanspeed` - Scan speed
+
+**LFO Control (24 messages):**
+- `lfo1shape` through `lfo6shape` - LFO waveforms
+- `lfo1rate` through `lfo6rate` - LFO frequencies
+- `lfo1polarity` through `lfo6polarity` - LFO polarities
+- `lfo1duty` through `lfo6duty` - LFO duty cycles
+
+**Send as messages:**
+```
+[grainrate 50(                     // Single message
+[grainrate 50, duration 200(       // Multiple messages
+```
+
+### Automatic OSC Output
+
+Every parameter change automatically sends an OSC bundle through the rightmost outlet. No bang required!
+
+```
+[ec2~]
+|
+[o.display]  // Shows all parameters in real-time
+```
+
+### OSC Bundle Input
+
+ec2~ accepts OSC bundles in FullPacket format (compatible with odot):
+
+```
+[o.compose /grainrate 100 /filterfreq 5000(
+|
+[o.pack]
+|
+[ec2~]  // Applies parameters from OSC bundle
+```
+
 ## Multichannel Output Configuration
 
 ec2~ supports flexible multichannel output routing with two independent controls:

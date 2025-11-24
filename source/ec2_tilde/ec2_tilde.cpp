@@ -13,6 +13,9 @@
 #include "jgraphics.h"
 #include "jpatcher_api.h"
 
+// Standard library
+#include <sstream>
+
 using namespace c74::min;
 
 // Buffer management helper (inline to avoid separate compilation unit)
@@ -84,6 +87,28 @@ private:
   std::vector<void *> m_signal_outlets;
   void *m_osc_outlet{nullptr};
 
+  // OSC bundle buffer (persistent for FullPacket pointer)
+  std::vector<unsigned char> m_osc_bundle_buffer;
+
+  // Flag to suppress OSC output during batch updates
+  bool m_suppress_osc_output{false};
+
+  // Synthesis parameters (stored as member variables, controlled via messages)
+  double m_grain_rate{20.0};
+  double m_async{0.0};
+  double m_intermittency{0.0};
+  double m_streams{1.0};
+  double m_playback_rate{1.0};
+  double m_grain_duration{100.0};
+  double m_envelope_shape{0.5};
+  double m_scan_start{0.0};
+  double m_scan_range{1.0};
+  double m_amplitude{0.5};
+  double m_filter_freq{22000.0};
+  double m_filter_resonance{0.0};
+  double m_stereo_pan{0.0};
+  double m_scan_speed{1.0};
+
 public:
   MIN_DESCRIPTION{"EmissionControl2 granular synthesis with multichannel "
                   "output (up to 16 channels)"};
@@ -106,9 +131,6 @@ public:
 
     // Create outlets dynamically using Max SDK
     createOutlets();
-
-    cout << "ec2~ initialized with " << m_outputs << " output"
-         << (m_outputs > 1 ? "s" : "") << ", mc=" << m_mc_mode << endl;
   }
 
   // SIGNAL INLETS (Phase 12)
@@ -134,7 +156,6 @@ public:
           if (new_mc != m_mc_mode) {
               m_mc_mode = new_mc;
               recreateOutlets();
-              cout << "ec2~: @mc set to " << m_mc_mode << " (outlets recreated)" << endl;
           }
           return args;
       }}};
@@ -147,76 +168,148 @@ attribute<int> outputs{
         if (new_outputs != m_outputs) {
             m_outputs = new_outputs;
             recreateOutlets();
-            cout << "ec2~: @outputs set to " << m_outputs << " (outlets recreated)" << endl;
         }
         return args;
     }}};
 
+attribute<symbol> out_format{
+    this, "out", "n",
+    description{"OSC outlet format: 'n' (native FullPacket bundle for odot), 't' (text for printing/logging)"}
+};
 
-attribute<number> grain_rate{this, "grainrate", 20.0,
-                             description{"Grain emission rate in Hz"},
-                             range{0.1, 500.0}};
+// SYNTHESIS PARAMETER MESSAGES (not attributes - for performance control)
 
-attribute<number> async{this, "async", 0.0,
-                        description{"Asynchronicity (0.0-1.0)"},
-                        range{0.0, 1.0}};
+message<> grainrate{this, "grainrate", "Grain emission rate in Hz (0.1-500.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_grain_rate = std::max(0.1, std::min(500.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
 
-attribute<number> intermittency{this, "intermittency", 0.0,
-                                description{"Intermittency (0.0-1.0)"},
-                                range{0.0, 1.0}};
+message<> async_msg{this, "async", "Asynchronicity (0.0-1.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_async = std::max(0.0, std::min(1.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
 
-attribute<number> streams{this, "streams", 1,
-                          description{"Number of grain streams"}, range{1, 20}};
+message<> intermittency_msg{this, "intermittency", "Intermittency (0.0-1.0)",
+                            MIN_FUNCTION{
+                              if (args.size() > 0) {
+                                m_intermittency = std::max(0.0, std::min(1.0, double(args[0])));
+                                sendOSCBundle();
+                              }
+                              return {};
+                            }};
 
-attribute<number> playback_rate{this, "playback", 1.0,
-                                description{"Playback rate (-32 to 32)"},
-                                range{-32.0, 32.0}};
+message<> streams_msg{this, "streams", "Number of grain streams (1-20)",
+                      MIN_FUNCTION{
+                        if (args.size() > 0) {
+                          m_streams = std::max(1.0, std::min(20.0, double(args[0])));
+                          sendOSCBundle();
+                        }
+                        return {};
+                      }};
 
-attribute<number> grain_duration{this, "duration", 100.0,
-                                 description{"Grain duration in milliseconds"},
-                                 range{1.0, 1000.0}};
+message<> playback{this, "playback", "Playback rate (-32 to 32)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0) {
+                       m_playback_rate = std::max(-32.0, std::min(32.0, double(args[0])));
+                       sendOSCBundle();
+                     }
+                     return {};
+                   }};
 
-attribute<number> envelope_shape{
-    this, "envelope", 0.5,
-    description{"Envelope shape: 0.0=exponential decay, 0.5=tukey window "
-                "(default), 1.0=reverse exponential"},
-    range{0.0, 1.0}};
+message<> duration{this, "duration", "Grain duration in milliseconds (1-1000)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0) {
+                       m_grain_duration = std::max(1.0, std::min(1000.0, double(args[0])));
+                       sendOSCBundle();
+                     }
+                     return {};
+                   }};
 
-attribute<number> scan_start{this, "scanstart", 0.0,
-                             description{"Scan start position (0.0-1.0)"},
-                             range{0.0, 1.0}};
+message<> envelope{this, "envelope", "Envelope shape (0.0-1.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0) {
+                       m_envelope_shape = std::max(0.0, std::min(1.0, double(args[0])));
+                       sendOSCBundle();
+                     }
+                     return {};
+                   }};
 
-attribute<number> scan_range{this, "scanrange", 1.0,
-                             description{"Scan range (0.0-1.0)"},
-                             range{0.0, 1.0}};
+message<> amp{this, "amp", "Overall amplitude (0.0-1.0)",
+              MIN_FUNCTION{
+                if (args.size() > 0) {
+                  m_amplitude = std::max(0.0, std::min(1.0, double(args[0])));
+                  sendOSCBundle();
+                }
+                return {};
+              }};
 
-attribute<number> amplitude{this, "amp", 0.5, description{"Overall amplitude"},
-                            range{0.0, 1.0}};
+// FILTERING MESSAGES
 
-// FILTERING PARAMETERS
+message<> filterfreq{this, "filterfreq", "Filter cutoff frequency in Hz (20-22000)",
+                     MIN_FUNCTION{
+                       if (args.size() > 0) {
+                         m_filter_freq = std::max(20.0, std::min(22000.0, double(args[0])));
+                         sendOSCBundle();
+                       }
+                       return {};
+                     }};
 
-attribute<number> filter_freq{
-    this, "filterfreq", 22000.0,
-    description{"Filter cutoff frequency in Hz (22000 = no filtering)"},
-    range{20.0, 22000.0}};
+message<> resonance{this, "resonance", "Filter resonance (0.0-1.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_filter_resonance = std::max(0.0, std::min(1.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
 
-attribute<number> filter_resonance{this, "resonance", 0.0,
-                                   description{"Filter resonance (0.0-1.0)"},
-                                   range{0.0, 1.0}};
+// PANNING MESSAGE
 
-// STEREO PANNING
+message<> pan{this, "pan", "Stereo pan position (-1.0 to 1.0)",
+              MIN_FUNCTION{
+                if (args.size() > 0) {
+                  m_stereo_pan = std::max(-1.0, std::min(1.0, double(args[0])));
+                  sendOSCBundle();
+                }
+                return {};
+              }};
 
-attribute<number> stereo_pan{
-    this, "pan", 0.0,
-    description{"Stereo pan position: -1.0=left, 0.0=center, 1.0=right (legacy "
-                "stereo mode)"},
-    range{-1.0, 1.0}};
+// SCANNING MESSAGES
 
-// SCANNING PARAMETERS
+message<> scanstart{this, "scanstart", "Scan start position (0.0-1.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_scan_start = std::max(0.0, std::min(1.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
 
-attribute<number> scan_speed{
-    this, "scanspeed", 1.0,
-    description{"Scan speed multiplier (-32.0 to 32.0)"}, range{-32.0, 32.0}};
+message<> scanrange{this, "scanrange", "Scan range (0.0-1.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_scan_range = std::max(0.0, std::min(1.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
+
+message<> scanspeed{this, "scanspeed", "Scan speed multiplier (-32.0 to 32.0)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_scan_speed = std::max(-32.0, std::min(32.0, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
 
 // SPATIAL ALLOCATION PARAMETERS (Phase 5)
 
@@ -278,10 +371,8 @@ if (!name.empty()) {
   auto audio_buf = ec2_buffer::loadFromMaxBuffer(name);
   if (audio_buf) {
     m_engine->setAudioBuffer(audio_buf, 0);
-    cout << "ec2~: loaded buffer '" << name << "' (" << audio_buf->frames
-         << " frames, " << audio_buf->channels << " channels)" << endl;
   } else {
-    cerr << "ec2~: failed to load buffer '" << name << "'" << endl;
+    cerr << "failed to load buffer '" << name << "'" << endl;
   }
 }
 return args;
@@ -294,313 +385,183 @@ attribute<int> sound_file{
     this, "soundfile", 0,
     description{"Sound file index for polybuffer~ (0-based)"}, range{0, 15}};
 
-// LFO PARAMETERS (Phase 9)
+// LFO PARAMETERS (Phase 9) - Now messages instead of attributes
 
 // LFO 1
-attribute<int> lfo1_shape{
-    this, "lfo1shape", 0,
-    description{"LFO1 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(0);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo1shape{this, "lfo1shape", "LFO1 shape (0-4)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0 && m_engine) {
+                        auto lfo = m_engine->getLFO(0);
+                        if (lfo) {
+                          int val = std::max(0, std::min(4, int(args[0])));
+                          lfo->setShape(static_cast<ec2::LFOShape>(val));
+                          sendOSCBundle();
+                        }
+                      }
+                      return {};
+                    }};
 
-attribute<number> lfo1_rate{
-    this, "lfo1rate", 1.0, description{"LFO1 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(0);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo1rate{this, "lfo1rate", "LFO1 frequency in Hz (0.001-100.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(0);
+                       if (lfo) {
+                         double val = std::max(0.001, std::min(100.0, double(args[0])));
+                         lfo->setFrequency(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
-attribute<int> lfo1_polarity{
-    this, "lfo1polarity", 0,
-    description{"LFO1 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(0);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo1polarity{this, "lfo1polarity", "LFO1 polarity (0-2)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0 && m_engine) {
+                           auto lfo = m_engine->getLFO(0);
+                           if (lfo) {
+                             int val = std::max(0, std::min(2, int(args[0])));
+                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
+                             sendOSCBundle();
+                           }
+                         }
+                         return {};
+                       }};
 
-attribute<number> lfo1_duty{
-    this, "lfo1duty", 0.5, description{"LFO1 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(0);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo1duty{this, "lfo1duty", "LFO1 duty cycle (0.0-1.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(0);
+                       if (lfo) {
+                         double val = std::max(0.0, std::min(1.0, double(args[0])));
+                         lfo->setDuty(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
 // LFO 2
-attribute<int> lfo2_shape{
-    this, "lfo2shape", 0,
-    description{"LFO2 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(1);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo2shape{this, "lfo2shape", "LFO2 shape (0-4)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0 && m_engine) {
+                        auto lfo = m_engine->getLFO(1);
+                        if (lfo) {
+                          int val = std::max(0, std::min(4, int(args[0])));
+                          lfo->setShape(static_cast<ec2::LFOShape>(val));
+                          sendOSCBundle();
+                        }
+                      }
+                      return {};
+                    }};
 
-attribute<number> lfo2_rate{
-    this, "lfo2rate", 1.0, description{"LFO2 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(1);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo2rate{this, "lfo2rate", "LFO2 frequency in Hz (0.001-100.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(1);
+                       if (lfo) {
+                         double val = std::max(0.001, std::min(100.0, double(args[0])));
+                         lfo->setFrequency(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
-attribute<int> lfo2_polarity{
-    this, "lfo2polarity", 0,
-    description{"LFO2 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(1);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo2polarity{this, "lfo2polarity", "LFO2 polarity (0-2)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0 && m_engine) {
+                           auto lfo = m_engine->getLFO(1);
+                           if (lfo) {
+                             int val = std::max(0, std::min(2, int(args[0])));
+                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
+                             sendOSCBundle();
+                           }
+                         }
+                         return {};
+                       }};
 
-attribute<number> lfo2_duty{
-    this, "lfo2duty", 0.5, description{"LFO2 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(1);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo2duty{this, "lfo2duty", "LFO2 duty cycle (0.0-1.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(1);
+                       if (lfo) {
+                         double val = std::max(0.0, std::min(1.0, double(args[0])));
+                         lfo->setDuty(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
 // LFO 3
-attribute<int> lfo3_shape{
-    this, "lfo3shape", 0,
-    description{"LFO3 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(2);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo3shape{this, "lfo3shape", "LFO3 shape (0-4)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0 && m_engine) {
+                        auto lfo = m_engine->getLFO(2);
+                        if (lfo) {
+                          int val = std::max(0, std::min(4, int(args[0])));
+                          lfo->setShape(static_cast<ec2::LFOShape>(val));
+                          sendOSCBundle();
+                        }
+                      }
+                      return {};
+                    }};
 
-attribute<number> lfo3_rate{
-    this, "lfo3rate", 1.0, description{"LFO3 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(2);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo3rate{this, "lfo3rate", "LFO3 frequency in Hz (0.001-100.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(2);
+                       if (lfo) {
+                         double val = std::max(0.001, std::min(100.0, double(args[0])));
+                         lfo->setFrequency(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
-attribute<int> lfo3_polarity{
-    this, "lfo3polarity", 0,
-    description{"LFO3 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(2);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo3polarity{this, "lfo3polarity", "LFO3 polarity (0-2)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0 && m_engine) {
+                           auto lfo = m_engine->getLFO(2);
+                           if (lfo) {
+                             int val = std::max(0, std::min(2, int(args[0])));
+                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
+                             sendOSCBundle();
+                           }
+                         }
+                         return {};
+                       }};
 
-attribute<number> lfo3_duty{
-    this, "lfo3duty", 0.5, description{"LFO3 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(2);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo3duty{this, "lfo3duty", "LFO3 duty cycle (0.0-1.0)",
+                   MIN_FUNCTION{
+                     if (args.size() > 0 && m_engine) {
+                       auto lfo = m_engine->getLFO(2);
+                       if (lfo) {
+                         double val = std::max(0.0, std::min(1.0, double(args[0])));
+                         lfo->setDuty(val);
+                         sendOSCBundle();
+                       }
+                     }
+                     return {};
+                   }};
 
-// LFO 4
-attribute<int> lfo4_shape{
-    this, "lfo4shape", 0,
-    description{"LFO4 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(3);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+// LFO 4-6 (converted to messages)
+message<> lfo4shape{this, "lfo4shape", "LFO4 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo4rate{this, "lfo4rate", "LFO4 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
+message<> lfo4polarity{this, "lfo4polarity", "LFO4 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo4duty{this, "lfo4duty", "LFO4 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
 
-attribute<number> lfo4_rate{
-    this, "lfo4rate", 1.0, description{"LFO4 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(3);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
+message<> lfo5shape{this, "lfo5shape", "LFO5 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo5rate{this, "lfo5rate", "LFO5 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
+message<> lfo5polarity{this, "lfo5polarity", "LFO5 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo5duty{this, "lfo5duty", "LFO5 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
 
-attribute<int> lfo4_polarity{
-    this, "lfo4polarity", 0,
-    description{"LFO4 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(3);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
+message<> lfo6shape{this, "lfo6shape", "LFO6 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo6rate{this, "lfo6rate", "LFO6 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
+message<> lfo6polarity{this, "lfo6polarity", "LFO6 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
+message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
 
-attribute<number> lfo4_duty{
-    this, "lfo4duty", 0.5, description{"LFO4 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(3);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
-
-// LFO 5
-attribute<int> lfo5_shape{
-    this, "lfo5shape", 0,
-    description{"LFO5 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(4);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
-
-attribute<number> lfo5_rate{
-    this, "lfo5rate", 1.0, description{"LFO5 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(4);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
-
-attribute<int> lfo5_polarity{
-    this, "lfo5polarity", 0,
-    description{"LFO5 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(4);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
-
-attribute<number> lfo5_duty{
-    this, "lfo5duty", 0.5, description{"LFO5 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(4);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
-
-// LFO 6
-attribute<int> lfo6_shape{
-    this, "lfo6shape", 0,
-    description{"LFO6 shape: 0=sine, 1=square, 2=rise, 3=fall, 4=noise"},
-    range{0, 4}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(5);
-if (lfo)
-  lfo->setShape(static_cast<ec2::LFOShape>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
-
-attribute<number> lfo6_rate{
-    this, "lfo6rate", 1.0, description{"LFO6 frequency in Hz"},
-    range{0.001, 100.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(5);
-if (lfo)
-  lfo->setFrequency(args[0]);
-return args;
-}
-}
-}
-;
-
-attribute<int> lfo6_polarity{
-    this, "lfo6polarity", 0,
-    description{"LFO6 polarity: 0=bipolar, 1=unipolar+, 2=unipolar-"},
-    range{0, 2}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(5);
-if (lfo)
-  lfo->setPolarity(static_cast<ec2::LFOPolarity>(static_cast<int>(args[0])));
-return args;
-}
-}
-}
-;
-
-attribute<number> lfo6_duty{
-    this, "lfo6duty", 0.5, description{"LFO6 duty cycle (for square wave)"},
-    range{0.0, 1.0}, setter{MIN_FUNCTION{if (!m_engine) return args;
-auto lfo = m_engine->getLFO(5);
-if (lfo)
-  lfo->setDuty(args[0]);
-return args;
-}
-}
-}
-;
 
 // MESSAGES
 
@@ -608,7 +569,6 @@ message<> dspsetup{
     this, "dspsetup",
     MIN_FUNCTION{
         double sr = c74::max::sys_getsr();
-        cout << "ec2~ dspsetup: " << sr << " Hz" << endl;
 
         // Initialize engine with sample rate
         m_engine->setSampleRate(static_cast<float>(sr));
@@ -625,7 +585,7 @@ message<> dspsetup{
     }};
 
 message<> clear{this, "clear",
-                MIN_FUNCTION{cout << "ec2~ clear: stopping all grains" << endl;
+                MIN_FUNCTION{
 m_engine->stopAllGrains();
 return {};
 }
@@ -635,7 +595,7 @@ return {};
 message<> m_read{
     this, "read",
     MIN_FUNCTION{if (args.empty()){
-        cerr << "ec2~: read requires a buffer name argument" << endl;
+        cerr << "read requires a buffer name argument" << endl;
 return {};
 }
 
@@ -646,10 +606,8 @@ auto audio_buf = ec2_buffer::loadFromMaxBuffer(buffer_str);
 if (audio_buf) {
   m_engine->setAudioBuffer(audio_buf, 0);
   buffer_name = buffer_sym;
-  cout << "ec2~: loaded buffer '" << buffer_str << "' (" << audio_buf->frames
-       << " frames, " << audio_buf->channels << " channels)" << endl;
 } else {
-  cerr << "ec2~: failed to load buffer '" << buffer_str << "'" << endl;
+  cerr << "failed to load buffer '" << buffer_str << "'" << endl;
 }
 
 return {};
@@ -660,16 +618,13 @@ return {};
 message<> polybuffer{
     this, "polybuffer",
     MIN_FUNCTION{if (args.size() < 2){
-        cerr << "ec2~: polybuffer requires basename and count arguments"
+        cerr << "polybuffer requires basename and count arguments"
              << endl;
 return {};
 }
 
 symbol basename = args[0];
 int count = static_cast<int>(args[1]);
-
-cout << "ec2~: loading polybuffer '" << std::string(basename) << "' with "
-     << count << " buffers" << endl;
 
 // Load all buffers
 int loaded_count = 0;
@@ -682,8 +637,10 @@ for (int i = 0; i < count; ++i) {
   }
 }
 
-cout << "ec2~: loaded " << loaded_count << " of " << count
-     << " polybuffer slots" << endl;
+if (loaded_count < count) {
+  cerr << "polybuffer: loaded " << loaded_count << " of " << count
+       << " buffers" << endl;
+}
 
 return {};
 }
@@ -694,7 +651,7 @@ message<> modroute{
     this, "modroute",
     MIN_FUNCTION{if (args.size() < 2){
         cerr
-        << "ec2~: modroute requires parameter name and LFO number (or 'none')"
+        << "modroute requires parameter name and LFO number (or 'none')"
         << endl;
 cerr << "      usage: modroute <param> <lfo_num> [depth]" << endl;
 cerr << "      example: modroute grainrate 1 0.5" << endl;
@@ -707,7 +664,7 @@ std::string param_name = std::string(param_sym);
 // Get modulation parameters reference
 ec2::ModulationParameters *modParams = getModulationParameters(param_name);
 if (!modParams) {
-  cerr << "ec2~: unknown parameter '" << param_name << "'" << endl;
+  cerr << "unknown parameter '" << param_name << "'" << endl;
   return {};
 }
 
@@ -718,7 +675,6 @@ if (args.size() == 2) {
   if (lfo_str == "none" || lfo_str == "0") {
     modParams->lfoSource = 0;
     modParams->depth = 0.0f;
-    cout << "ec2~: cleared modulation from " << param_name << endl;
     return {};
   }
 }
@@ -728,19 +684,12 @@ int lfo_num = args[1];
 float depth = (args.size() >= 3) ? static_cast<float>(args[2]) : 0.5f;
 
 if (lfo_num < 0 || lfo_num > 6) {
-  cerr << "ec2~: LFO number must be 0-6 (0=none, 1-6=LFO1-6)" << endl;
+  cerr << "LFO number must be 0-6 (0=none, 1-6=LFO1-6)" << endl;
   return {};
 }
 
 modParams->lfoSource = lfo_num;
 modParams->depth = std::max(0.0f, std::min(depth, 1.0f));
-
-if (lfo_num == 0) {
-  cout << "ec2~: cleared modulation from " << param_name << endl;
-} else {
-  cout << "ec2~: routed LFO" << lfo_num << " to " << param_name << " (depth "
-       << modParams->depth << ")" << endl;
-}
 
 return {};
 }
@@ -785,18 +734,32 @@ if (!msg_str.empty() && msg_str[0] == '/') {
           if (i == 1) {
             buffer_name = buf_name;
           }
-
-          cout << "ec2~: loaded buffer"
-               << (args.size() > 2 ? " " + std::to_string(buf_index) : "")
-               << " via /set: '" << buf_str << "' (" << audio_buf->frames
-               << " frames, " << audio_buf->channels << " channels)" << endl;
         } else {
-          cerr << "ec2~: failed to load buffer '" << buf_str << "' via /set"
+          cerr << "failed to load buffer '" << buf_str << "' via /set"
                << endl;
         }
       }
     } else {
-      cerr << "ec2~: /set requires at least one buffer name argument" << endl;
+      cerr << "/set requires at least one buffer name argument" << endl;
+    }
+    return {};
+  }
+
+  // Handle /buffer message for buffer loading (OSC-style)
+  if (param_name == "buffer") {
+    if (args.size() >= 2) {
+      symbol buf_name = args[1];
+      std::string buf_str = std::string(buf_name);
+      auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_str);
+
+      if (audio_buf) {
+        m_engine->setAudioBuffer(audio_buf, 0);
+        buffer_name = buf_name;
+      } else {
+        cerr << "failed to load buffer '" << buf_str << "' via /buffer" << endl;
+      }
+    } else {
+      cerr << "/buffer requires a buffer name argument" << endl;
     }
     return {};
   }
@@ -808,12 +771,53 @@ if (!msg_str.empty() && msg_str[0] == '/') {
 }
 // Check if it's an odot FullPacket bundle
 else if (msg_str == "FullPacket") {
-  // Handle odot bundle format
-  // FullPacket is followed by OSC bundle data
-  // For now, we'll parse individual messages from the bundle
-  // This is a simplified implementation
-  cout << "ec2~: received FullPacket OSC bundle" << endl;
-  // TODO: Full odot bundle parsing if needed
+  // FullPacket format: "FullPacket" <size> <pointer>
+  // args[0] = "FullPacket", args[1] = size, args[2] = pointer
+  if (args.size() >= 3) {
+    try {
+      // Get bundle size from second atom (args[1])
+      c74::max::t_atom* size_atom = (c74::max::t_atom*)&args[1];
+      c74::max::t_atom* ptr_atom = (c74::max::t_atom*)&args[2];
+
+      if (!size_atom || !ptr_atom) return {};
+
+      size_t bundle_size = 0;
+      unsigned char* bundle_ptr = nullptr;
+
+      // Extract size
+      if (c74::max::atom_gettype(size_atom) == c74::max::A_LONG) {
+        bundle_size = c74::max::atom_getlong(size_atom);
+      } else if (c74::max::atom_gettype(size_atom) == c74::max::A_FLOAT) {
+        bundle_size = (size_t)c74::max::atom_getfloat(size_atom);
+      } else {
+        return {};
+      }
+
+      // Extract pointer
+      if (c74::max::atom_gettype(ptr_atom) == c74::max::A_LONG) {
+        bundle_ptr = (unsigned char*)c74::max::atom_getlong(ptr_atom);
+      } else {
+        return {};
+      }
+
+      // Validate pointer and size
+      if (bundle_ptr && bundle_size > 0 && bundle_size < 1048576) { // Max 1MB sanity check
+        // Suppress OSC output during batch parsing
+        m_suppress_osc_output = true;
+
+        // Parse the OSC bundle from the pointer
+        parseOSCBundle(bundle_ptr, bundle_size);
+
+        // Re-enable OSC output and send bundle once with all updated parameters
+        m_suppress_osc_output = false;
+        sendOSCBundle();
+      }
+
+    } catch (...) {
+      // Ignore parsing errors
+      m_suppress_osc_output = false; // Ensure flag is reset
+    }
+  }
 }
 }
 
@@ -830,6 +834,14 @@ return {};
 }
 ;
 
+message<> loadbang{this, "loadbang",
+                   MIN_FUNCTION{// Send initial OSC bundle on object creation
+                                sendOSCBundle();
+return {};
+}
+}
+;
+
 message<> waveform{
     this, "waveform",
     MIN_FUNCTION{// Phase 13: Report buffer waveform info (simplified approach)
@@ -840,11 +852,11 @@ message<> waveform{
 auto current_buffer = m_engine->getAudioBuffer(buffer_index);
 
 if (!current_buffer || current_buffer->size == 0) {
-  cout << "ec2~: no buffer loaded" << endl;
+  cout << "no buffer loaded" << endl;
   return {};
 }
 
-cout << "ec2~: buffer info:" << endl;
+cout << "buffer info:" << endl;
 cout << "  frames: " << current_buffer->frames << endl;
 cout << "  channels: " << current_buffer->channels << endl;
 float sr = m_engine->getSampleRate();
@@ -874,7 +886,7 @@ message<> openbuffer{
 
                  std::string buf_name_str = std::string(buffer_name.get());
 if (buf_name_str.empty()) {
-  cout << "ec2~: no buffer loaded (use 'read' or 'polybuffer' message first)"
+  cerr << "no buffer loaded (use 'read' or 'polybuffer' message first)"
        << endl;
   return {};
 }
@@ -890,13 +902,12 @@ if (buf_ref) {
                                   nullptr, nullptr);
     c74::max::object_method_typed(buffer, c74::max::gensym("open"), 0, nullptr,
                                   nullptr);
-    cout << "ec2~: opened buffer editor for '" << buf_name_str << "'" << endl;
   } else {
-    cerr << "ec2~: failed to get buffer object" << endl;
+    cerr << "failed to get buffer object" << endl;
   }
   c74::max::object_free((c74::max::t_object *)buf_ref);
 } else {
-  cerr << "ec2~: failed to create buffer reference" << endl;
+  cerr << "failed to create buffer reference" << endl;
 }
 
 return {};
@@ -914,6 +925,50 @@ return {};
 }
 }
 ;
+
+// Assist strings for inlets and outlets
+message<> assist{
+    this, "assist",
+    MIN_FUNCTION{
+        long inlet_idx = args[0];
+        long outlet_idx = args[1];
+
+        if (inlet_idx >= 0) {
+            // Inlet assist strings
+            switch (inlet_idx) {
+                case 0:
+                    return {"Main inlet: messages, OSC bundles (@out: n/t)"};
+                case 1:
+                    return {"Signal: scan position (0.0-1.0)"};
+                case 2:
+                    return {"Signal: grain rate modulation (Hz)"};
+                case 3:
+                    return {"Signal: playback rate modulation"};
+                default:
+                    return {};
+            }
+        } else if (outlet_idx >= 0) {
+            // Outlet assist strings - dynamically adjust based on @mc mode
+            if (outlet_idx < m_outputs && m_mc_mode == 0) {
+                // Separated outputs
+                std::stringstream ss;
+                ss << "Audio out " << (outlet_idx + 1);
+                return {ss.str()};
+            } else if (outlet_idx == 0 && m_mc_mode == 1) {
+                // MC cable
+                std::stringstream ss;
+                ss << "Multichannel audio (" << m_outputs << " channels)";
+                return {ss.str()};
+            } else if ((m_mc_mode == 0 && outlet_idx == m_outputs) ||
+                       (m_mc_mode == 1 && outlet_idx == 1)) {
+                // OSC outlet (rightmost)
+                return {"OSC outlet: parameter updates (@out: n=FullPacket, t=text)"};
+            }
+        }
+
+        return {};
+    }
+};
 
   // DSP64 Perform callback - static wrapper
   static void perform64_static(c74::max::t_object *dsp64, double **ins,
@@ -994,6 +1049,120 @@ return {};
   }
 
 private:
+
+// Helper: Parse OSC bundle and extract messages
+void parseOSCBundle(const unsigned char* data, size_t size) {
+  // Check for OSC bundle header "#bundle\0"
+  if (size < 16) return; // Minimum bundle size
+
+  if (memcmp(data, "#bundle", 8) != 0) {
+    return; // Not a valid bundle
+  }
+
+  // Skip bundle header (8 bytes) and timetag (8 bytes)
+  size_t offset = 16;
+
+  // Parse bundle elements
+  while (offset < size) {
+    // Read element size (big-endian int32)
+    if (offset + 4 > size) break;
+
+    uint32_t element_size =
+        (data[offset] << 24) |
+        (data[offset + 1] << 16) |
+        (data[offset + 2] << 8) |
+        data[offset + 3];
+    offset += 4;
+
+    if (offset + element_size > size) break;
+
+    // Parse OSC message from this element
+    parseOSCMessage(data + offset, element_size);
+
+    offset += element_size;
+  }
+}
+
+// Helper: Parse single OSC message
+void parseOSCMessage(const unsigned char* data, size_t size) {
+  if (size < 4) return;
+
+  // Parse address pattern (null-terminated string)
+  std::string address;
+  size_t offset = 0;
+  while (offset < size && data[offset] != '\0') {
+    address += (char)data[offset++];
+  }
+
+  if (offset >= size) return;
+
+  // Skip to next 4-byte boundary
+  offset = (offset + 4) & ~3;
+
+  if (offset >= size || data[offset] != ',') return;
+
+  // Parse type tag string
+  std::string typetags;
+  offset++; // Skip comma
+  while (offset < size && data[offset] != '\0') {
+    typetags += (char)data[offset++];
+  }
+
+  // Skip to next 4-byte boundary
+  offset = (offset + 4) & ~3;
+
+  // Extract parameter name from address (remove leading '/')
+  std::string param_name = address;
+  if (!param_name.empty() && param_name[0] == '/') {
+    param_name = param_name.substr(1);
+  }
+
+  // Parse arguments based on type tags
+  for (char tag : typetags) {
+    if (offset >= size) break;
+
+    if (tag == 'f') {
+      // Float32 (big-endian)
+      if (offset + 4 > size) break;
+
+      uint32_t bits =
+          (data[offset] << 24) |
+          (data[offset + 1] << 16) |
+          (data[offset + 2] << 8) |
+          data[offset + 3];
+
+      float value;
+      memcpy(&value, &bits, 4);
+
+      // Route to parameter
+      handleOSCParameter(param_name, value);
+
+      offset += 4;
+      break; // Only use first argument
+
+    } else if (tag == 'i') {
+      // Int32 (big-endian)
+      if (offset + 4 > size) break;
+
+      int32_t value =
+          (data[offset] << 24) |
+          (data[offset + 1] << 16) |
+          (data[offset + 2] << 8) |
+          data[offset + 3];
+
+      // Route to parameter
+      handleOSCParameter(param_name, (double)value);
+
+      offset += 4;
+      break; // Only use first argument
+
+    } else {
+      // Unsupported type, skip
+      break;
+    }
+  }
+}
+
 // Helper: get effective output channel count
 size_t getOutputChannelCount() const {
   // @outputs controls the number of channels
@@ -1039,31 +1208,31 @@ getModulationParameters(const std::string &param_name) {
   return nullptr;
 }
 
-// Helper: update engine parameters from attributes
+// Helper: update engine parameters from member variables
 void updateEngineParameters() {
   ec2::SynthParameters params;
 
   // Grain scheduling
-  params.grainRate = grain_rate;
-  params.async = async;
-  params.intermittency = intermittency;
-  params.streams = streams;
+  params.grainRate = m_grain_rate;
+  params.async = m_async;
+  params.intermittency = m_intermittency;
+  params.streams = m_streams;
 
   // Grain characteristics
-  params.playbackRate = playback_rate;
-  params.grainDuration = grain_duration;
-  params.envelope = envelope_shape;
-  params.pan = stereo_pan;
-  params.amplitude = amplitude;
+  params.playbackRate = m_playback_rate;
+  params.grainDuration = m_grain_duration;
+  params.envelope = m_envelope_shape;
+  params.pan = m_stereo_pan;
+  params.amplitude = m_amplitude;
 
   // Filtering
-  params.filterFreq = filter_freq;
-  params.resonance = filter_resonance;
+  params.filterFreq = m_filter_freq;
+  params.resonance = m_filter_resonance;
 
   // Scanning
-  params.scanBegin = scan_start;
-  params.scanRange = scan_range;
-  params.scanSpeed = scan_speed;
+  params.scanBegin = m_scan_start;
+  params.scanRange = m_scan_range;
+  params.scanSpeed = m_scan_speed;
   params.soundFile = sound_file; // Phase 6: Buffer selection
 
   // Spatial allocation (Phase 5)
@@ -1095,7 +1264,7 @@ void updateEngineParameters() {
 
 // Helper: handle OSC parameter setting (Phase 10)
 void handleOSCParameter(const std::string &param_name, const atom &value) {
-  // Map OSC parameter names to attributes
+  // Map OSC parameter names to member variables
   // Use lowercase, no special chars for OSC compatibility
 
   try {
@@ -1103,45 +1272,45 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
 
     // Grain scheduling
     if (param_name == "grainrate") {
-      grain_rate = val;
+      m_grain_rate = std::max(0.1, std::min(500.0, val));
     } else if (param_name == "async") {
-      async = val;
+      m_async = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "intermittency") {
-      intermittency = val;
+      m_intermittency = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "streams") {
-      streams = val;
+      m_streams = std::max(1.0, std::min(20.0, val));
     }
 
     // Grain characteristics
     else if (param_name == "playback") {
-      playback_rate = val;
+      m_playback_rate = std::max(-32.0, std::min(32.0, val));
     } else if (param_name == "duration") {
-      grain_duration = val;
+      m_grain_duration = std::max(1.0, std::min(1000.0, val));
     } else if (param_name == "envelope") {
-      envelope_shape = val;
+      m_envelope_shape = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "amp" || param_name == "amplitude") {
-      amplitude = val;
+      m_amplitude = std::max(0.0, std::min(1.0, val));
     }
 
     // Filtering
     else if (param_name == "filterfreq") {
-      filter_freq = val;
+      m_filter_freq = std::max(20.0, std::min(22000.0, val));
     } else if (param_name == "resonance") {
-      filter_resonance = val;
+      m_filter_resonance = std::max(0.0, std::min(1.0, val));
     }
 
     // Stereo panning
     else if (param_name == "pan") {
-      stereo_pan = val;
+      m_stereo_pan = std::max(-1.0, std::min(1.0, val));
     }
 
     // Scanning
     else if (param_name == "scanstart") {
-      scan_start = val;
+      m_scan_start = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "scanrange") {
-      scan_range = val;
+      m_scan_range = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "scanspeed") {
-      scan_speed = val;
+      m_scan_speed = std::max(-32.0, std::min(32.0, val));
     }
 
     // Buffer
@@ -1179,20 +1348,8 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
       traj_depth = val;
     }
 
-    // LFOs (simplified - just rates for now, can expand)
-    else if (param_name == "lfo1rate") {
-      lfo1_rate = val;
-    } else if (param_name == "lfo2rate") {
-      lfo2_rate = val;
-    } else if (param_name == "lfo3rate") {
-      lfo3_rate = val;
-    } else if (param_name == "lfo4rate") {
-      lfo4_rate = val;
-    } else if (param_name == "lfo5rate") {
-      lfo5_rate = val;
-    } else if (param_name == "lfo6rate") {
-      lfo6_rate = val;
-    }
+    // LFOs are now handled as messages, not attributes
+    // OSC messages for LFOs will be routed through the message system
 
     else {
       // Unknown parameter - ignore silently for OSC compatibility
@@ -1202,16 +1359,232 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
     // Update engine parameters after setting
     updateEngineParameters();
 
+    // Send OSC bundle to notify of parameter change (unless suppressed for batch updates)
+    if (!m_suppress_osc_output) {
+      sendOSCBundle();
+    }
+
   } catch (...) {
     // Type conversion error - ignore
   }
 }
 
-// Helper: output current parameter state as OSC bundle (Phase 10)
+// Helper: Send OSC bundle with all parameters (automatic output)
+// Helper: Write big-endian 32-bit integer
+void writeBigEndianInt32(std::vector<unsigned char>& buffer, uint32_t value) {
+  buffer.push_back((value >> 24) & 0xFF);
+  buffer.push_back((value >> 16) & 0xFF);
+  buffer.push_back((value >> 8) & 0xFF);
+  buffer.push_back(value & 0xFF);
+}
+
+// Helper: Write big-endian 32-bit float
+void writeBigEndianFloat32(std::vector<unsigned char>& buffer, float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, 4);
+  writeBigEndianInt32(buffer, bits);
+}
+
+// Helper: Write OSC string (null-terminated, padded to 4-byte boundary)
+void writeOSCString(std::vector<unsigned char>& buffer, const std::string& str) {
+  buffer.insert(buffer.end(), str.begin(), str.end());
+  buffer.push_back('\0'); // Null terminator
+
+  // Pad to 4-byte boundary
+  while (buffer.size() % 4 != 0) {
+    buffer.push_back('\0');
+  }
+}
+
+// Helper: Write single OSC message to buffer (float value)
+void writeOSCMessage(std::vector<unsigned char>& buffer, const std::string& address, float value) {
+  std::vector<unsigned char> message;
+
+  // Write address pattern
+  writeOSCString(message, address);
+
+  // Write type tag string (,f = float)
+  writeOSCString(message, ",f");
+
+  // Write float argument
+  writeBigEndianFloat32(message, value);
+
+  // Write message size
+  writeBigEndianInt32(buffer, message.size());
+
+  // Write message content
+  buffer.insert(buffer.end(), message.begin(), message.end());
+}
+
+// Helper: Write single OSC message to buffer (string value)
+void writeOSCMessageString(std::vector<unsigned char>& buffer, const std::string& address, const std::string& value) {
+  std::vector<unsigned char> message;
+
+  // Write address pattern
+  writeOSCString(message, address);
+
+  // Write type tag string (,s = string)
+  writeOSCString(message, ",s");
+
+  // Write string argument
+  writeOSCString(message, value);
+
+  // Write message size
+  writeBigEndianInt32(buffer, message.size());
+
+  // Write message content
+  buffer.insert(buffer.end(), message.begin(), message.end());
+}
+
+// Helper: Send parameters as text (for @out t)
+void sendTextOutput() {
+  if (!m_osc_outlet) return;
+
+  // Build human-readable parameter string
+  std::stringstream ss;
+  ss << "ec2~ parameters: ";
+
+  // Synthesis parameters
+  ss << "grainrate=" << m_grain_rate << " ";
+  ss << "async=" << m_async << " ";
+  ss << "intermittency=" << m_intermittency << " ";
+  ss << "streams=" << m_streams << " ";
+  ss << "playback=" << m_playback_rate << " ";
+  ss << "duration=" << m_grain_duration << " ";
+  ss << "envelope=" << m_envelope_shape << " ";
+  ss << "amp=" << m_amplitude << " ";
+  ss << "filterfreq=" << m_filter_freq << " ";
+  ss << "resonance=" << m_filter_resonance << " ";
+  ss << "pan=" << m_stereo_pan << " ";
+  ss << "scanstart=" << m_scan_start << " ";
+  ss << "scanrange=" << m_scan_range << " ";
+  ss << "scanspeed=" << m_scan_speed << " ";
+
+  // Attributes
+  ss << "outputs=" << m_outputs << " ";
+  ss << "mc=" << m_mc_mode << " ";
+  ss << "allocmode=" << alloc_mode.get() << " ";
+  ss << "fixedchan=" << fixed_channel.get() << " ";
+  ss << "rrstep=" << rr_step.get() << " ";
+  ss << "randspread=" << random_spread.get() << " ";
+  ss << "spatialcorr=" << spatial_corr.get() << " ";
+  ss << "pitchmin=" << pitch_min.get() << " ";
+  ss << "pitchmax=" << pitch_max.get() << " ";
+  ss << "trajshape=" << traj_shape.get() << " ";
+  ss << "trajrate=" << traj_rate.get() << " ";
+  ss << "trajdepth=" << traj_depth.get() << " ";
+  ss << "soundfile=" << sound_file.get();
+
+  // Send as symbol
+  c74::max::t_atom arg;
+  c74::max::atom_setsym(&arg, c74::max::gensym(ss.str().c_str()));
+  c74::max::outlet_anything(m_osc_outlet, c74::max::gensym("text"), 1, &arg);
+}
+
+void sendOSCBundle() {
+  if (!m_osc_outlet) return;
+
+  // Check output format
+  std::string format_str = std::string(out_format.get());
+  if (format_str == "t" || format_str == "text") {
+    sendTextOutput();
+    return;
+  }
+
+  // Native FullPacket bundle format (default)
+
+  // Create binary OSC bundle following OSC 1.0 specification
+  m_osc_bundle_buffer.clear();
+
+  // Bundle header: "#bundle\0" (8 bytes)
+  m_osc_bundle_buffer.push_back('#');
+  m_osc_bundle_buffer.push_back('b');
+  m_osc_bundle_buffer.push_back('u');
+  m_osc_bundle_buffer.push_back('n');
+  m_osc_bundle_buffer.push_back('d');
+  m_osc_bundle_buffer.push_back('l');
+  m_osc_bundle_buffer.push_back('e');
+  m_osc_bundle_buffer.push_back('\0');
+
+  // Timetag: immediate (0x0000000000000001) (8 bytes)
+  for (int i = 0; i < 7; i++) m_osc_bundle_buffer.push_back(0x00);
+  m_osc_bundle_buffer.push_back(0x01);
+
+  // Add all parameter messages
+  // Grain scheduling
+  writeOSCMessage(m_osc_bundle_buffer, "/grainrate", m_grain_rate);
+  writeOSCMessage(m_osc_bundle_buffer, "/async", m_async);
+  writeOSCMessage(m_osc_bundle_buffer, "/intermittency", m_intermittency);
+  writeOSCMessage(m_osc_bundle_buffer, "/streams", m_streams);
+
+  // Grain characteristics
+  writeOSCMessage(m_osc_bundle_buffer, "/playback", m_playback_rate);
+  writeOSCMessage(m_osc_bundle_buffer, "/duration", m_grain_duration);
+  writeOSCMessage(m_osc_bundle_buffer, "/envelope", m_envelope_shape);
+  writeOSCMessage(m_osc_bundle_buffer, "/amp", m_amplitude);
+
+  // Filtering
+  writeOSCMessage(m_osc_bundle_buffer, "/filterfreq", m_filter_freq);
+  writeOSCMessage(m_osc_bundle_buffer, "/resonance", m_filter_resonance);
+
+  // Panning
+  writeOSCMessage(m_osc_bundle_buffer, "/pan", m_stereo_pan);
+
+  // Scanning
+  writeOSCMessage(m_osc_bundle_buffer, "/scanstart", m_scan_start);
+  writeOSCMessage(m_osc_bundle_buffer, "/scanrange", m_scan_range);
+  writeOSCMessage(m_osc_bundle_buffer, "/scanspeed", m_scan_speed);
+
+  // Attributes (configuration parameters)
+  writeOSCMessage(m_osc_bundle_buffer, "/outputs", m_outputs);
+  writeOSCMessage(m_osc_bundle_buffer, "/mc", m_mc_mode);
+  writeOSCMessage(m_osc_bundle_buffer, "/allocmode", alloc_mode);
+  writeOSCMessage(m_osc_bundle_buffer, "/fixedchan", fixed_channel);
+  writeOSCMessage(m_osc_bundle_buffer, "/rrstep", rr_step);
+  writeOSCMessage(m_osc_bundle_buffer, "/randspread", random_spread);
+  writeOSCMessage(m_osc_bundle_buffer, "/spatialcorr", spatial_corr);
+  writeOSCMessage(m_osc_bundle_buffer, "/pitchmin", pitch_min);
+  writeOSCMessage(m_osc_bundle_buffer, "/pitchmax", pitch_max);
+  writeOSCMessage(m_osc_bundle_buffer, "/trajshape", traj_shape);
+  writeOSCMessage(m_osc_bundle_buffer, "/trajrate", traj_rate);
+  writeOSCMessage(m_osc_bundle_buffer, "/trajdepth", traj_depth);
+  writeOSCMessage(m_osc_bundle_buffer, "/soundfile", sound_file.get());
+
+  // Buffer name (as string - special handling needed)
+  std::string buf_name = std::string(buffer_name.get());
+  if (!buf_name.empty()) {
+    writeOSCMessageString(m_osc_bundle_buffer, "/buffer", buf_name);
+  }
+
+  // LFO Parameters (24 total: 6 LFOs × 4 params each)
+  if (m_engine) {
+    for (int i = 0; i < 6; i++) {
+      auto lfo = m_engine->getLFO(i);
+      if (lfo) {
+        std::string lfo_prefix = "/lfo" + std::to_string(i + 1);
+        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "shape", static_cast<float>(lfo->getShape()));
+        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "rate", lfo->getFrequency());
+        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "polarity", static_cast<float>(lfo->getPolarity()));
+        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "duty", lfo->getDuty());
+      }
+    }
+  }
+
+  // Send as FullPacket (odot format)
+  // FullPacket format: TWO arguments
+  //   1st: size (long)
+  //   2nd: pointer address (long) to buffer
+  c74::max::t_atom args[2];
+  c74::max::atom_setlong(&args[0], m_osc_bundle_buffer.size());
+  c74::max::atom_setlong(&args[1], (long)m_osc_bundle_buffer.data());
+
+  // Send as FullPacket message
+  c74::max::outlet_anything(m_osc_outlet, c74::max::gensym("FullPacket"), 2, args);
+}
+
+// Legacy function for bang message
 void outputOSCState() {
-  // TODO: Implement OSC output using Max SDK outlet
-  // For now, OSC output is disabled with dynamic outlets
-  cout << "ec2~: OSC output not yet implemented with dynamic outlets" << endl;
+  sendOSCBundle();
 }
 
 // Helper: Create outlets dynamically based on @outputs and @mc
@@ -1227,22 +1600,13 @@ void createOutlets() {
     // Multichannel mode: Create 1 MC signal outlet
     void *mc_outlet = c74::max::outlet_new(max_obj, "multichannelsignal");
     m_signal_outlets.insert(m_signal_outlets.begin(), mc_outlet);
-
-    cout << "ec2~: created 1 MC outlet (" << m_outputs << " channels)"
-         << endl;
   } else {
     // Separated mode: Create N separate signal outlets (right to left)
     for (int i = m_outputs - 1; i >= 0; --i) {
       void *sig_outlet = c74::max::outlet_new(max_obj, "signal");
       m_signal_outlets.insert(m_signal_outlets.begin(), sig_outlet);
     }
-
-    cout << "ec2~: created " << m_outputs << " separate signal outlets"
-         << endl;
   }
-
-  cout << "ec2~: Total outlets: " << m_signal_outlets.size() + 1
-       << " (signal + OSC)" << endl;
 }
 
 // Helper: Recreate outlets when @outputs or @mc changes
