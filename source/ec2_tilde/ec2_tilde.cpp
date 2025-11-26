@@ -1178,7 +1178,35 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
       break;
     }
 
-    if (tag == 'f') {
+    if (tag == 'd') {
+      // Double (64-bit float, big-endian) - odot uses this by default
+      if (offset + 8 > size) {
+        cout << "[ec2~] parseOSCMessage: not enough data for double argument" << endl;
+        break;
+      }
+
+      uint64_t bits =
+          ((uint64_t)data[offset] << 56) |
+          ((uint64_t)data[offset + 1] << 48) |
+          ((uint64_t)data[offset + 2] << 40) |
+          ((uint64_t)data[offset + 3] << 32) |
+          ((uint64_t)data[offset + 4] << 24) |
+          ((uint64_t)data[offset + 5] << 16) |
+          ((uint64_t)data[offset + 6] << 8) |
+          ((uint64_t)data[offset + 7]);
+
+      double value;
+      memcpy(&value, &bits, 8);
+
+      cout << "[ec2~] parseOSCMessage: double arg=" << value << " for param '" << param_name << "'" << endl;
+
+      // Route to parameter
+      handleOSCParameter(param_name, value);
+
+      offset += 8;
+      break; // Only use first argument
+
+    } else if (tag == 'f') {
       // Float32 (big-endian)
       if (offset + 4 > size) {
         cout << "[ec2~] parseOSCMessage: not enough data for float argument" << endl;
