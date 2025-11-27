@@ -579,6 +579,12 @@ attribute<symbol> buffer_name{
     this, "buffer", "", description{"Buffer~ name for audio source"},
     setter{MIN_FUNCTION{
       std::string name = std::string(args[0]);
+
+      // m_engine may not be initialized yet during construction
+      if (!m_engine) {
+        return args;
+      }
+
       if (name.empty()) {
         // Allow clearing the buffer
         m_engine->setAudioBuffer(nullptr, 0);
@@ -784,6 +790,11 @@ message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (arg
 message<> dsp64_message{
     this, "dsp64",
     MIN_FUNCTION{
+        if (!m_engine) {
+          cerr << "ec2~: engine not initialized for DSP" << endl;
+          return {};
+        }
+
         // Get sample rate
         double sr = c74::max::sys_getsr();
 
@@ -803,56 +814,67 @@ message<> dsp64_message{
 
 message<> clear{this, "clear",
                 MIN_FUNCTION{
-m_engine->stopAllGrains();
-return {};
-}
-}
-;
+                  if (m_engine) {
+                    m_engine->stopAllGrains();
+                  }
+                  return {};
+                }
+};
 
 message<> m_read{
     this, "read",
-    MIN_FUNCTION{if (args.empty()){
-        cerr << "read requires a buffer name argument" << endl;
-return {};
-}
+    MIN_FUNCTION{
+      if (args.empty()) {
+        cerr << "ec2~: read requires a buffer name argument" << endl;
+        return {};
+      }
 
-symbol buffer_sym = args[0];
-std::string buffer_str = std::string(buffer_sym);
+      if (!m_engine) {
+        cerr << "ec2~: engine not initialized" << endl;
+        return {};
+      }
 
-auto audio_buf = ec2_buffer::loadFromMaxBuffer(buffer_str);
-if (audio_buf) {
-  m_engine->setAudioBuffer(audio_buf, 0);
-  buffer_name = buffer_sym;
-} else {
-  cerr << "failed to load buffer '" << buffer_str << "'" << endl;
-}
+      symbol buffer_sym = args[0];
+      std::string buffer_str = std::string(buffer_sym);
 
-return {};
-}
-}
-;
+      auto audio_buf = ec2_buffer::loadFromMaxBuffer(buffer_str);
+      if (audio_buf) {
+        m_engine->setAudioBuffer(audio_buf, 0);
+        buffer_name = buffer_sym;
+      } else {
+        cerr << "ec2~: failed to load buffer '" << buffer_str << "'" << endl;
+      }
+
+      return {};
+    }
+};
 
 message<> polybuffer{
     this, "polybuffer",
-    MIN_FUNCTION{if (args.size() < 2){
-        cerr << "polybuffer requires basename and count arguments"
-             << endl;
-return {};
-}
+    MIN_FUNCTION{
+      if (args.size() < 2) {
+        cerr << "ec2~: polybuffer requires basename and count arguments" << endl;
+        return {};
+      }
 
-symbol basename = args[0];
-int count = static_cast<int>(args[1]);
+      if (!m_engine) {
+        cerr << "ec2~: engine not initialized" << endl;
+        return {};
+      }
 
-// Load all buffers
-int loaded_count = 0;
-for (int i = 0; i < count; ++i) {
-  std::string buf_name = std::string(basename) + "." + std::to_string(i);
-  auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_name);
-  if (audio_buf) {
-    m_engine->setAudioBuffer(audio_buf, i);
-    loaded_count++;
-  }
-}
+      symbol basename = args[0];
+      int count = static_cast<int>(args[1]);
+
+      // Load all buffers
+      int loaded_count = 0;
+      for (int i = 0; i < count; ++i) {
+        std::string buf_name = std::string(basename) + "." + std::to_string(i);
+        auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_name);
+        if (audio_buf) {
+          m_engine->setAudioBuffer(audio_buf, i);
+          loaded_count++;
+        }
+      }
 
 if (loaded_count < count) {
   cerr << "polybuffer: loaded " << loaded_count << " of " << count
@@ -1134,6 +1156,11 @@ message<> assist{
   // DSP64 Perform callback - actual processing
   void perform64(double **ins, long numins, double **outs, long numouts,
                  long sampleframes) {
+    // Safety check - engine must be initialized
+    if (!m_engine) {
+      return;
+    }
+
     // Update engine parameters from attributes
     updateEngineParameters();
 
