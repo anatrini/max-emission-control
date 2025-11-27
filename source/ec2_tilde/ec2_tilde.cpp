@@ -181,19 +181,13 @@ public:
         long long bundle_size = (long long)(double)args[0];
         long long bundle_ptr_val = (long long)(double)args[1];
 
-        // Validate size and pointer
+        // Basic validation
         if (bundle_ptr_val == 0 || bundle_size <= 0 || bundle_size >= 1048576) {
           return {};
         }
 
         unsigned char* data = reinterpret_cast<unsigned char*>(static_cast<uintptr_t>(bundle_ptr_val));
         if (!data) {
-          return {};
-        }
-
-        // Verify it's an OSC bundle before processing
-        if (bundle_size < 16 || memcmp(data, "#bundle", 8) != 0) {
-          cerr << "ec2~: received invalid OSC bundle" << endl;
           return {};
         }
 
@@ -576,14 +570,15 @@ attribute<number> traj_depth{
 // BUFFER PARAMETERS (Phase 6)
 
 attribute<symbol> buffer_name{
-    this, "buffer", "", description{"Buffer~ name for audio source"},
+    this, "buffer", c74::min::symbol(),  // No default value to avoid early initialization
+    description{"Buffer~ name for audio source"},
     setter{MIN_FUNCTION{
-      std::string name = std::string(args[0]);
-
       // m_engine may not be initialized yet during construction
       if (!m_engine) {
-        return args;
+        return args;  // Silently skip if engine not ready
       }
+
+      std::string name = std::string(args[0]);
 
       if (name.empty()) {
         // Allow clearing the buffer
@@ -595,7 +590,8 @@ attribute<symbol> buffer_name{
       if (audio_buf) {
         m_engine->setAudioBuffer(audio_buf, 0);
       } else {
-        cerr << "ec2~: failed to load buffer '" << name << "'" << endl;
+        // Only warn if buffer name was explicitly set (not during init)
+        cerr << "ec2~: warning - buffer '" << name << "' not found" << endl;
       }
       return args;
     }
@@ -786,31 +782,17 @@ message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (arg
 
 // MESSAGES
 
-// DSP64 method - called when audio is turned on/off or DSP chain is rebuilt
-message<> dsp64_message{
-    this, "dsp64",
+// DSP setup method - called by Max when audio is turned on/off
+message<> dspsetup{
+    this, "dspsetup",
     MIN_FUNCTION{
-        if (!m_engine) {
-          cerr << "ec2~: engine not initialized for DSP" << endl;
-          return {};
-        }
-
-        // Get sample rate
-        double sr = c74::max::sys_getsr();
-
-        // Initialize engine with sample rate
-        m_engine->setSampleRate(static_cast<float>(sr));
-
-        // Update engine parameters from attributes
-        updateEngineParameters();
-
-        // Add to DSP chain using Max SDK dsp_add64
-        c74::max::object_method(
-            maxobj(), c74::max::gensym("dsp_add64"),
-            maxobj(), perform64_static, 0, this);
-
-        return {};
-    }};
+      setupDSP();
+      c74::max::object_method(
+          maxobj(), c74::max::gensym("dsp_add64"),
+          maxobj(), perform64_static, 0, this);
+      return {};
+    }
+};
 
 message<> clear{this, "clear",
                 MIN_FUNCTION{
@@ -1144,6 +1126,20 @@ message<> assist{
         return {};
     }
 };
+
+  // Min-DevKit DSP setup method - called when audio is turned on/off
+  void setupDSP() {
+    if (!m_engine) {
+      return;
+    }
+
+    // Initialize engine with current sample rate
+    double sr = c74::max::sys_getsr();
+    m_engine->setSampleRate(static_cast<float>(sr));
+
+    // Update engine parameters
+    updateEngineParameters();
+  }
 
   // DSP64 Perform callback - static wrapper
   static void perform64_static(c74::max::t_object *dsp64, double **ins,
