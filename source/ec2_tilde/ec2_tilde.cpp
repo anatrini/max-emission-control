@@ -19,6 +19,12 @@
 
 using namespace c74::min;
 
+// Version and build information
+#define EC2_VERSION "1.0.0"
+#define EC2_BUILD __DATE__ " " __TIME__  // Unique timestamp for each build
+#define EC2_COPYRIGHT "© 2025 Alessandro Anatrini"
+#define EC2_LICENSE "GPL-3.0"
+
 // Buffer management helper (inline to avoid separate compilation unit)
 namespace ec2_buffer {
 inline std::shared_ptr<ec2::AudioBuffer<float>>
@@ -139,6 +145,16 @@ public:
 
   // Constructor
   ec2_tilde(const atoms &args = {}) {
+    // Print copyright banner
+    cout << "═══════════════════════════════════════════════════" << endl;
+    cout << "  ec2~ - EmissionControl2 for Max/MSP" << endl;
+    cout << "  Version: " << EC2_VERSION << endl;
+    cout << "  Build: " << EC2_BUILD << endl;
+    cout << "  " << EC2_COPYRIGHT << endl;
+    cout << "  License: " << EC2_LICENSE << endl;
+    cout << "  Curtis Roads' Granular Synthesis + Spatial Audio" << endl;
+    cout << "═══════════════════════════════════════════════════" << endl;
+
     // Parse arguments for backward compatibility: ec2~ [num_outputs]
     if (!args.empty()) {
       int requested_outputs = args[0];
@@ -159,15 +175,11 @@ public:
   message<> fullpacket{
     this, "FullPacket",
     MIN_FUNCTION{
-      cout << "[ec2~] FullPacket received, args.size()=" << args.size() << endl;
-
       if (args.size() >= 2) {
         // Cast the min atoms back to doubles, then to appropriate integer type
         // On ARM64 macOS, pointers are 64-bit, and Max sends them as 64-bit integers
         long long bundle_size = (long long)(double)args[0];
         long long bundle_ptr_val = (long long)(double)args[1];
-
-        cout << "[ec2~] FullPacket: size=" << bundle_size << ", ptr=0x" << std::hex << bundle_ptr_val << std::dec << endl;
 
         // Validate before using
         if (bundle_ptr_val != 0 && bundle_size > 0 && bundle_size < 1048576) {
@@ -178,25 +190,15 @@ public:
             m_input_buffer.resize(bundle_size);
             std::memcpy(m_input_buffer.data(), data, bundle_size);
 
-            cout << "[ec2~] FullPacket: data copied to internal buffer" << endl;
-
             // Suppress output during batch parameter updates
             m_suppress_osc_output = true;
             parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
             m_suppress_osc_output = false;
 
             // Send updated state once after all parameters parsed
-            cout << "[ec2~] FullPacket: calling sendOSCBundle() with updated state" << endl;
             sendOSCBundle();
-            cout << "[ec2~] FullPacket: processing complete" << endl;
-          } else {
-            cout << "[ec2~] FullPacket: ERROR - null data pointer" << endl;
           }
-        } else {
-          cout << "[ec2~] FullPacket: ERROR - invalid size or pointer" << endl;
         }
-      } else {
-        cout << "[ec2~] FullPacket: ERROR - insufficient arguments" << endl;
       }
 
       return {};
@@ -1006,26 +1008,8 @@ message<> waveform{
 auto current_buffer = m_engine->getAudioBuffer(buffer_index);
 
 if (!current_buffer || current_buffer->size == 0) {
-  cout << "no buffer loaded" << endl;
   return {};
 }
-
-cout << "buffer info:" << endl;
-cout << "  frames: " << current_buffer->frames << endl;
-cout << "  channels: " << current_buffer->channels << endl;
-float sr = m_engine->getSampleRate();
-cout << "  sample rate: " << sr << " Hz" << endl;
-cout << "  duration: " << (current_buffer->frames / sr) << " seconds" << endl;
-
-// Calculate and report peak amplitude
-float peak = 0.0f;
-for (size_t i = 0; i < current_buffer->size; ++i) {
-  float abs_val = std::abs(current_buffer->data[i]);
-  if (abs_val > peak)
-    peak = abs_val;
-}
-cout << "  peak amplitude: " << peak << " (" << (20.0 * log10(peak)) << " dB)"
-     << endl;
 
 return {};
 }
@@ -1207,21 +1191,12 @@ private:
 // Helper: Parse OSC bundle and extract messages
 void parseOSCBundle(const unsigned char* data, size_t size) {
   // Check for OSC bundle header "#bundle\0"
-  if (size < 16) {
-    cout << "[ec2~] parseOSCBundle: size too small (" << size << " bytes)" << endl;
-    return;
-  }
+  if (size < 16) return;
 
-  if (memcmp(data, "#bundle", 8) != 0) {
-    cout << "[ec2~] parseOSCBundle: invalid bundle header" << endl;
-    return;
-  }
-
-  cout << "[ec2~] parseOSCBundle: valid bundle, size=" << size << " bytes" << endl;
+  if (memcmp(data, "#bundle", 8) != 0) return;
 
   // Skip bundle header (8 bytes) and timetag (8 bytes)
   size_t offset = 16;
-  int message_count = 0;
 
   // Parse bundle elements
   while (offset < size) {
@@ -1235,27 +1210,18 @@ void parseOSCBundle(const unsigned char* data, size_t size) {
         data[offset + 3];
     offset += 4;
 
-    if (offset + element_size > size) {
-      cout << "[ec2~] parseOSCBundle: element size exceeds bundle size" << endl;
-      break;
-    }
-
-    message_count++;
-    cout << "[ec2~] parseOSCBundle: message " << message_count << ", size=" << element_size << " bytes" << endl;
+    if (offset + element_size > size) break;
 
     // Parse OSC message from this element
     parseOSCMessage(data + offset, element_size);
 
     offset += element_size;
   }
-
-  cout << "[ec2~] parseOSCBundle: parsed " << message_count << " messages" << endl;
 }
 
 // Helper: Parse single OSC message
 void parseOSCMessage(const unsigned char* data, size_t size) {
   if (size < 4) {
-    cout << "[ec2~] parseOSCMessage: size too small (" << size << " bytes)" << endl;
     return;
   }
 
@@ -1267,7 +1233,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
   }
 
   if (offset >= size) {
-    cout << "[ec2~] parseOSCMessage: address parsing failed (no null terminator)" << endl;
     return;
   }
 
@@ -1281,27 +1246,11 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
     param_name = param_name.substr(1);
   }
 
-  cout << "[ec2~] parseOSCMessage: address='" << address << "', param='" << param_name << "', offset=" << offset << endl;
 
   // Check if we have type tags
-  if (offset >= size) {
-    cout << "[ec2~] parseOSCMessage: no type tags (offset >= size)" << endl;
-    return;
-  }
+  if (offset >= size) return;
 
-  // Dump next few bytes for debugging
-  std::stringstream hex_dump;
-  for (size_t i = offset; i < std::min(offset + 8, size); i++) {
-    hex_dump << std::hex << std::setw(2) << std::setfill('0') << (int)data[i] << " ";
-  }
-  cout << "[ec2~] parseOSCMessage: next bytes: " << hex_dump.str() << endl;
-
-  if (data[offset] != ',') {
-    cout << "[ec2~] parseOSCMessage: WARNING - no type tag found at offset " << offset
-         << " (expected ',', got 0x" << std::hex << (int)data[offset] << std::dec << ")" << endl;
-    // Don't return - try to continue parsing anyway
-    return;
-  }
+  if (data[offset] != ',') return;
 
   // Parse type tag string
   std::string typetags;
@@ -1314,21 +1263,18 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
   offset++; // Skip the null terminator
   offset = (offset + 3) & ~3; // Round up to next 4-byte boundary
 
-  cout << "[ec2~] parseOSCMessage: typetags='" << typetags << "', args offset=" << offset << endl;
 
   // Parse arguments based on type tags
   for (size_t tag_idx = 0; tag_idx < typetags.length(); tag_idx++) {
     char tag = typetags[tag_idx];
 
     if (offset >= size) {
-      cout << "[ec2~] parseOSCMessage: ran out of data while parsing arguments" << endl;
       break;
     }
 
     if (tag == 'd') {
       // Double (64-bit float, big-endian) - odot uses this by default
       if (offset + 8 > size) {
-        cout << "[ec2~] parseOSCMessage: not enough data for double argument" << endl;
         break;
       }
 
@@ -1345,7 +1291,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
       double value;
       memcpy(&value, &bits, 8);
 
-      cout << "[ec2~] parseOSCMessage: double arg=" << value << " for param '" << param_name << "'" << endl;
 
       // Route to parameter
       handleOSCParameter(param_name, value);
@@ -1356,7 +1301,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
     } else if (tag == 'f') {
       // Float32 (big-endian)
       if (offset + 4 > size) {
-        cout << "[ec2~] parseOSCMessage: not enough data for float argument" << endl;
         break;
       }
 
@@ -1369,7 +1313,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
       float value;
       memcpy(&value, &bits, 4);
 
-      cout << "[ec2~] parseOSCMessage: float arg=" << value << " for param '" << param_name << "'" << endl;
 
       // Route to parameter
       handleOSCParameter(param_name, value);
@@ -1380,7 +1323,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
     } else if (tag == 'i') {
       // Int32 (big-endian)
       if (offset + 4 > size) {
-        cout << "[ec2~] parseOSCMessage: not enough data for int argument" << endl;
         break;
       }
 
@@ -1390,7 +1332,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
           (data[offset + 2] << 8) |
           data[offset + 3];
 
-      cout << "[ec2~] parseOSCMessage: int arg=" << value << " for param '" << param_name << "'" << endl;
 
       // Route to parameter
       handleOSCParameter(param_name, (double)value);
@@ -1406,7 +1347,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
         str_value += (char)data[offset++];
       }
 
-      cout << "[ec2~] parseOSCMessage: string arg='" << str_value << "' for param '" << param_name << "'" << endl;
 
       // Handle string parameter (e.g., buffer name)
       if (param_name == "buffer") {
@@ -1415,9 +1355,7 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
         if (audio_buf) {
           m_engine->setAudioBuffer(audio_buf, 0);
           buffer_name = c74::max::gensym(str_value.c_str());
-          cout << "[ec2~] parseOSCMessage: loaded buffer '" << str_value << "'" << endl;
         } else {
-          cout << "[ec2~] parseOSCMessage: failed to load buffer '" << str_value << "'" << endl;
         }
       }
 
@@ -1425,7 +1363,6 @@ void parseOSCMessage(const unsigned char* data, size_t size) {
 
     } else {
       // Unsupported type, skip
-      cout << "[ec2~] parseOSCMessage: unsupported type tag '" << tag << "'" << endl;
       break;
     }
   }
@@ -1554,13 +1491,11 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
   try {
     double val = static_cast<double>(value);
 
-    cout << "[ec2~] handleOSCParameter: param='" << param_name << "', value=" << val << endl;
 
     // Grain scheduling
     if (param_name == "grainrate") {
       double old_val = m_grain_rate;
       m_grain_rate = std::max(0.1, std::min(500.0, val));
-      cout << "[ec2~]   -> grainrate: " << old_val << " -> " << m_grain_rate << endl;
     } else if (param_name == "async") {
       m_async = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "intermittency") {
@@ -1676,20 +1611,16 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
     }
 
     // Update engine parameters after setting
-    cout << "[ec2~] handleOSCParameter: calling updateEngineParameters()" << endl;
     updateEngineParameters();
 
     // Send OSC bundle to notify of parameter change (unless suppressed for batch updates)
     if (!m_suppress_osc_output) {
-      cout << "[ec2~] handleOSCParameter: calling sendOSCBundle()" << endl;
       sendOSCBundle();
     } else {
-      cout << "[ec2~] handleOSCParameter: OSC output suppressed (batch update)" << endl;
     }
 
   } catch (...) {
     // Type conversion error - ignore
-    cout << "[ec2~] handleOSCParameter: ERROR - type conversion failed for param '" << param_name << "'" << endl;
   }
 }
 
