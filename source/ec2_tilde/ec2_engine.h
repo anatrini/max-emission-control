@@ -72,6 +72,24 @@ struct SynthParameters {
   ModulationParameters modScanBegin;
   ModulationParameters modScanRange;
   ModulationParameters modScanSpeed;
+
+  // Statistical/Probabilistic Parameters (Curtis Roads: stochastic grain clouds)
+  // Each deviation parameter adds random variation to create organic textures
+  // Variation range: base_value ± deviation (uniform random distribution)
+  float grainRateDeviation = 0.0f;      // Hz (0 = no variation)
+  float asyncDeviation = 0.0f;          // 0-1
+  float intermittencyDeviation = 0.0f;  // 0-1
+  float streamsDeviation = 0.0f;        // Integer deviation
+  float playbackDeviation = 0.0f;       // Ratio deviation
+  float durationDeviation = 0.0f;       // ms
+  float envelopeDeviation = 0.0f;       // 0-1
+  float panDeviation = 0.0f;            // -1 to 1
+  float amplitudeDeviation = 0.0f;      // Linear amplitude deviation
+  float filterFreqDeviation = 0.0f;     // Hz
+  float resonanceDeviation = 0.0f;      // 0-1
+  float scanBeginDeviation = 0.0f;      // 0-1
+  float scanRangeDeviation = 0.0f;      // 0-1
+  float scanSpeedDeviation = 0.0f;      // Ratio deviation
 };
 
 /**
@@ -194,6 +212,17 @@ private:
   // LFO system (Phase 9)
   LFO mLFOs[MAX_LFOS];
   float mLFOValues[MAX_LFOS];  // Current LFO values (updated once per audio callback)
+
+  /**
+   * Apply statistical deviation to a parameter value
+   * Implements Curtis Roads' stochastic grain cloud theory
+   * @param baseValue - The center/mean value
+   * @param deviation - Random variation range (±)
+   * @param minValue - Minimum allowed value (clamping)
+   * @param maxValue - Maximum allowed value (clamping)
+   * @return Value with random deviation applied
+   */
+  float applyDeviation(float baseValue, float deviation, float minValue, float maxValue);
 };
 
 }  // namespace ec2

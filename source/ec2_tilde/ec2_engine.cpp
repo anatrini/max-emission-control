@@ -132,6 +132,14 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         mCurrentScanIndex = scanPos * currentBuffer->frames;
       }
 
+      // Apply statistical deviation to scan position
+      float deviatedScanIndex = mCurrentScanIndex;
+      if (mParams.scanBeginDeviation > 0.0f) {
+        float normalizedScan = mCurrentScanIndex / currentBuffer->frames;
+        normalizedScan = applyDeviation(normalizedScan, mParams.scanBeginDeviation, 0.0f, 1.0f);
+        deviatedScanIndex = normalizedScan * currentBuffer->frames;
+      }
+
       Grain* grain = mVoicePool.getFreeVoice();
 
       if (grain) {
@@ -164,10 +172,20 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         float modulatedFilterFreq = applyModulation(mParams.filterFreq, mParams.modFilterFreq, 20.0f, 22000.0f);
         float modulatedResonance = applyModulation(mParams.resonance, mParams.modResonance, 0.0f, 1.0f);
 
+        // Apply statistical deviation (Curtis Roads: stochastic grain clouds)
+        // Each grain gets slightly randomized parameters for organic variation
+        grainPlaybackRate = applyDeviation(grainPlaybackRate, mParams.playbackDeviation, -32.0f, 32.0f);
+        modulatedDuration = applyDeviation(modulatedDuration, mParams.durationDeviation, 1.0f, 1000.0f);
+        modulatedEnvelope = applyDeviation(modulatedEnvelope, mParams.envelopeDeviation, 0.0f, 1.0f);
+        modulatedPan = applyDeviation(modulatedPan, mParams.panDeviation, -1.0f, 1.0f);
+        modulatedAmplitude = applyDeviation(modulatedAmplitude, mParams.amplitudeDeviation, 0.0f, 1.0f);
+        modulatedFilterFreq = applyDeviation(modulatedFilterFreq, mParams.filterFreqDeviation, 20.0f, 22000.0f);
+        modulatedResonance = applyDeviation(modulatedResonance, mParams.resonanceDeviation, 0.0f, 1.0f);
+
         // Configure grain parameters
         GrainParameters grainParams;
         grainParams.sourceBuffer = currentBuffer;
-        grainParams.currentIndex = mCurrentScanIndex;
+        grainParams.currentIndex = deviatedScanIndex;  // Use deviated scan position
         grainParams.transposition = grainPlaybackRate;  // Use signal-rate or modulated value
         grainParams.durationMs = modulatedDuration;
         grainParams.envelope = modulatedEnvelope;
@@ -252,6 +270,26 @@ float GranularEngine::applyModulation(float baseValue, const ModulationParameter
   if (modulatedValue > maxValue) modulatedValue = maxValue;
 
   return modulatedValue;
+}
+
+float GranularEngine::applyDeviation(float baseValue, float deviation,
+                                     float minValue, float maxValue) {
+  // If no deviation, return base value
+  if (deviation == 0.0f) {
+    return baseValue;
+  }
+
+  // Generate uniform random number in range [-1, 1]
+  float randomFactor = 2.0f * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) - 1.0f;
+
+  // Apply deviation: baseValue ± (deviation * randomFactor)
+  float deviatedValue = baseValue + (deviation * randomFactor);
+
+  // Clamp to valid range
+  if (deviatedValue < minValue) deviatedValue = minValue;
+  if (deviatedValue > maxValue) deviatedValue = maxValue;
+
+  return deviatedValue;
 }
 
 }  // namespace ec2

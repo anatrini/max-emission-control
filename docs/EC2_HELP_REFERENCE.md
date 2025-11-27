@@ -245,6 +245,213 @@ Range of buffer to scan from start position.
 
 ---
 
+## Statistical/Probabilistic Deviation Parameters
+
+Based on **Curtis Roads' theory of stochastic grain clouds** (Microsound, MIT Press, 2001), these parameters add random variation to grain parameters, creating organic and evolving textures. Each deviation parameter applies uniform random variation (±) to its corresponding base parameter for every grain.
+
+**Philosophy**: Instead of all grains having identical parameters, each grain gets slightly randomized values. This creates natural variation, chorusing effects, and prevents "machine gun" artifacts.
+
+**Example**:
+```
+grainrate 50           # Base grain rate: 50 Hz
+grainrate_dev 10       # Each grain: 40-60 Hz (50 ± 10)
+```
+
+### grainrate_dev (float, 0-250 Hz, default: 0.0)
+Random deviation for grain emission rate.
+- **0**: All grains emitted at exact `grainrate` (static)
+- **> 0**: Each grain's timing varies randomly
+- **Use**: Creates irregular, breathing rhythms instead of mechanical timing
+- **Curtis Roads**: "Temporal stochasticity prevents periodic artifacts"
+
+**Example**:
+```
+grainrate 30           # Mean: 30 Hz
+grainrate_dev 10       # Actual: 20-40 Hz per grain
+```
+
+### async_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for asynchronicity.
+- Adds variation to grain stream independence
+- Creates fluctuating degrees of temporal disorder
+- **Use**: Morphing between synchronized and scattered grain clouds
+
+### intermittency_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for intermittency (grain dropout probability).
+- Varies the sparseness of grain emission
+- Creates dynamic textural density changes
+- **Use**: Evolving grain cloud density without parameter automation
+
+### streams_dev (float, 0-10, default: 0.0)
+Random deviation for number of grain streams.
+- Integer deviation applied to stream count
+- Creates variable polyphonic density
+- **Use**: Fluctuating textural complexity
+
+### playback_dev (float, 0-16, default: 0.0)
+Random deviation for playback rate (pitch/speed).
+- **Curtis Roads**: "Frequency dispersion enriches spectral content"
+- Creates microtonal variation and spectral spreading
+- **Use**: Natural ensemble/chorus effect, detune clusters
+
+**Example**:
+```
+playback 1.0           # Base: original pitch
+playback_dev 0.05      # Actual: 0.95-1.05 (±5 cents approx)
+```
+
+For richer detuning:
+```
+playback 1.0
+playback_dev 0.2       # Actual: 0.8-1.2 (wider pitch spread)
+```
+
+### duration_dev (float, 0-500 ms, default: 0.0)
+Random deviation for grain duration.
+- **Curtis Roads**: "Grain length variation prevents timbral homogeneity"
+- Creates dynamic envelope complexity
+- **Use**: More organic attack/release characteristics
+
+**Example**:
+```
+duration 100           # Base: 100ms grains
+duration_dev 30        # Actual: 70-130ms per grain
+```
+
+### envelope_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for envelope shape.
+- Varies between Hanning-like (0.0) and rectangular (1.0)
+- Creates grain-to-grain spectral variation
+- **Use**: Prevents uniform spectral characteristics
+
+### pan_dev (float, 0.0-1.0, default: 0.0)
+Random deviation for stereo panning position.
+- Adds spatial width to grain clouds
+- Creates stereo movement and spaciousness
+- **Use**: Stereo spreading without fixed spatial positions
+
+**Example**:
+```
+pan 0.0                # Base: center
+pan_dev 0.3            # Actual: -0.3 to +0.3 (spread around center)
+```
+
+### amp_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for amplitude.
+- Creates dynamic level variation per grain
+- Prevents uniform loudness perception
+- **Use**: More natural amplitude envelope, shimmer effects
+
+**Example**:
+```
+amp 0.5                # Base: 50% amplitude
+amp_dev 0.1            # Actual: 40-60% per grain
+```
+
+### filterfreq_dev (float, 0-11000 Hz, default: 0.0)
+Random deviation for filter cutoff frequency.
+- **Curtis Roads**: "Spectral randomization enriches timbre"
+- Creates per-grain filter variation
+- **Use**: Spectral movement and complexity
+
+**Example**:
+```
+filterfreq 1000        # Base: 1000 Hz
+filterfreq_dev 500     # Actual: 500-1500 Hz per grain
+```
+
+### resonance_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for filter resonance.
+- Varies filter emphasis per grain
+- Creates timbral complexity
+- **Use**: Dynamic spectral character
+
+### scanstart_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for scan start position.
+- **Curtis Roads**: "Source position randomization creates timbral variation"
+- Each grain reads from slightly different buffer location
+- **Use**: Prevents repetitive timbral artifacts, creates textural movement
+
+**Example**:
+```
+scanstart 0.5          # Base: middle of buffer
+scanstart_dev 0.1      # Actual: 40-60% through buffer per grain
+```
+
+### scanrange_dev (float, 0.0-0.5, default: 0.0)
+Random deviation for scan range.
+- Varies the buffer window size per grain
+- Creates dynamic source selection
+- **Use**: Varying material density and diversity
+
+### scanspeed_dev (float, 0-16, default: 0.0)
+Random deviation for scan speed.
+- Varies playback position movement rate
+- Creates non-uniform scanning behavior
+- **Use**: Organic buffer traversal patterns
+
+---
+
+## Statistical Parameters: Usage Guidelines
+
+### Recommended Starting Values
+
+**Subtle organic variation** (maintains recognizable base parameters):
+```
+duration_dev 10           # ±10% variation
+playback_dev 0.05         # ±5% pitch variation
+amp_dev 0.1               # ±10% amplitude variation
+scanstart_dev 0.05        # ±5% position variation
+```
+
+**Moderate stochastic texture** (Curtis Roads' "grain cloud"):
+```
+grainrate_dev 15          # ±30% timing variation
+duration_dev 30           # ±30% length variation
+playback_dev 0.2          # ±20% pitch variation
+filterfreq_dev 500        # ±500 Hz spectral variation
+scanstart_dev 0.15        # ±15% position variation
+```
+
+**Extreme randomization** (chaotic, maximally varied):
+```
+grainrate_dev 50          # 100% timing variation
+duration_dev 150          # 150% length variation
+playback_dev 1.0          # ±100% pitch variation
+amp_dev 0.3               # ±30% amplitude variation
+scanstart_dev 0.3         # ±30% position variation
+```
+
+### OSC Control with odot
+
+```
+[o.compose
+  /grainrate 50
+  /grainrate_dev 10
+  /duration 100
+  /duration_dev 20
+  /playback 1.0
+  /playback_dev 0.1
+]
+|
+[o.pack]
+|
+[ec2~]
+```
+
+### Theory Reference
+
+These parameters implement Curtis Roads' concept of **stochastic synthesis**:
+
+> "Rather than conceiving of grains as discrete note events, they are best
+> understood as particles in a sonic cloud...Introducing randomness at the
+> microscopic level generates organic timbral variation while maintaining
+> macroscopic coherence." - Roads, *Microsound* (2001)
+
+**Key principle**: Control the **statistical distribution** of grain populations, not individual grains.
+
+---
+
 ## Multichannel Spatial Allocation
 
 The spatial allocator determines which output channels each grain is routed to and with what panning gains. Seven allocation modes are available, each implementing different spatial distribution strategies.

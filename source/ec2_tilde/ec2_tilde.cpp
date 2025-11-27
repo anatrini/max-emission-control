@@ -113,6 +113,23 @@ private:
   double m_stereo_pan{0.0};
   double m_scan_speed{1.0};
 
+  // Statistical/Probabilistic Deviation Parameters (Curtis Roads: stochastic grain clouds)
+  // Each deviation adds random variation to create organic, evolving textures
+  double m_grain_rate_dev{0.0};
+  double m_async_dev{0.0};
+  double m_intermittency_dev{0.0};
+  double m_streams_dev{0.0};
+  double m_playback_dev{0.0};
+  double m_duration_dev{0.0};
+  double m_envelope_dev{0.0};
+  double m_pan_dev{0.0};
+  double m_amp_dev{0.0};
+  double m_filterfreq_dev{0.0};
+  double m_resonance_dev{0.0};
+  double m_scanstart_dev{0.0};
+  double m_scanrange_dev{0.0};
+  double m_scanspeed_dev{0.0};
+
 public:
   MIN_DESCRIPTION{"EmissionControl2 granular synthesis with multichannel "
                   "output (up to 16 channels)"};
@@ -363,6 +380,136 @@ message<> scanspeed{this, "scanspeed", "Scan speed multiplier (-32.0 to 32.0)",
                       }
                       return {};
                     }};
+
+// STATISTICAL/PROBABILISTIC DEVIATION PARAMETERS
+// Based on Curtis Roads' theory of stochastic grain clouds
+// Each deviation parameter adds random variation (±) to create organic textures
+
+message<> grainrate_dev{this, "grainrate_dev", "Grain rate deviation in Hz (0-250)",
+                        MIN_FUNCTION{
+                          if (args.size() > 0) {
+                            m_grain_rate_dev = std::max(0.0, std::min(250.0, double(args[0])));
+                            sendOSCBundle();
+                          }
+                          return {};
+                        }};
+
+message<> async_dev{this, "async_dev", "Async deviation (0.0-0.5)",
+                    MIN_FUNCTION{
+                      if (args.size() > 0) {
+                        m_async_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                        sendOSCBundle();
+                      }
+                      return {};
+                    }};
+
+message<> intermittency_dev{this, "intermittency_dev", "Intermittency deviation (0.0-0.5)",
+                            MIN_FUNCTION{
+                              if (args.size() > 0) {
+                                m_intermittency_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                                sendOSCBundle();
+                              }
+                              return {};
+                            }};
+
+message<> streams_dev{this, "streams_dev", "Streams deviation (0-10)",
+                      MIN_FUNCTION{
+                        if (args.size() > 0) {
+                          m_streams_dev = std::max(0.0, std::min(10.0, double(args[0])));
+                          sendOSCBundle();
+                        }
+                        return {};
+                      }};
+
+message<> playback_dev{this, "playback_dev", "Playback rate deviation (0-16)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0) {
+                           m_playback_dev = std::max(0.0, std::min(16.0, double(args[0])));
+                           sendOSCBundle();
+                         }
+                         return {};
+                       }};
+
+message<> duration_dev{this, "duration_dev", "Grain duration deviation in ms (0-500)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0) {
+                           m_duration_dev = std::max(0.0, std::min(500.0, double(args[0])));
+                           sendOSCBundle();
+                         }
+                         return {};
+                       }};
+
+message<> envelope_dev{this, "envelope_dev", "Envelope shape deviation (0.0-0.5)",
+                       MIN_FUNCTION{
+                         if (args.size() > 0) {
+                           m_envelope_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                           sendOSCBundle();
+                         }
+                         return {};
+                       }};
+
+message<> pan_dev{this, "pan_dev", "Pan deviation (0.0-1.0)",
+                  MIN_FUNCTION{
+                    if (args.size() > 0) {
+                      m_pan_dev = std::max(0.0, std::min(1.0, double(args[0])));
+                      sendOSCBundle();
+                    }
+                    return {};
+                  }};
+
+message<> amp_dev{this, "amp_dev", "Amplitude deviation (0.0-0.5)",
+                  MIN_FUNCTION{
+                    if (args.size() > 0) {
+                      m_amp_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                      sendOSCBundle();
+                    }
+                    return {};
+                  }};
+
+message<> filterfreq_dev{this, "filterfreq_dev", "Filter frequency deviation in Hz (0-11000)",
+                         MIN_FUNCTION{
+                           if (args.size() > 0) {
+                             m_filterfreq_dev = std::max(0.0, std::min(11000.0, double(args[0])));
+                             sendOSCBundle();
+                           }
+                           return {};
+                         }};
+
+message<> resonance_dev{this, "resonance_dev", "Resonance deviation (0.0-0.5)",
+                        MIN_FUNCTION{
+                          if (args.size() > 0) {
+                            m_resonance_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                            sendOSCBundle();
+                          }
+                          return {};
+                        }};
+
+message<> scanstart_dev{this, "scanstart_dev", "Scan start deviation (0.0-0.5)",
+                        MIN_FUNCTION{
+                          if (args.size() > 0) {
+                            m_scanstart_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                            sendOSCBundle();
+                          }
+                          return {};
+                        }};
+
+message<> scanrange_dev{this, "scanrange_dev", "Scan range deviation (0.0-0.5)",
+                        MIN_FUNCTION{
+                          if (args.size() > 0) {
+                            m_scanrange_dev = std::max(0.0, std::min(0.5, double(args[0])));
+                            sendOSCBundle();
+                          }
+                          return {};
+                        }};
+
+message<> scanspeed_dev{this, "scanspeed_dev", "Scan speed deviation (0-16)",
+                        MIN_FUNCTION{
+                          if (args.size() > 0) {
+                            m_scanspeed_dev = std::max(0.0, std::min(16.0, double(args[0])));
+                            sendOSCBundle();
+                          }
+                          return {};
+                        }};
 
 // SPATIAL ALLOCATION PARAMETERS (Phase 5)
 
@@ -1356,6 +1503,22 @@ void updateEngineParameters() {
   params.scanSpeed = m_scan_speed;
   params.soundFile = sound_file; // Phase 6: Buffer selection
 
+  // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
+  params.grainRateDeviation = m_grain_rate_dev;
+  params.asyncDeviation = m_async_dev;
+  params.intermittencyDeviation = m_intermittency_dev;
+  params.streamsDeviation = m_streams_dev;
+  params.playbackDeviation = m_playback_dev;
+  params.durationDeviation = m_duration_dev;
+  params.envelopeDeviation = m_envelope_dev;
+  params.panDeviation = m_pan_dev;
+  params.amplitudeDeviation = m_amp_dev;
+  params.filterFreqDeviation = m_filterfreq_dev;
+  params.resonanceDeviation = m_resonance_dev;
+  params.scanBeginDeviation = m_scanstart_dev;
+  params.scanRangeDeviation = m_scanrange_dev;
+  params.scanSpeedDeviation = m_scanspeed_dev;
+
   // Spatial allocation (Phase 5)
   params.spatial.mode = static_cast<ec2::AllocationMode>(alloc_mode.get());
   params.spatial.numChannels = static_cast<int>(getOutputChannelCount());
@@ -1471,6 +1634,37 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
       traj_rate = val;
     } else if (param_name == "trajdepth") {
       traj_depth = val;
+    }
+
+    // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
+    else if (param_name == "grainrate_dev") {
+      m_grain_rate_dev = std::max(0.0, std::min(250.0, val));
+    } else if (param_name == "async_dev") {
+      m_async_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "intermittency_dev") {
+      m_intermittency_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "streams_dev") {
+      m_streams_dev = std::max(0.0, std::min(10.0, val));
+    } else if (param_name == "playback_dev") {
+      m_playback_dev = std::max(0.0, std::min(16.0, val));
+    } else if (param_name == "duration_dev") {
+      m_duration_dev = std::max(0.0, std::min(500.0, val));
+    } else if (param_name == "envelope_dev") {
+      m_envelope_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "pan_dev") {
+      m_pan_dev = std::max(0.0, std::min(1.0, val));
+    } else if (param_name == "amp_dev") {
+      m_amp_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "filterfreq_dev") {
+      m_filterfreq_dev = std::max(0.0, std::min(11000.0, val));
+    } else if (param_name == "resonance_dev") {
+      m_resonance_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "scanstart_dev") {
+      m_scanstart_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "scanrange_dev") {
+      m_scanrange_dev = std::max(0.0, std::min(0.5, val));
+    } else if (param_name == "scanspeed_dev") {
+      m_scanspeed_dev = std::max(0.0, std::min(16.0, val));
     }
 
     // LFOs are now handled as messages, not attributes
@@ -1664,6 +1858,22 @@ void sendOSCBundle() {
   writeOSCMessage(m_osc_bundle_buffer, "/scanstart", m_scan_start);
   writeOSCMessage(m_osc_bundle_buffer, "/scanrange", m_scan_range);
   writeOSCMessage(m_osc_bundle_buffer, "/scanspeed", m_scan_speed);
+
+  // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
+  writeOSCMessage(m_osc_bundle_buffer, "/grainrate_dev", m_grain_rate_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/async_dev", m_async_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/intermittency_dev", m_intermittency_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/streams_dev", m_streams_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/playback_dev", m_playback_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/duration_dev", m_duration_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/envelope_dev", m_envelope_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/pan_dev", m_pan_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/amp_dev", m_amp_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/filterfreq_dev", m_filterfreq_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/resonance_dev", m_resonance_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/scanstart_dev", m_scanstart_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/scanrange_dev", m_scanrange_dev);
+  writeOSCMessage(m_osc_bundle_buffer, "/scanspeed_dev", m_scanspeed_dev);
 
   // Attributes (configuration parameters)
   writeOSCMessage(m_osc_bundle_buffer, "/outputs", m_outputs);
