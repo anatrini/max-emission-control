@@ -181,24 +181,33 @@ public:
         long long bundle_size = (long long)(double)args[0];
         long long bundle_ptr_val = (long long)(double)args[1];
 
-        // Validate before using
-        if (bundle_ptr_val != 0 && bundle_size > 0 && bundle_size < 1048576) {
-          unsigned char* data = reinterpret_cast<unsigned char*>(static_cast<uintptr_t>(bundle_ptr_val));
-
-          if (data) {
-            // Copy input data to our own buffer first (don't parse from external memory)
-            m_input_buffer.resize(bundle_size);
-            std::memcpy(m_input_buffer.data(), data, bundle_size);
-
-            // Suppress output during batch parameter updates
-            m_suppress_osc_output = true;
-            parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
-            m_suppress_osc_output = false;
-
-            // Send updated state once after all parameters parsed
-            sendOSCBundle();
-          }
+        // Validate size and pointer
+        if (bundle_ptr_val == 0 || bundle_size <= 0 || bundle_size >= 1048576) {
+          return {};
         }
+
+        unsigned char* data = reinterpret_cast<unsigned char*>(static_cast<uintptr_t>(bundle_ptr_val));
+        if (!data) {
+          return {};
+        }
+
+        // Verify it's an OSC bundle before processing
+        if (bundle_size < 16 || memcmp(data, "#bundle", 8) != 0) {
+          cerr << "ec2~: received invalid OSC bundle" << endl;
+          return {};
+        }
+
+        // Copy input data to our own buffer first (protects against external memory changes)
+        m_input_buffer.resize(bundle_size);
+        std::memcpy(m_input_buffer.data(), data, bundle_size);
+
+        // Suppress output during batch parameter updates
+        m_suppress_osc_output = true;
+        parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
+        m_suppress_osc_output = false;
+
+        // Send updated state once after all parameters parsed
+        sendOSCBundle();
       }
 
       return {};
@@ -568,20 +577,24 @@ attribute<number> traj_depth{
 
 attribute<symbol> buffer_name{
     this, "buffer", "", description{"Buffer~ name for audio source"},
-    setter{MIN_FUNCTION{std::string name = std::string(args[0]);
-if (!name.empty()) {
-  auto audio_buf = ec2_buffer::loadFromMaxBuffer(name);
-  if (audio_buf) {
-    m_engine->setAudioBuffer(audio_buf, 0);
-  } else {
-    cerr << "failed to load buffer '" << name << "'" << endl;
+    setter{MIN_FUNCTION{
+      std::string name = std::string(args[0]);
+      if (name.empty()) {
+        // Allow clearing the buffer
+        m_engine->setAudioBuffer(nullptr, 0);
+        return args;
+      }
+
+      auto audio_buf = ec2_buffer::loadFromMaxBuffer(name);
+      if (audio_buf) {
+        m_engine->setAudioBuffer(audio_buf, 0);
+      } else {
+        cerr << "ec2~: failed to load buffer '" << name << "'" << endl;
+      }
+      return args;
+    }
   }
-}
-return args;
-}
-}
-}
-;
+};
 
 attribute<int> sound_file{
     this, "soundfile", 0,
@@ -767,9 +780,11 @@ message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (arg
 
 // MESSAGES
 
-message<> dspsetup{
-    this, "dspsetup",
+// DSP64 method - called when audio is turned on/off or DSP chain is rebuilt
+message<> dsp64_message{
+    this, "dsp64",
     MIN_FUNCTION{
+        // Get sample rate
         double sr = c74::max::sys_getsr();
 
         // Initialize engine with sample rate
@@ -778,7 +793,7 @@ message<> dspsetup{
         // Update engine parameters from attributes
         updateEngineParameters();
 
-        // Add to DSP chain using Max SDK
+        // Add to DSP chain using Max SDK dsp_add64
         c74::max::object_method(
             maxobj(), c74::max::gensym("dsp_add64"),
             maxobj(), perform64_static, 0, this);
