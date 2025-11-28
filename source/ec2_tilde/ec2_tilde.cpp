@@ -175,19 +175,25 @@ public:
   message<> fullpacket{
     this, "FullPacket",
     MIN_FUNCTION{
+      cout << "[DEBUG] FullPacket received, args.size=" << args.size() << endl;
+
       if (args.size() >= 2) {
         // Cast the min atoms back to doubles, then to appropriate integer type
         // On ARM64 macOS, pointers are 64-bit, and Max sends them as 64-bit integers
         long long bundle_size = (long long)(double)args[0];
         long long bundle_ptr_val = (long long)(double)args[1];
 
+        cout << "[DEBUG] FullPacket size=" << bundle_size << " ptr=" << std::hex << bundle_ptr_val << std::dec << endl;
+
         // Basic validation
         if (bundle_ptr_val == 0 || bundle_size <= 0 || bundle_size >= 1048576) {
+          cout << "[DEBUG] FullPacket validation failed" << endl;
           return {};
         }
 
         unsigned char* data = reinterpret_cast<unsigned char*>(static_cast<uintptr_t>(bundle_ptr_val));
         if (!data) {
+          cout << "[DEBUG] FullPacket data pointer null" << endl;
           return {};
         }
 
@@ -195,16 +201,31 @@ public:
         m_input_buffer.resize(bundle_size);
         std::memcpy(m_input_buffer.data(), data, bundle_size);
 
+        // DEBUG: Show first 32 bytes of the bundle
+        cout << "[DEBUG] FullPacket first " << std::min((long long)32, bundle_size) << " bytes: ";
+        for (int i = 0; i < std::min((long long)32, bundle_size); i++) {
+          cout << std::hex << std::setw(2) << std::setfill('0') << (int)m_input_buffer[i] << " ";
+        }
+        cout << std::dec << endl;
+
+        cout << "[DEBUG] FullPacket parsing bundle..." << endl;
+
         // Suppress output during batch parameter updates
         m_suppress_osc_output = true;
         parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
         m_suppress_osc_output = false;
 
+        cout << "[DEBUG] FullPacket updating engine..." << endl;
+
         // Update engine ONCE after all parameters have been set
         updateEngineParameters();
 
+        cout << "[DEBUG] FullPacket sending OSC output..." << endl;
+
         // Send updated state once after all parameters parsed
         sendOSCBundle();
+
+        cout << "[DEBUG] FullPacket done" << endl;
       }
 
       return {};
@@ -789,10 +810,12 @@ message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (arg
 message<> dspsetup{
     this, "dspsetup",
     MIN_FUNCTION{
+      cout << "[DEBUG] dspsetup called" << endl;
       setupDSP();
       c74::max::object_method(
           maxobj(), c74::max::gensym("dsp_add64"),
           maxobj(), perform64_static, 0, this);
+      cout << "[DEBUG] dspsetup registered perform64" << endl;
       return {};
     }
 };
@@ -1155,8 +1178,14 @@ message<> assist{
   // DSP64 Perform callback - actual processing
   void perform64(double **ins, long numins, double **outs, long numouts,
                  long sampleframes) {
+    static int call_count = 0;
+    if (call_count++ % 1000 == 0) {
+      cout << "[DEBUG] perform64 called " << call_count << " times, numouts=" << numouts << " frames=" << sampleframes << endl;
+    }
+
     // Safety check - engine must be initialized
     if (!m_engine) {
+      cout << "[DEBUG] perform64: m_engine is NULL!" << endl;
       return;
     }
 
@@ -1231,13 +1260,30 @@ private:
 
 // Helper: Parse OSC bundle and extract messages
 void parseOSCBundle(const unsigned char* data, size_t size) {
-  // Check for OSC bundle header "#bundle\0"
-  if (size < 16) return;
+  cout << "[DEBUG] parseOSCBundle: size=" << size << endl;
 
-  if (memcmp(data, "#bundle", 8) != 0) return;
+  // Check for OSC bundle header "#bundle\0"
+  if (size < 16) {
+    cout << "[DEBUG] parseOSCBundle: size too small (" << size << " < 16)" << endl;
+    return;
+  }
+
+  if (memcmp(data, "#bundle", 8) != 0) {
+    cout << "[DEBUG] parseOSCBundle: not a bundle (header mismatch)" << endl;
+    cout << "[DEBUG] Header bytes: ";
+    for (int i = 0; i < 8; i++) {
+      cout << std::hex << (int)data[i] << " ";
+    }
+    cout << std::dec << endl;
+    return;
+  }
+
+  cout << "[DEBUG] parseOSCBundle: valid bundle header" << endl;
 
   // Skip bundle header (8 bytes) and timetag (8 bytes)
   size_t offset = 16;
+
+  int message_count = 0;
 
   // Parse bundle elements
   while (offset < size) {
@@ -1251,13 +1297,20 @@ void parseOSCBundle(const unsigned char* data, size_t size) {
         data[offset + 3];
     offset += 4;
 
-    if (offset + element_size > size) break;
+    cout << "[DEBUG] parseOSCBundle: message #" << message_count++ << " size=" << element_size << endl;
+
+    if (offset + element_size > size) {
+      cout << "[DEBUG] parseOSCBundle: element size exceeds bundle size" << endl;
+      break;
+    }
 
     // Parse OSC message from this element
     parseOSCMessage(data + offset, element_size);
 
     offset += element_size;
   }
+
+  cout << "[DEBUG] parseOSCBundle: parsed " << message_count << " messages" << endl;
 }
 
 // Helper: Parse single OSC message
@@ -1532,9 +1585,12 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
   try {
     double val = static_cast<double>(value);
 
+    cout << "[DEBUG] handleOSCParameter: " << param_name << " = " << val << endl;
+
     // Grain scheduling
     if (param_name == "grainrate") {
       m_grain_rate = std::max(0.1, std::min(500.0, val));
+      cout << "[DEBUG] Set grainrate to " << m_grain_rate << endl;
     } else if (param_name == "async") {
       m_async = std::max(0.0, std::min(1.0, val));
     } else if (param_name == "intermittency") {
