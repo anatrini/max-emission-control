@@ -200,6 +200,9 @@ public:
         parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
         m_suppress_osc_output = false;
 
+        // Update engine ONCE after all parameters have been set
+        updateEngineParameters();
+
         // Send updated state once after all parameters parsed
         sendOSCBundle();
       }
@@ -1529,10 +1532,8 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
   try {
     double val = static_cast<double>(value);
 
-
     // Grain scheduling
     if (param_name == "grainrate") {
-      double old_val = m_grain_rate;
       m_grain_rate = std::max(0.1, std::min(500.0, val));
     } else if (param_name == "async") {
       m_async = std::max(0.0, std::min(1.0, val));
@@ -1648,13 +1649,14 @@ void handleOSCParameter(const std::string &param_name, const atom &value) {
       // (some OSC messages might be for other purposes)
     }
 
-    // Update engine parameters after setting
-    updateEngineParameters();
+    // NOTE: updateEngineParameters() is NOT called here for batch updates
+    // When parsing FullPacket bundles, we update once after all params are set
+    // For individual messages, updateEngineParameters() is called by the message handler
 
     // Send OSC bundle to notify of parameter change (unless suppressed for batch updates)
     if (!m_suppress_osc_output) {
+      updateEngineParameters();  // Update engine for single parameter changes
       sendOSCBundle();
-    } else {
     }
 
   } catch (...) {
@@ -1907,6 +1909,9 @@ void createOutlets() {
     // Multichannel mode: Create 1 MC signal outlet
     void *mc_outlet = c74::max::outlet_new(max_obj, "multichannelsignal");
     m_signal_outlets.insert(m_signal_outlets.begin(), mc_outlet);
+
+    // Set the channel count attribute on the MC outlet
+    c74::max::object_attr_setlong(mc_outlet, c74::max::gensym("chans"), m_outputs);
   } else {
     // Separated mode: Create N separate signal outlets (right to left)
     for (int i = m_outputs - 1; i >= 0; --i) {
