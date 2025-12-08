@@ -1,172 +1,163 @@
 # ec2~ - Granular Synthesis for Max/MSP
 
-**High-performance multichannel granular synthesis external for Max/MSP**
+**⚠️ ALPHA VERSION - UNDER ACTIVE TESTING ⚠️**
 
-ec2~ is a port of [EmissionControl2](https://github.com/EmissionControl2/EmissionControl2) to Max/MSP, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and signal-rate control.
+High-performance multichannel granular synthesis external for Max/MSP, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and real-time parameter control.
+
+---
+
+## Status
+
+**Version**: 1.0.0-alpha
+**Platform**: macOS (Universal Binary: Apple Silicon + Intel)
+**Max Version**: 8.0+
+**License**: GPL-3.0
+
+This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While the core engine is functional, please report any issues you encounter.
 
 ---
 
 ## Features
 
 - **2048-voice grain pool** for dense textures
-- **16 output channels** with flexible multichannel routing
+- **Up to 16 output channels** with flexible multichannel routing
 - **7 spatial allocation modes** (Fixed, Round-robin, Random, Weighted, Load-balance, Pitch-map, Trajectory)
 - **6 independent LFOs** with modulation routing to 14 parameters
-- **Signal-rate inputs** for CV-style control (scan position, grain rate, playback rate)
-- **OSC integration** compatible with odot and spat5
-- **Native Max integration** with buffer~ and polybuffer~
+- **Statistical deviation** for all synthesis parameters (Curtis Roads: stochastic grain clouds)
+- **OSC integration** compatible with odot for Max
+- **Native Max integration** with buffer~ and buffer_ref monitoring
+- **Multichannel cable support** (@mc mode)
 
 ---
 
 ## Installation
 
-### Option 1: Use Precompiled Binary (Recommended)
+###For precompiled binary for Apple Silicon (M1/M2/M3) Macs or Intel will be avaliable in the releases page
 
-**For Apple Silicon (M1/M2/M3) Macs:**
+### Build from Source
 
-The precompiled binary is included in the `externals/` folder of this repository.
+#### Prerequisites
 
-1. **From repository**:
+1. **Max/MSP 8.0 or later**
+2. **Xcode Command Line Tools**
    ```bash
-   cp -r externals/ec2~.mxo ~/Documents/Max\ 9/Library/
+   xcode-select --install
+   ```
+3. **CMake 3.19 or later**
+   ```bash
+   brew install cmake
    ```
 
-2. **Or download** from the [Releases](https://github.com/yourusername/max-emission-control/releases) page
+#### Build Steps
 
-**Note**: macOS may block the external on first run (unsigned binary). To allow:
+```bash
+# Clone repository
+git clone https://github.com/yourusername/max-emission-control.git
+cd max-emission-control
+
+# Initialize submodules
+git submodule update --init --recursive
+
+# Build
+mkdir build && cd build
+cmake .. && cmake --build . --config Release
+
+# Install to Max externals folder
+cp -r ../externals/ec2~.mxo ~/Documents/Max\ 9/Library/
+```
+
+**macOS Security Note**: Remove quarantine attribute if needed:
 ```bash
 xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
 ```
-
-### Option 2: Build from Source
-
-See **Building** section below.
 
 ---
 
 ## Quick Start
 
 ```
-[loadbang]
+[buffer~ mysound]
 |
-[read mysound]
-|
-[ec2~ @grainrate 30 @duration 100 @outputs 2]
-|            |
-[dac~ 1 2]
+[ec2~ mysound @grainrate 20 @duration 100 @amplitude 0.5 @outputs 2]
+|             |
+[dac~ 1 2]   [comment: Audio output]
 ```
 
-Double-click the `ec2~` object to view the loaded buffer waveform.
+Send parameter changes as messages:
+- `grainrate 30` - Set grain emission rate (Hz)
+- `duration 150` - Set grain duration (ms)
+- `amplitude 0.7` - Set output amplitude (0-1)
+- `pan -0.5` - Set stereo pan position (-1 to 1)
+- `scanstart 0.2` - Set buffer scan start position (0-1)
 
-For comprehensive documentation, see the `ec2~.maxhelp` file (coming soon).
+Double-click the `ec2~` object to open the buffer~ editor.
 
 ---
 
-## Building
+## Core Parameters
 
-### Prerequisites
+### Synthesis
+- **grainrate** (Hz): Grain emission rate (0.1-500, default: 20)
+- **duration** (ms): Grain length (1-1000, default: 100)
+- **amplitude**: Output level (0-1, default: 0.5)
+- **playback**: Playback rate/transposition (-32 to 32, default: 1)
+- **envelope**: Envelope shape (0-1, Hann to Exp, default: 0.5)
+- **streams**: Polyphonic grain streams (1-20, default: 1)
+- **async**: Stream randomization (0-1, default: 0)
+- **intermittency**: Grain skipping probability (0-1, default: 0)
 
-**macOS only** (Windows support planned)
+### Scanning
+- **scanstart**: Buffer scan position (0-1, default: 0)
+- **scanrange**: Scan window size (0-1, default: 1)
+- **scanspeed**: Automatic scanning speed (-32 to 32, default: 0)
 
-1. **Max/MSP 8.0 or later**
-   - Download from [cycling74.com](https://cycling74.com)
+### Filtering
+- **filterfreq** (Hz): Lowpass filter frequency (20-22000, default: 22000)
+- **resonance**: Filter resonance (0-1, default: 0)
 
-2. **Xcode Command Line Tools**
-   ```bash
-   xcode-select --install
-   ```
+### Spatial
+- **pan**: Stereo pan position (-1 to 1, default: 0)
+- **outputs**: Number of output channels (2-16, default: 2)
 
-3. **CMake 3.19 or later**
-   ```bash
-   # Using Homebrew
-   brew install cmake
+###Allocation Modes
+- **allocmode**: Spatial allocation strategy (0-6, default: 1)
+  - 0: Fixed channel
+  - 1: Round-robin
+  - 2: Random
+  - 3: Weighted random
+  - 4: Load-balanced
+  - 5: Pitch-mapped
+  - 6: Trajectory-based
 
-   # Or download from cmake.org
-   ```
+### Deviation Parameters (Stochastic Variation)
+Add `_dev` suffix to any parameter for statistical deviation:
+- **grainrate_dev**, **duration_dev**, **playback_dev**, **amplitude_dev**, etc.
+- Range: 0-1 (0 = no variation, 1 = maximum variation)
 
-4. **Min-DevKit** (included as submodule)
-   - The build process uses Cycling '74's min-devkit framework
-
-### Build Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/max-emission-control.git
-   cd max-emission-control
-   ```
-
-2. **Initialize submodules**
-   ```bash
-   git submodule update --init --recursive
-   ```
-
-3. **Create build directory**
-   ```bash
-   mkdir build
-   cd build
-   ```
-
-4. **Configure with CMake**
-   ```bash
-   cmake ..
-   ```
-
-   CMake will automatically locate your Max installation.
-
-5. **Build the external**
-   ```bash
-   cmake --build . --config Release
-   ```
-
-   **Note for M1/M2/M3 Macs**: The build creates a universal binary. Extract arm64 only:
-   ```bash
-   cd /path/to/max-emission-control
-   cp -r ~/Documents/dev/externals/ec2~.mxo externals/
-   lipo externals/ec2~.mxo/Contents/MacOS/ec2~ -thin arm64 -output externals/ec2~.mxo/Contents/MacOS/ec2~
-   xattr -cr externals/ec2~.mxo
-   ```
-
-6. **Locate the built external**
-
-   The compiled `ec2~.mxo` will be in:
-   ```
-   externals/ec2~.mxo
-   ```
-
-### Installation After Building
-
-Copy `ec2~.mxo` to your Max externals folder:
-```bash
-cp -r externals/ec2~.mxo ~/Documents/Max\ 9/Library/
-```
+### LFO System
+6 independent LFOs with parameters:
+- **lfo[1-6]shape**: Waveform (0-5: Sine, Triangle, Square, Saw Up, Saw Down, Random)
+- **lfo[1-6]rate** (Hz): LFO frequency (0.001-100)
+- **lfo[1-6]polarity**: Bipolar/Unipolar (0-1)
+- **lfo[1-6]duty**: Pulse width for square wave (0-1)
 
 ---
 
-## Verification
+## Multichannel Output
 
-Test the external in Max:
-
-1. Create a new patcher
-2. Type `n` and create an `ec2~` object
-3. The object should appear without errors
-4. Load a buffer and start granulating:
-
+### Separated Mode (Default)
 ```
-[read mysound(
+[ec2~ @outputs 4]
+|    |    |    |
+ch1  ch2  ch3  ch4
+```
+
+### MC Mode (Multichannel Cable)
+```
+[ec2~ @outputs 8 @mc 1]
 |
-[ec2~]
-|   |
-[dac~ 1 2]
+[mc.unpack~ 8]
 ```
-
----
-
-## Documentation
-
-- **`docs/EC2_HELP_REFERENCE.md`** - Complete parameter reference
-- **`docs/PORTING_STRATEGY.md`** - Development history and phases
-- **`docs/IMPLEMENTATION_SUMMARY.md`** - Technical overview
-- **`ec2~.maxhelp`** - Interactive help file (coming soon)
 
 ---
 
@@ -174,162 +165,88 @@ Test the external in Max:
 
 ```
 max-emission-control/
-├── externals/              # Precompiled binaries
-│   └── ec2~.mxo            # M1/M2/M3 binary (arm64)
-├── source/
-│   └── ec2_tilde/          # External source code
-│       ├── ec2_tilde.cpp   # Min-devkit wrapper
-│       ├── ec2_engine.*    # Synthesis engine
-│       ├── ec2_grain.*     # Grain voice
-│       └── ...             # Other components
-├── docs/                   # Documentation
-├── build/                  # Build artifacts (gitignored)
-├── third_party/
-│   └── EmissionControl2/   # Original EC2 (submodule)
-└── CMakeLists.txt          # Build configuration
+├── externals/              # Compiled binaries
+│   └── ec2~.mxo
+├── source/ec2_tilde/       # Source code
+│   ├── ec2_tilde.cpp       # Max SDK wrapper
+│   ├── ec2_engine.*        # Granular engine
+│   ├── ec2_grain.*         # Grain voice implementation
+│   ├── ec2_scheduler.*     # Grain scheduling
+│   ├── ec2_envelope.*      # Envelope generators
+│   ├── ec2_lfo.*           # LFO oscillators
+│   ├── ec2_spatial_allocator.* # Multichannel routing
+│   └── ec2_voice_pool.*    # Voice management
+├── build/                  # Build artifacts (git ignored)
+└── README.md
 ```
 
 ---
 
-## Troubleshooting
+## Known Issues & Testing
 
-### "ec2~: No such object"
-- External not in Max's search path
-- Copy `ec2~.mxo` to `~/Documents/Max 8/Library/`
+This is an ALPHA release. Known areas under testing:
 
-### "Damaged or incomplete" (macOS Gatekeeper)
-```bash
-xattr -cr /path/to/ec2~.mxo
-```
+- [ ] Long-term stability with continuous grain generation
+- [ ] Buffer change notifications in various Max scenarios
+- [ ] OSC message parsing edge cases
+- [ ] Multichannel cable (MC) mode with >8 channels
+- [ ] LFO modulation depth calibration
+- [ ] Filter stability at high resonance
+- [ ] Signal-rate input implementation (planned)
 
-### Build fails: "Min-DevKit not found"
-```bash
-git submodule update --init --recursive
-```
-
-### Build fails: "Max SDK not found"
-- Ensure Max is installed in `/Applications/Max.app`
-- Or set `C74_MAX_API_DIR` environment variable
-
-### Audio dropouts with high grain counts
-- Increase Max's I/O vector size (Options → Audio Status)
-- Reduce grain rate or duration
-- Lower number of output channels
+**Please report issues at**: [GitHub Issues](https://github.com/yourusername/max-emission-control/issues)
 
 ---
 
-## System Requirements
+## Technical Details
 
-### Minimum
-- macOS 10.13 (High Sierra) or later
-- Max/MSP 8.0 or later
-- 4 GB RAM
-- Dual-core processor
-
-### Recommended
-- macOS 11 (Big Sur) or later
-- Max/MSP 8.5 or later
-- 8 GB RAM
-- Apple Silicon (M1/M2/M3) or Intel quad-core
+### Architecture
+- Pure Max SDK implementation (C++17)
+- 2048-voice grain pool with dynamic allocation
+- Voice count compensation using 1/e law
+- Constant-power stereo panning
+- Sample-accurate grain scheduling
+- Hermite interpolation for pitch shifting
 
 ### Performance
-- Typical CPU usage: 5-50% depending on grain count (100-1000 grains)
-- Memory: ~4 MB base + loaded buffers
-
----
-
-## Development Status
-
-**Current Version**: 1.0-beta
-
-### Completed
-- ✅ Core granular synthesis engine
-- ✅ Spatial allocation system
-- ✅ Buffer management
-- ✅ Multichannel cable support (@mc attribute)
-- ✅ Dynamic outlet management (runtime outlet changes)
-- ✅ Complete parameter system
-- ✅ LFO modulation (6 LFOs)
-- ✅ OSC integration
-- ✅ Signal-rate inputs (scan, rate, playback)
-- ✅ Waveform display and buffer editor
-
-### In Progress
-- 📋 Interactive help file and examples
-
-### Planned
-See `docs/FUTURE_TODO.md` for roadmap
-
----
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Check `docs/FUTURE_TODO.md` for planned features
-2. Open an issue to discuss major changes
-3. Follow existing code style
-4. Include tests where applicable
-5. Update documentation
+- CPU: 5-50% depending on grain density (tested on M1)
+- Memory: ~4 MB + buffer sizes
+- Latency: Max's I/O vector size
+- Max grain rate: 500 Hz (limited for stability)
 
 ---
 
 ## Credits
 
 ### Original EmissionControl2
-- **Curtis Roads** - Concept and design
-- **Greg Surges** - Implementation
+- **Curtis Roads** - Concept and granular synthesis theory
+- **Greg Surges** - Original implementation
 - **Rodney DuPlessis** - Development
 - **Karl Yerkes** - Spatial audio
 
 ### Max/MSP Port (ec2~)
-- **Alessandro Anatrini** - Max porting and grain multichannel allocation logic 
+- **Alessandro Anatrini** - Max/MSP porting, spatial audio engine, multichannel allocation system, and grain scheduling implementation
 
 ### Theoretical Foundation
 - Curtis Roads - *Microsound* (MIT Press, 2001)
-
-### Tools
-- Cycling '74 Min-DevKit
-- Gamma DSP Library (filters)
-- CMake build system
 
 ---
 
 ## License
 
-**GPL-3.0** - See LICENSE file for details
+**GPL-3.0** - This project is a derivative work of EmissionControl2
 
-This project is a derivative work of EmissionControl2, licensed under GPL-3.0.
+Copyright © 2025 Alessandro Anatrini
 
 ---
 
 ## References
 
-- **Original EmissionControl2**: https://github.com/EmissionControl2/EmissionControl2
+- **EmissionControl2**: https://github.com/EmissionControl2/EmissionControl2
 - **Curtis Roads - Microsound**: https://mitpress.mit.edu/books/microsound
 - **Max/MSP**: https://cycling74.com
-- **Min-DevKit**: https://github.com/Cycling74/min-devkit
+- **GPL-3.0 License**: https://www.gnu.org/licenses/gpl-3.0.en.html
 
 ---
 
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/max-emission-control/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/max-emission-control/discussions)
-- **Documentation**: See `docs/` folder
-
----
-
-## Acknowledgments
-
-Special thanks to:
-- Cycling '74 for Max/MSP and Min-DevKit
-- Curtis Roads for pioneering granular synthesis research
-- The EmissionControl2 development team
-
----
-
-**Status**: Production-ready
-**Platform**: macOS (Apple Silicon + Intel)
-**Max Version**: 8.0+
-**Last Updated**: 2025-11-23
+**Last Updated**: December 2025

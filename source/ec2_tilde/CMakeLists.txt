@@ -1,39 +1,84 @@
 cmake_minimum_required(VERSION 3.19)
 
-set(C74_MIN_API_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../my-min-devkit/source/min-api)
-include(${C74_MIN_API_DIR}/script/min-pretarget.cmake)
+# Set policy for normalized paths
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+endif()
 
+# Pure Max SDK build
 set(PROJECT_NAME ec2_tilde)
+project(${PROJECT_NAME})
 
+# Target Universal Binary (Apple Silicon + Intel)
+set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for Mac OS X" FORCE)
+
+# Max SDK path
+set(MAX_SDK_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../my-min-devkit/source/min-api/max-sdk-base" CACHE PATH "Path to Max SDK")
+
+# Include directories
 include_directories(
-	"${C74_INCLUDES}"
+    "${MAX_SDK_BASE_DIR}/c74support/max-includes"
+    "${MAX_SDK_BASE_DIR}/c74support/msp-includes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/EmissionControl2/ecSource/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/EmissionControl2/ecSource/external"
 )
 
-# EmissionControl2 includes
-include_directories(
-	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/EmissionControl2/ecSource/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/EmissionControl2/ecSource/external"
-)
-
+# Source files
 set(SOURCE_FILES
-	${PROJECT_NAME}.cpp
-	ec2_utility.cpp
-	ec2_scheduler.cpp
-	ec2_envelope.cpp
-	ec2_grain.cpp
-	ec2_voice_pool.cpp
-	ec2_engine.cpp
-	ec2_spatial_allocator.cpp
-	ec2_lfo.cpp
+    ${PROJECT_NAME}.cpp
+    ec2_utility.cpp
+    ec2_scheduler.cpp
+    ec2_envelope.cpp
+    ec2_grain.cpp
+    ec2_voice_pool.cpp
+    ec2_engine.cpp
+    ec2_spatial_allocator.cpp
+    ec2_lfo.cpp
+    ${MAX_SDK_BASE_DIR}/c74support/max-includes/common/commonsyms.c
 )
 
-add_library(
-	${PROJECT_NAME}
-	MODULE
-	${SOURCE_FILES}
+# Create the external
+add_library(${PROJECT_NAME} MODULE ${SOURCE_FILES})
+
+# Set output name
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "ec2~"
+    SUFFIX ".mxo"
+    BUNDLE TRUE
+    BUNDLE_EXTENSION "mxo"
 )
 
-# Link EmissionControl2 library (we'll need to configure this)
-# For now, we'll include the sources directly or link to ecLib
+# Compiler settings
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+target_compile_options(${PROJECT_NAME} PRIVATE
+    -Wall
+    -Wno-unknown-pragmas
+    -Wno-unused-parameter
+)
 
-include(${C74_MIN_API_DIR}/script/min-posttarget.cmake)
+# Find MaxAPI framework (inside Max.app)
+set(MAXAPI_FRAMEWORK "/Applications/Max.app/Contents/Resources/C74/packages/max-sdk/source/c74support/max-includes")
+
+# Linker flags for Max externals
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    "-framework CoreFoundation"
+    "-framework CoreAudio"
+    "-framework AudioToolbox"
+    "-framework Accelerate"
+    "-undefined dynamic_lookup"
+)
+
+# Install to externals directory
+set(EXTERNALS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../externals")
+install(TARGETS ${PROJECT_NAME}
+    LIBRARY DESTINATION "${EXTERNALS_DIR}"
+)
+
+# Post-build: copy .mxo bundle to externals
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${EXTERNALS_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${EXTERNALS_DIR}/ec2~.mxo"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>" "${EXTERNALS_DIR}/ec2~.mxo"
+    COMMENT "Copying ec2~.mxo bundle to externals directory"
+)

@@ -24,7 +24,7 @@ constexpr int MAX_LFOS = 6;
 
 /**
  * Synthesis parameters
- * Simple struct for now - will be connected to min-devkit attributes
+ * Simple struct for granular engine parameters
  */
 struct SynthParameters {
   // Grain scheduling
@@ -40,7 +40,7 @@ struct SynthParameters {
 
   // Spatial
   float pan = 0.0f;              // -1 to 1 [legacy stereo]
-  float amplitude = -6.0f;       // dB
+  float amplitude = 0.5f;        // Linear gain (0-1)
 
   // Filtering
   float filterFreq = 1000.0f;    // Hz

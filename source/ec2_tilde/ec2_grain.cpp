@@ -42,6 +42,7 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
 
   // Configure amplitude (with voice count compensation)
   int voiceCount = (mActiveVoiceCount != nullptr) ? *mActiveVoiceCount : 1;
+
   configureAmplitude(params.amplitudeDb, voiceCount);
 
   // Configure panning (stereo or multichannel)
@@ -263,10 +264,17 @@ bool Grain::processMultichannelTemplate(float **outputs, int numChannels) {
     // Apply envelope
     currentSampleL *= envVal;
 
-    // Distribute to channels using multichannel gains
-    int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
-    for (int ch = 0; ch < maxCh; ++ch) {
-      outputs[ch][0] += currentSampleL * mChannelGains[ch];
+    // Distribute to channels
+    if (mUseMultichannelGains) {
+      // Use multichannel gains from spatial allocator
+      int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+      for (int ch = 0; ch < maxCh; ++ch) {
+        outputs[ch][0] += currentSampleL * mChannelGains[ch];
+      }
+    } else {
+      // Use legacy stereo panning
+      if (numChannels >= 1) outputs[0][0] += currentSampleL * mLeftGain;
+      if (numChannels >= 2) outputs[1][0] += currentSampleL * mRightGain;
     }
 
   } else { // SourceChannels == 2
@@ -296,9 +304,17 @@ bool Grain::processMultichannelTemplate(float **outputs, int numChannels) {
 
     // For stereo source, mix L+R and distribute to channels
     float monoMix = (currentSampleL + currentSampleR) * 0.5f;
-    int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
-    for (int ch = 0; ch < maxCh; ++ch) {
-      outputs[ch][0] += monoMix * mChannelGains[ch];
+
+    if (mUseMultichannelGains) {
+      // Use multichannel gains from spatial allocator
+      int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+      for (int ch = 0; ch < maxCh; ++ch) {
+        outputs[ch][0] += monoMix * mChannelGains[ch];
+      }
+    } else {
+      // Use legacy stereo panning
+      if (numChannels >= 1) outputs[0][0] += monoMix * mLeftGain;
+      if (numChannels >= 2) outputs[1][0] += monoMix * mRightGain;
     }
   }
 

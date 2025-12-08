@@ -5,6 +5,7 @@
 
 #include "ec2_engine.h"
 #include <iostream>
+#include <cmath>
 
 namespace ec2 {
 
@@ -124,6 +125,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
   for (int frame = 0; frame < numFrames; ++frame) {
     // Check if scheduler wants to trigger a new grain
     if (mScheduler.trigger()) {
+
       // Update scan position from signal input if provided (Phase 12)
       // Sample just-in-time when grain is triggered for efficiency
       if (scanSignal) {
@@ -190,13 +192,21 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         grainParams.durationMs = modulatedDuration;
         grainParams.envelope = modulatedEnvelope;
         grainParams.pan = modulatedPan;  // Legacy stereo pan (fallback)
-        grainParams.amplitudeDb = modulatedAmplitude;
+
+        // Convert linear amplitude (0-1) to dB for grain
+        // Grain expects dB, but we work with linear internally for modulation
+        float amplitudeDb = (modulatedAmplitude > 0.0001f) ?
+                            (20.0f * std::log10(modulatedAmplitude)) : -96.0f;
+        grainParams.amplitudeDb = amplitudeDb;
+
         grainParams.filterFreq = modulatedFilterFreq;
         grainParams.resonance = modulatedResonance;
         grainParams.activeVoiceCount = &mActiveVoiceCount;
 
         // Apply spatial allocation
-        grainParams.useMultichannelGains = (mParams.spatial.mode != AllocationMode::FIXED ||
+        // Use multichannel gains ONLY when spatial mode is active AND we have > 2 channels
+        // For stereo (2 channels), always use legacy panning
+        grainParams.useMultichannelGains = (mParams.spatial.mode != AllocationMode::FIXED &&
                                             mParams.spatial.numChannels > 2);
         grainParams.channelGains = panning.gains;
 
@@ -204,8 +214,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         mActiveVoiceCount++;
 
       } else {
-        // Out of voices - could log this
-        // std::cout << "ec2~: out of voices!" << std::endl;
+        // Out of voices - voice pool exhausted
       }
     }
 

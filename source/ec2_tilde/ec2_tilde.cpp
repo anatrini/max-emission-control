@@ -1,1999 +1,1497 @@
 /// @file ec2_tilde.cpp
-/// @brief EmissionControl2 granular synthesis external with multichannel output
+/// @brief EmissionControl2 granular synthesis external - Pure Max SDK
 /// @author Alessandro Anatrini
 /// @license GPL-3.0
 
-#include "c74_min.h"
+#include "ext.h"
+#include "ext_obex.h"
+#include "z_dsp.h"
+#include "ext_buffer.h"
+#include <vector>
+#include <memory>
+#include <cstring>
+#include <string>
+#include <algorithm>
+#include <arpa/inet.h>  // for htonl (network byte order)
+
+// EC2 engine includes
 #include "ec2_constants.h"
 #include "ec2_engine.h"
 #include "ec2_utility.h"
 
-// Max SDK includes for graphics (Phase 13)
-#include "ext_obex.h"
-#include "jgraphics.h"
-#include "jpatcher_api.h"
-
-// Standard library
-#include <sstream>
-#include <iomanip>
-
-using namespace c74::min;
-
-// Version and build information
-#define EC2_VERSION "1.0.0"
-#define EC2_BUILD __DATE__ " " __TIME__  // Unique timestamp for each build
+// Version info
+#define EC2_VERSION "1.0.0-alpha"
+#define EC2_BUILD_DATE __DATE__
+#define EC2_BUILD_TIME __TIME__
 #define EC2_COPYRIGHT "© 2025 Alessandro Anatrini"
-#define EC2_LICENSE "GPL-3.0"
+#define EC2_DESCRIPTION "Curtis Roads' Granular Synthesis + Spatial Audio"
 
-// Buffer management helper (inline to avoid separate compilation unit)
-namespace ec2_buffer {
+// Buffer loading helper
+namespace ec2_buffer_helper {
 inline std::shared_ptr<ec2::AudioBuffer<float>>
-loadFromMaxBuffer(const std::string &buffer_name) {
-  if (buffer_name.empty()) {
-    return nullptr;
-  }
+loadFromMaxBuffer(const std::string& buffer_name) {
+  if (buffer_name.empty()) return nullptr;
 
-  // Create buffer reference
-  auto buf_ref =
-      c74::max::buffer_ref_new(nullptr, c74::max::gensym(buffer_name.c_str()));
-  if (!buf_ref) {
-    return nullptr;
-  }
+  auto buf_ref = buffer_ref_new(nullptr, gensym(buffer_name.c_str()));
+  if (!buf_ref) return nullptr;
 
-  // Get buffer object
-  auto buffer = c74::max::buffer_ref_getobject(buf_ref);
+  auto buffer = buffer_ref_getobject(buf_ref);
   if (!buffer) {
-    c74::max::object_free(buf_ref);
+    object_free(buf_ref);
     return nullptr;
   }
 
-  // Get buffer info
-  long frames = c74::max::buffer_getframecount(buffer);
-  long channels = c74::max::buffer_getchannelcount(buffer);
+  long frames = buffer_getframecount(buffer);
+  long channels = buffer_getchannelcount(buffer);
 
   if (frames == 0 || channels == 0) {
-    c74::max::object_free(buf_ref);
+    object_free(buf_ref);
     return nullptr;
   }
 
-  // Lock and copy data
-  float *buffer_data = c74::max::buffer_locksamples(buffer);
+  float* buffer_data = buffer_locksamples(buffer);
   if (!buffer_data) {
-    c74::max::object_free(buf_ref);
+    object_free(buf_ref);
     return nullptr;
   }
 
-  // Create EC2 AudioBuffer
   auto audio_buf = std::make_shared<ec2::AudioBuffer<float>>();
   audio_buf->channels = static_cast<int>(channels);
   audio_buf->frames = static_cast<int>(frames);
   audio_buf->size = static_cast<int>(frames * channels);
   audio_buf->data = new float[audio_buf->size];
 
-  // Copy data (Max buffer~ is interleaved)
   std::copy(buffer_data, buffer_data + audio_buf->size, audio_buf->data);
 
-  // Unlock and cleanup
-  c74::max::buffer_unlocksamples(buffer);
-  c74::max::object_free(buf_ref);
+  buffer_unlocksamples(buffer);
+  object_free(buf_ref);
 
   return audio_buf;
 }
-} // namespace ec2_buffer
-
-class ec2_tilde : public object<ec2_tilde> {
-private:
-  // CRITICAL: These members MUST be declared first, before any attributes,
-  // because C++ initializes members in declaration order.
-  // LFO attribute setters need m_engine to exist during initialization.
-  int m_mc_mode{0}; // Output mode: 0=separated outputs, 1=multichannel cable
-  int m_outputs{2}; // Number of output channels (1-16)
-  std::unique_ptr<ec2::GranularEngine> m_engine;
-
-  // Dynamic outlet storage (Max SDK)
-  std::vector<void *> m_signal_outlets;
-  void *m_osc_outlet{nullptr};
-
-  // OSC bundle buffer (persistent for FullPacket pointer)
-  std::vector<unsigned char> m_osc_bundle_buffer;
-
-  // Temporary buffer for incoming FullPacket data (separate from output buffer)
-  std::vector<unsigned char> m_input_buffer;
-
-  // Flag to suppress OSC output during batch updates
-  bool m_suppress_osc_output{false};
-
-  // Synthesis parameters (stored as member variables, controlled via messages)
-  double m_grain_rate{20.0};
-  double m_async{0.0};
-  double m_intermittency{0.0};
-  double m_streams{1.0};
-  double m_playback_rate{1.0};
-  double m_grain_duration{100.0};
-  double m_envelope_shape{0.5};
-  double m_scan_start{0.0};
-  double m_scan_range{1.0};
-  double m_amplitude{0.5};
-  double m_filter_freq{22000.0};
-  double m_filter_resonance{0.0};
-  double m_stereo_pan{0.0};
-  double m_scan_speed{1.0};
-
-  // Statistical/Probabilistic Deviation Parameters (Curtis Roads: stochastic grain clouds)
-  // Each deviation adds random variation to create organic, evolving textures
-  double m_grain_rate_dev{0.0};
-  double m_async_dev{0.0};
-  double m_intermittency_dev{0.0};
-  double m_streams_dev{0.0};
-  double m_playback_dev{0.0};
-  double m_duration_dev{0.0};
-  double m_envelope_dev{0.0};
-  double m_pan_dev{0.0};
-  double m_amp_dev{0.0};
-  double m_filterfreq_dev{0.0};
-  double m_resonance_dev{0.0};
-  double m_scanstart_dev{0.0};
-  double m_scanrange_dev{0.0};
-  double m_scanspeed_dev{0.0};
-
-public:
-  MIN_DESCRIPTION{"EmissionControl2 granular synthesis with multichannel "
-                  "output (up to 16 channels)"};
-  MIN_TAGS{"audio, synthesis, granular"};
-  MIN_AUTHOR{"Alessandro Anatrini"};
-  MIN_RELATED{"polybuffer~, groove~"};
-
-  // Constructor
-  ec2_tilde(const atoms &args = {}) {
-    // Print copyright banner
-    cout << "═══════════════════════════════════════════════════" << endl;
-    cout << "  ec2~ - EmissionControl2 for Max/MSP" << endl;
-    cout << "  Version: " << EC2_VERSION << endl;
-    cout << "  Build: " << EC2_BUILD << endl;
-    cout << "  " << EC2_COPYRIGHT << endl;
-    cout << "  License: " << EC2_LICENSE << endl;
-    cout << "  Curtis Roads' Granular Synthesis + Spatial Audio" << endl;
-    cout << "═══════════════════════════════════════════════════" << endl;
-
-    // Parse arguments for backward compatibility: ec2~ [num_outputs]
-    if (!args.empty()) {
-      int requested_outputs = args[0];
-      if (requested_outputs > 0 && requested_outputs <= 16) {
-        m_outputs = requested_outputs;
-      }
-    }
-
-    // Initialize synthesis engine
-    m_engine = std::make_unique<ec2::GranularEngine>(2048); // Max 2048 grains
-
-    // Create outlets dynamically using Max SDK
-    createOutlets();
-  }
-
-  // FullPacket handler - keep it SIMPLE
-  // odot sends: "FullPacket" <size:long> <ptr:long>
-  message<> fullpacket{
-    this, "FullPacket",
-    MIN_FUNCTION{
-      cout << "[DEBUG] FullPacket received, args.size=" << args.size() << endl;
-
-      if (args.size() >= 2) {
-        // Cast the min atoms back to doubles, then to appropriate integer type
-        // On ARM64 macOS, pointers are 64-bit, and Max sends them as 64-bit integers
-        long long bundle_size = (long long)(double)args[0];
-        long long bundle_ptr_val = (long long)(double)args[1];
-
-        cout << "[DEBUG] FullPacket size=" << bundle_size << " ptr=" << std::hex << bundle_ptr_val << std::dec << endl;
-
-        // Basic validation
-        if (bundle_ptr_val == 0 || bundle_size <= 0 || bundle_size >= 1048576) {
-          cout << "[DEBUG] FullPacket validation failed" << endl;
-          return {};
-        }
-
-        unsigned char* data = reinterpret_cast<unsigned char*>(static_cast<uintptr_t>(bundle_ptr_val));
-        if (!data) {
-          cout << "[DEBUG] FullPacket data pointer null" << endl;
-          return {};
-        }
-
-        // Copy input data to our own buffer first (protects against external memory changes)
-        m_input_buffer.resize(bundle_size);
-        std::memcpy(m_input_buffer.data(), data, bundle_size);
-
-        // DEBUG: Show first 32 bytes of the bundle
-        cout << "[DEBUG] FullPacket first " << std::min((long long)32, bundle_size) << " bytes: ";
-        for (int i = 0; i < std::min((long long)32, bundle_size); i++) {
-          cout << std::hex << std::setw(2) << std::setfill('0') << (int)m_input_buffer[i] << " ";
-        }
-        cout << std::dec << endl;
-
-        cout << "[DEBUG] FullPacket parsing bundle..." << endl;
-
-        // Suppress output during batch parameter updates
-        m_suppress_osc_output = true;
-        parseOSCBundle(m_input_buffer.data(), static_cast<size_t>(bundle_size));
-        m_suppress_osc_output = false;
-
-        cout << "[DEBUG] FullPacket updating engine..." << endl;
-
-        // Update engine ONCE after all parameters have been set
-        updateEngineParameters();
-
-        cout << "[DEBUG] FullPacket sending OSC output..." << endl;
-
-        // Send updated state once after all parameters parsed
-        sendOSCBundle();
-
-        cout << "[DEBUG] FullPacket done" << endl;
-      }
-
-      return {};
-    }
-  };
-
-  // SIGNAL INLETS (Phase 12)
-  inlet<> scan_in{this,
-                  "(signal) Scan position (0.0-1.0, overrides @scanstart)"};
-  inlet<> rate_in{this, "(signal) Grain rate in Hz (overrides @grainrate)"};
-  inlet<> playback_in{this, "(signal) Playback rate (overrides @playback)"};
-
-  // NOTE: Signal outlets are created DYNAMICALLY in createOutlets()
-  // OSC outlet is also created dynamically and stored in m_osc_outlet
-
-  // ATTRIBUTES (EC2 Parameters)
-
-  // MULTICHANNEL OUTPUT (Phase 6b)
-
-  attribute<int> mc{
-      this, "mc", 0,
-      description{"Output mode: 0=separated outputs (each requires its own "
-                  "cord), 1=multichannel cable (single blue/black cord)"},
-      range{0, 1},
-      setter{MIN_FUNCTION{
-          int new_mc = static_cast<int>(args[0]);
-          if (new_mc != m_mc_mode) {
-              m_mc_mode = new_mc;
-              recreateOutlets();
-          }
-          return args;
-      }}};
-
-attribute<int> outputs{
-    this, "outputs", 2,
-    description{"Number of output channels (1-16, default 2)"}, range{1, 16},
-    setter{MIN_FUNCTION{
-        int new_outputs = static_cast<int>(args[0]);
-        if (new_outputs != m_outputs) {
-            m_outputs = new_outputs;
-            recreateOutlets();
-        }
-        return args;
-    }}};
-
-attribute<symbol> out_format{
-    this, "out", "n",
-    description{"OSC outlet format: 'n' (native FullPacket bundle for odot), 't' (text for printing/logging)"}
-};
-
-// SYNTHESIS PARAMETER MESSAGES (not attributes - for performance control)
-
-message<> grainrate{this, "grainrate", "Grain emission rate in Hz (0.1-500.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_grain_rate = std::max(0.1, std::min(500.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-message<> async_msg{this, "async", "Asynchronicity (0.0-1.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_async = std::max(0.0, std::min(1.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-message<> intermittency_msg{this, "intermittency", "Intermittency (0.0-1.0)",
-                            MIN_FUNCTION{
-                              if (args.size() > 0) {
-                                m_intermittency = std::max(0.0, std::min(1.0, double(args[0])));
-                                sendOSCBundle();
-                              }
-                              return {};
-                            }};
-
-message<> streams_msg{this, "streams", "Number of grain streams (1-20)",
-                      MIN_FUNCTION{
-                        if (args.size() > 0) {
-                          m_streams = std::max(1.0, std::min(20.0, double(args[0])));
-                          sendOSCBundle();
-                        }
-                        return {};
-                      }};
-
-message<> playback{this, "playback", "Playback rate (-32 to 32)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0) {
-                       m_playback_rate = std::max(-32.0, std::min(32.0, double(args[0])));
-                       sendOSCBundle();
-                     }
-                     return {};
-                   }};
-
-message<> duration{this, "duration", "Grain duration in milliseconds (1-1000)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0) {
-                       m_grain_duration = std::max(1.0, std::min(1000.0, double(args[0])));
-                       sendOSCBundle();
-                     }
-                     return {};
-                   }};
-
-message<> envelope{this, "envelope", "Envelope shape (0.0-1.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0) {
-                       m_envelope_shape = std::max(0.0, std::min(1.0, double(args[0])));
-                       sendOSCBundle();
-                     }
-                     return {};
-                   }};
-
-message<> amp{this, "amp", "Overall amplitude (0.0-1.0)",
-              MIN_FUNCTION{
-                if (args.size() > 0) {
-                  m_amplitude = std::max(0.0, std::min(1.0, double(args[0])));
-                  sendOSCBundle();
-                }
-                return {};
-              }};
-
-// FILTERING MESSAGES
-
-message<> filterfreq{this, "filterfreq", "Filter cutoff frequency in Hz (20-22000)",
-                     MIN_FUNCTION{
-                       if (args.size() > 0) {
-                         m_filter_freq = std::max(20.0, std::min(22000.0, double(args[0])));
-                         sendOSCBundle();
-                       }
-                       return {};
-                     }};
-
-message<> resonance{this, "resonance", "Filter resonance (0.0-1.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_filter_resonance = std::max(0.0, std::min(1.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-// PANNING MESSAGE
-
-message<> pan{this, "pan", "Stereo pan position (-1.0 to 1.0)",
-              MIN_FUNCTION{
-                if (args.size() > 0) {
-                  m_stereo_pan = std::max(-1.0, std::min(1.0, double(args[0])));
-                  sendOSCBundle();
-                }
-                return {};
-              }};
-
-// SCANNING MESSAGES
-
-message<> scanstart{this, "scanstart", "Scan start position (0.0-1.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_scan_start = std::max(0.0, std::min(1.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-message<> scanrange{this, "scanrange", "Scan range (0.0-1.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_scan_range = std::max(0.0, std::min(1.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-message<> scanspeed{this, "scanspeed", "Scan speed multiplier (-32.0 to 32.0)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_scan_speed = std::max(-32.0, std::min(32.0, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-// STATISTICAL/PROBABILISTIC DEVIATION PARAMETERS
-// Based on Curtis Roads' theory of stochastic grain clouds
-// Each deviation parameter adds random variation (±) to create organic textures
-
-message<> grainrate_dev{this, "grainrate_dev", "Grain rate deviation in Hz (0-250)",
-                        MIN_FUNCTION{
-                          if (args.size() > 0) {
-                            m_grain_rate_dev = std::max(0.0, std::min(250.0, double(args[0])));
-                            sendOSCBundle();
-                          }
-                          return {};
-                        }};
-
-message<> async_dev{this, "async_dev", "Async deviation (0.0-0.5)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0) {
-                        m_async_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                        sendOSCBundle();
-                      }
-                      return {};
-                    }};
-
-message<> intermittency_dev{this, "intermittency_dev", "Intermittency deviation (0.0-0.5)",
-                            MIN_FUNCTION{
-                              if (args.size() > 0) {
-                                m_intermittency_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                                sendOSCBundle();
-                              }
-                              return {};
-                            }};
-
-message<> streams_dev{this, "streams_dev", "Streams deviation (0-10)",
-                      MIN_FUNCTION{
-                        if (args.size() > 0) {
-                          m_streams_dev = std::max(0.0, std::min(10.0, double(args[0])));
-                          sendOSCBundle();
-                        }
-                        return {};
-                      }};
-
-message<> playback_dev{this, "playback_dev", "Playback rate deviation (0-16)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0) {
-                           m_playback_dev = std::max(0.0, std::min(16.0, double(args[0])));
-                           sendOSCBundle();
-                         }
-                         return {};
-                       }};
-
-message<> duration_dev{this, "duration_dev", "Grain duration deviation in ms (0-500)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0) {
-                           m_duration_dev = std::max(0.0, std::min(500.0, double(args[0])));
-                           sendOSCBundle();
-                         }
-                         return {};
-                       }};
-
-message<> envelope_dev{this, "envelope_dev", "Envelope shape deviation (0.0-0.5)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0) {
-                           m_envelope_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                           sendOSCBundle();
-                         }
-                         return {};
-                       }};
-
-message<> pan_dev{this, "pan_dev", "Pan deviation (0.0-1.0)",
-                  MIN_FUNCTION{
-                    if (args.size() > 0) {
-                      m_pan_dev = std::max(0.0, std::min(1.0, double(args[0])));
-                      sendOSCBundle();
-                    }
-                    return {};
-                  }};
-
-message<> amp_dev{this, "amp_dev", "Amplitude deviation (0.0-0.5)",
-                  MIN_FUNCTION{
-                    if (args.size() > 0) {
-                      m_amp_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                      sendOSCBundle();
-                    }
-                    return {};
-                  }};
-
-message<> filterfreq_dev{this, "filterfreq_dev", "Filter frequency deviation in Hz (0-11000)",
-                         MIN_FUNCTION{
-                           if (args.size() > 0) {
-                             m_filterfreq_dev = std::max(0.0, std::min(11000.0, double(args[0])));
-                             sendOSCBundle();
-                           }
-                           return {};
-                         }};
-
-message<> resonance_dev{this, "resonance_dev", "Resonance deviation (0.0-0.5)",
-                        MIN_FUNCTION{
-                          if (args.size() > 0) {
-                            m_resonance_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                            sendOSCBundle();
-                          }
-                          return {};
-                        }};
-
-message<> scanstart_dev{this, "scanstart_dev", "Scan start deviation (0.0-0.5)",
-                        MIN_FUNCTION{
-                          if (args.size() > 0) {
-                            m_scanstart_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                            sendOSCBundle();
-                          }
-                          return {};
-                        }};
-
-message<> scanrange_dev{this, "scanrange_dev", "Scan range deviation (0.0-0.5)",
-                        MIN_FUNCTION{
-                          if (args.size() > 0) {
-                            m_scanrange_dev = std::max(0.0, std::min(0.5, double(args[0])));
-                            sendOSCBundle();
-                          }
-                          return {};
-                        }};
-
-message<> scanspeed_dev{this, "scanspeed_dev", "Scan speed deviation (0-16)",
-                        MIN_FUNCTION{
-                          if (args.size() > 0) {
-                            m_scanspeed_dev = std::max(0.0, std::min(16.0, double(args[0])));
-                            sendOSCBundle();
-                          }
-                          return {};
-                        }};
-
-// SPATIAL ALLOCATION PARAMETERS (Phase 5)
-
-attribute<int> alloc_mode{
-    this, "allocmode", 1, // Default: roundrobin
-    description{"Spatial allocation mode (0=fixed, 1=roundrobin, 2=random, "
-                "3=weighted, 4=loadbalance, 5=pitchmap, 6=trajectory)"},
-    range{0, 6}};
-
-// Fixed mode
-attribute<int> fixed_channel{
-    this, "fixedchan", 0, description{"Target channel for fixed mode (0-15)"},
-    range{0, 15}};
-
-// Round-robin mode
-attribute<int> rr_step{this, "rrstep", 1, description{"Round-robin step size"},
-                       range{1, 16}};
-
-// Random mode
-attribute<number> random_spread{
-    this, "randspread", 0.0,
-    description{"Random mode panning spread (0.0-1.0)"}, range{0.0, 1.0}};
-
-attribute<number> spatial_corr{
-    this, "spatialcorr", 0.0,
-    description{"Spatial correlation between grains (0.0-1.0)"},
-    range{0.0, 1.0}};
-
-// Pitchmap mode
-attribute<number> pitch_min{this, "pitchmin", 20.0,
-                            description{"Minimum pitch for pitchmap mode (Hz)"},
-                            range{20.0, 20000.0}};
-
-attribute<number> pitch_max{this, "pitchmax", 20000.0,
-                            description{"Maximum pitch for pitchmap mode (Hz)"},
-                            range{20.0, 20000.0}};
-
-// Trajectory mode
-attribute<int> traj_shape{
-    this, "trajshape", 0,
-    description{"Trajectory shape (0=sine, 1=saw, 2=triangle, 3=randomwalk)"},
-    range{0, 3}};
-
-attribute<number> traj_rate{this, "trajrate", 0.5,
-                            description{"Trajectory rate in Hz"},
-                            range{0.001, 100.0}};
-
-attribute<number> traj_depth{
-    this, "trajdepth", 1.0,
-    description{"Trajectory depth - proportion of channels used (0.0-1.0)"},
-    range{0.0, 1.0}};
-
-// BUFFER PARAMETERS (Phase 6)
-
-attribute<symbol> buffer_name{
-    this, "buffer", c74::min::symbol(),  // No default value to avoid early initialization
-    description{"Buffer~ name for audio source"},
-    setter{MIN_FUNCTION{
-      // m_engine may not be initialized yet during construction
-      if (!m_engine) {
-        return args;  // Silently skip if engine not ready
-      }
-
-      std::string name = std::string(args[0]);
-
-      if (name.empty()) {
-        // Allow clearing the buffer
-        m_engine->setAudioBuffer(nullptr, 0);
-        return args;
-      }
-
-      auto audio_buf = ec2_buffer::loadFromMaxBuffer(name);
+} // namespace ec2_buffer_helper
+
+// Main object struct
+typedef struct _ec2 {
+  t_pxobject ob;  // MUST be first
+
+  // Output configuration
+  long outputs;
+  long mc_mode;
+  std::vector<void*>* signal_outlets;
+  void* osc_outlet;
+
+  // EC2 engine
+  ec2::GranularEngine* engine;
+
+  // OSC buffers
+  std::vector<unsigned char>* osc_bundle_buffer;
+  std::vector<unsigned char>* input_buffer;
+  bool suppress_osc_output;
+
+  // Basic synthesis parameters
+  double grain_rate;
+  double async;
+  double intermittency;
+  double streams;
+  double playback_rate;
+  double grain_duration;
+  double envelope_shape;
+  double amplitude;
+
+  // Filtering
+  double filter_freq;
+  double resonance;
+
+  // Spatial/scanning
+  double stereo_pan;
+  double scan_start;
+  double scan_range;
+  double scan_speed;
+
+  // Deviation parameters (14 total)
+  double grain_rate_dev;
+  double async_dev;
+  double intermittency_dev;
+  double streams_dev;
+  double playback_dev;
+  double duration_dev;
+  double envelope_dev;
+  double pan_dev;
+  double amp_dev;
+  double filterfreq_dev;
+  double resonance_dev;
+  double scanstart_dev;
+  double scanrange_dev;
+  double scanspeed_dev;
+
+  // Spatial allocation parameters (10 total)
+  long alloc_mode;       // 0-6
+  long fixed_channel;    // 0-15
+  long rr_step;          // 1-16
+  double random_spread;  // 0.0-1.0
+  double spatial_corr;   // 0.0-1.0
+  double pitch_min;      // 20-20000 Hz
+  double pitch_max;      // 20-20000 Hz
+  long traj_shape;       // 0-3
+  double traj_rate;      // 0.001-100.0 Hz
+  double traj_depth;     // 0.0-1.0
+
+  // Buffer management
+  t_symbol* buffer_name;
+  t_buffer_ref* buffer_ref;  // Reference to monitor buffer~ changes
+  long sound_file;
+
+  // Signal inputs
+  double* scan_signal;
+  double* rate_signal;
+  double* playback_signal;
+
+} t_ec2;
+
+// Global class pointer
+static t_class* ec2_class = nullptr;
+
+// Function declarations
+void* ec2_new(t_symbol* s, long argc, t_atom* argv);
+void ec2_free(t_ec2* x);
+void ec2_assist(t_ec2* x, void* b, long m, long a, char* s);
+void ec2_dblclick(t_ec2* x);
+t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* data);
+void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags);
+void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam);
+
+// Message handlers - Basic synthesis
+void ec2_grainrate(t_ec2* x, double v);
+void ec2_async(t_ec2* x, double v);
+void ec2_intermittency(t_ec2* x, double v);
+void ec2_streams(t_ec2* x, double v);
+void ec2_playback(t_ec2* x, double v);
+void ec2_duration(t_ec2* x, double v);
+void ec2_envelope(t_ec2* x, double v);
+void ec2_amplitude(t_ec2* x, double v);
+
+// Filtering
+void ec2_filterfreq(t_ec2* x, double v);
+void ec2_resonance(t_ec2* x, double v);
+
+// Spatial
+void ec2_pan(t_ec2* x, double v);
+void ec2_scanstart(t_ec2* x, double v);
+void ec2_scanrange(t_ec2* x, double v);
+void ec2_scanspeed(t_ec2* x, double v);
+
+// Deviation parameters
+void ec2_grainrate_dev(t_ec2* x, double v);
+void ec2_async_dev(t_ec2* x, double v);
+void ec2_intermittency_dev(t_ec2* x, double v);
+void ec2_streams_dev(t_ec2* x, double v);
+void ec2_playback_dev(t_ec2* x, double v);
+void ec2_duration_dev(t_ec2* x, double v);
+void ec2_envelope_dev(t_ec2* x, double v);
+void ec2_pan_dev(t_ec2* x, double v);
+void ec2_amp_dev(t_ec2* x, double v);
+void ec2_filterfreq_dev(t_ec2* x, double v);
+void ec2_resonance_dev(t_ec2* x, double v);
+void ec2_scanstart_dev(t_ec2* x, double v);
+void ec2_scanrange_dev(t_ec2* x, double v);
+void ec2_scanspeed_dev(t_ec2* x, double v);
+
+// LFO parameters (24 total: 6 LFOs × 4 params each)
+void ec2_lfo1shape(t_ec2* x, double v);
+void ec2_lfo1rate(t_ec2* x, double v);
+void ec2_lfo1polarity(t_ec2* x, double v);
+void ec2_lfo1duty(t_ec2* x, double v);
+void ec2_lfo2shape(t_ec2* x, double v);
+void ec2_lfo2rate(t_ec2* x, double v);
+void ec2_lfo2polarity(t_ec2* x, double v);
+void ec2_lfo2duty(t_ec2* x, double v);
+void ec2_lfo3shape(t_ec2* x, double v);
+void ec2_lfo3rate(t_ec2* x, double v);
+void ec2_lfo3polarity(t_ec2* x, double v);
+void ec2_lfo3duty(t_ec2* x, double v);
+void ec2_lfo4shape(t_ec2* x, double v);
+void ec2_lfo4rate(t_ec2* x, double v);
+void ec2_lfo4polarity(t_ec2* x, double v);
+void ec2_lfo4duty(t_ec2* x, double v);
+void ec2_lfo5shape(t_ec2* x, double v);
+void ec2_lfo5rate(t_ec2* x, double v);
+void ec2_lfo5polarity(t_ec2* x, double v);
+void ec2_lfo5duty(t_ec2* x, double v);
+void ec2_lfo6shape(t_ec2* x, double v);
+void ec2_lfo6rate(t_ec2* x, double v);
+void ec2_lfo6polarity(t_ec2* x, double v);
+void ec2_lfo6duty(t_ec2* x, double v);
+
+// Spatial allocation attributes (use setter functions)
+void ec2_allocmode(t_ec2* x, long v);
+void ec2_fixedchan(t_ec2* x, long v);
+void ec2_rrstep(t_ec2* x, long v);
+void ec2_randspread(t_ec2* x, double v);
+void ec2_spatialcorr(t_ec2* x, double v);
+void ec2_pitchmin(t_ec2* x, double v);
+void ec2_pitchmax(t_ec2* x, double v);
+void ec2_trajshape(t_ec2* x, long v);
+void ec2_trajrate(t_ec2* x, double v);
+void ec2_trajdepth(t_ec2* x, double v);
+
+// Buffer management
+void ec2_buffer(t_ec2* x, t_symbol* s);
+t_max_err ec2_buffer_setter(t_ec2* x, void* attr, long argc, t_atom* argv);
+
+// Special handlers
+void ec2_fullpacket(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+long ec2_multichanneloutputs(t_ec2* x, long index);
+void ec2_anything(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+
+// Helper functions
+void ec2_update_engine_params(t_ec2* x);
+void ec2_send_osc_bundle(t_ec2* x);
+void ec2_parse_osc_bundle(t_ec2* x, const unsigned char* data, size_t size);
+void ec2_parse_osc_message(t_ec2* x, const unsigned char* data, size_t size);
+void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double value);
+std::shared_ptr<ec2::AudioBuffer<float>> ec2_load_buffer(const char* name);
+
+// ==================================================================
+// MAIN ENTRY POINT
+// ==================================================================
+
+extern "C" void ext_main(void* r) {
+  t_class* c = class_new("ec2~",
+                         (method)ec2_new,
+                         (method)ec2_free,
+                         sizeof(t_ec2),
+                         nullptr,
+                         A_GIMME,
+                         0);
+
+  // DSP
+  class_addmethod(c, (method)ec2_dsp64, "dsp64", A_CANT, 0);
+
+  // Multichannel support
+  class_addmethod(c, (method)ec2_multichanneloutputs, "multichanneloutputs", A_CANT, 0);
+
+  // FullPacket handler (CRITICAL: A_GIMME for udpreceive compatibility)
+  class_addmethod(c, (method)ec2_fullpacket, "FullPacket", A_GIMME, 0);
+
+  // Assist and UI
+  class_addmethod(c, (method)ec2_assist, "assist", A_CANT, 0);
+  class_addmethod(c, (method)ec2_dblclick, "dblclick", A_CANT, 0);
+  class_addmethod(c, (method)ec2_notify, "notify", A_CANT, 0);
+
+  // Basic synthesis parameters (float messages)
+  class_addmethod(c, (method)ec2_grainrate, "grainrate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_async, "async", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_intermittency, "intermittency", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_streams, "streams", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_playback, "playback", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_duration, "duration", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_envelope, "envelope", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_amplitude, "amp", A_FLOAT, 0);
+
+  // Filtering
+  class_addmethod(c, (method)ec2_filterfreq, "filterfreq", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_resonance, "resonance", A_FLOAT, 0);
+
+  // Spatial
+  class_addmethod(c, (method)ec2_pan, "pan", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanstart, "scanstart", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanrange, "scanrange", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanspeed, "scanspeed", A_FLOAT, 0);
+
+  // Deviation parameters
+  class_addmethod(c, (method)ec2_grainrate_dev, "grainrate_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_async_dev, "async_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_intermittency_dev, "intermittency_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_streams_dev, "streams_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_playback_dev, "playback_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_duration_dev, "duration_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_envelope_dev, "envelope_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_pan_dev, "pan_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_amp_dev, "amp_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_filterfreq_dev, "filterfreq_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_resonance_dev, "resonance_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanstart_dev, "scanstart_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanrange_dev, "scanrange_dev", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanspeed_dev, "scanspeed_dev", A_FLOAT, 0);
+
+  // LFO parameters (24 total)
+  class_addmethod(c, (method)ec2_lfo1shape, "lfo1shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo1rate, "lfo1rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo1polarity, "lfo1polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo1duty, "lfo1duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2shape, "lfo2shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2rate, "lfo2rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2polarity, "lfo2polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2duty, "lfo2duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3shape, "lfo3shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3rate, "lfo3rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3polarity, "lfo3polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3duty, "lfo3duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4shape, "lfo4shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4rate, "lfo4rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4polarity, "lfo4polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4duty, "lfo4duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5shape, "lfo5shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5rate, "lfo5rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5polarity, "lfo5polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5duty, "lfo5duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6shape, "lfo6shape", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6rate, "lfo6rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6polarity, "lfo6polarity", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6duty, "lfo6duty", A_FLOAT, 0);
+
+  // Buffer management - using attribute setter instead of message handler
+  // (Attribute @buffer is registered below with CLASS_ATTR_SYM + setter)
+
+  // Attributes - Output configuration
+  CLASS_ATTR_LONG(c, "outputs", 0, t_ec2, outputs);
+  CLASS_ATTR_FILTER_CLIP(c, "outputs", 1, 16);
+  CLASS_ATTR_LABEL(c, "outputs", 0, "Number of output channels");
+  CLASS_ATTR_SAVE(c, "outputs", 0);
+
+  CLASS_ATTR_LONG(c, "mc", 0, t_ec2, mc_mode);
+  CLASS_ATTR_STYLE_LABEL(c, "mc", 0, "onoff", "Multichannel mode");
+  CLASS_ATTR_SAVE(c, "mc", 0);
+
+  // Spatial allocation attributes (10 total)
+  CLASS_ATTR_LONG(c, "allocmode", 0, t_ec2, alloc_mode);
+  CLASS_ATTR_FILTER_CLIP(c, "allocmode", 0, 6);
+  CLASS_ATTR_LABEL(c, "allocmode", 0, "Spatial allocation mode (0-6)");
+  CLASS_ATTR_SAVE(c, "allocmode", 0);
+
+  CLASS_ATTR_LONG(c, "fixedchan", 0, t_ec2, fixed_channel);
+  CLASS_ATTR_FILTER_CLIP(c, "fixedchan", 0, 15);
+  CLASS_ATTR_LABEL(c, "fixedchan", 0, "Fixed channel (0-15)");
+  CLASS_ATTR_SAVE(c, "fixedchan", 0);
+
+  CLASS_ATTR_LONG(c, "rrstep", 0, t_ec2, rr_step);
+  CLASS_ATTR_FILTER_CLIP(c, "rrstep", 1, 16);
+  CLASS_ATTR_LABEL(c, "rrstep", 0, "Round-robin step");
+  CLASS_ATTR_SAVE(c, "rrstep", 0);
+
+  CLASS_ATTR_DOUBLE(c, "randspread", 0, t_ec2, random_spread);
+  CLASS_ATTR_FILTER_CLIP(c, "randspread", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c, "randspread", 0, "Random spread (0.0-1.0)");
+  CLASS_ATTR_SAVE(c, "randspread", 0);
+
+  CLASS_ATTR_DOUBLE(c, "spatialcorr", 0, t_ec2, spatial_corr);
+  CLASS_ATTR_FILTER_CLIP(c, "spatialcorr", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c, "spatialcorr", 0, "Spatial correlation (0.0-1.0)");
+  CLASS_ATTR_SAVE(c, "spatialcorr", 0);
+
+  CLASS_ATTR_DOUBLE(c, "pitchmin", 0, t_ec2, pitch_min);
+  CLASS_ATTR_FILTER_CLIP(c, "pitchmin", 20.0, 20000.0);
+  CLASS_ATTR_LABEL(c, "pitchmin", 0, "Pitch min (Hz)");
+  CLASS_ATTR_SAVE(c, "pitchmin", 0);
+
+  CLASS_ATTR_DOUBLE(c, "pitchmax", 0, t_ec2, pitch_max);
+  CLASS_ATTR_FILTER_CLIP(c, "pitchmax", 20.0, 20000.0);
+  CLASS_ATTR_LABEL(c, "pitchmax", 0, "Pitch max (Hz)");
+  CLASS_ATTR_SAVE(c, "pitchmax", 0);
+
+  CLASS_ATTR_LONG(c, "trajshape", 0, t_ec2, traj_shape);
+  CLASS_ATTR_FILTER_CLIP(c, "trajshape", 0, 3);
+  CLASS_ATTR_LABEL(c, "trajshape", 0, "Trajectory shape (0-3)");
+  CLASS_ATTR_SAVE(c, "trajshape", 0);
+
+  CLASS_ATTR_DOUBLE(c, "trajrate", 0, t_ec2, traj_rate);
+  CLASS_ATTR_FILTER_CLIP(c, "trajrate", 0.001, 100.0);
+  CLASS_ATTR_LABEL(c, "trajrate", 0, "Trajectory rate (Hz)");
+  CLASS_ATTR_SAVE(c, "trajrate", 0);
+
+  CLASS_ATTR_DOUBLE(c, "trajdepth", 0, t_ec2, traj_depth);
+  CLASS_ATTR_FILTER_CLIP(c, "trajdepth", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c, "trajdepth", 0, "Trajectory depth (0.0-1.0)");
+  CLASS_ATTR_SAVE(c, "trajdepth", 0);
+
+  // Buffer attribute
+  CLASS_ATTR_SYM(c, "buffer", 0, t_ec2, buffer_name);
+  CLASS_ATTR_ACCESSORS(c, "buffer", nullptr, ec2_buffer_setter);
+  CLASS_ATTR_LABEL(c, "buffer", 0, "Buffer~ name");
+  CLASS_ATTR_SAVE(c, "buffer", 0);
+
+  CLASS_ATTR_LONG(c, "soundfile", 0, t_ec2, sound_file);
+  CLASS_ATTR_FILTER_CLIP(c, "soundfile", 0, 15);
+  CLASS_ATTR_LABEL(c, "soundfile", 0, "Sound file index");
+  CLASS_ATTR_SAVE(c, "soundfile", 0);
+
+  // Register "anything" handler LAST so specific handlers take precedence
+  class_addmethod(c, (method)ec2_anything, "anything", A_GIMME, 0);
+
+  class_dspinit(c);
+  class_register(CLASS_BOX, c);
+  ec2_class = c;
+}
+
+// ==================================================================
+// OBJECT LIFECYCLE
+// ==================================================================
+
+void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
+  t_ec2* x = (t_ec2*)object_alloc(ec2_class);
+
+  // Initialize DSP
+  dsp_setup((t_pxobject*)x, 3);  // 3 signal inlets: scan, rate, playback
+
+  // Default values
+  x->outputs = 2;
+  x->mc_mode = 0;
+
+  // Create C++ objects BEFORE attr_args_process (so callbacks can use engine)
+  x->engine = new ec2::GranularEngine(2048);
+  x->signal_outlets = new std::vector<void*>();
+  x->osc_bundle_buffer = new std::vector<unsigned char>();
+  x->input_buffer = new std::vector<unsigned char>();
+  x->osc_outlet = nullptr;
+  x->suppress_osc_output = false;
+
+  // Initialize synthesis parameters to defaults
+  x->grain_rate = 20.0;
+  x->async = 0.0;
+  x->intermittency = 0.0;
+  x->streams = 1.0;
+  x->playback_rate = 1.0;
+  x->grain_duration = 100.0;
+  x->envelope_shape = 0.5;
+  x->amplitude = 0.5;
+  x->filter_freq = 22000.0;
+  x->resonance = 0.0;
+  x->stereo_pan = 0.0;
+  x->scan_start = 0.0;
+  x->scan_range = 1.0;
+  x->scan_speed = 1.0;
+
+  // Initialize deviation parameters to 0
+  x->grain_rate_dev = 0.0;
+  x->async_dev = 0.0;
+  x->intermittency_dev = 0.0;
+  x->streams_dev = 0.0;
+  x->playback_dev = 0.0;
+  x->duration_dev = 0.0;
+  x->envelope_dev = 0.0;
+  x->pan_dev = 0.0;
+  x->amp_dev = 0.0;
+  x->filterfreq_dev = 0.0;
+  x->resonance_dev = 0.0;
+  x->scanstart_dev = 0.0;
+  x->scanrange_dev = 0.0;
+  x->scanspeed_dev = 0.0;
+
+  // Initialize spatial allocation to defaults
+  x->alloc_mode = 1;  // roundrobin
+  x->fixed_channel = 0;
+  x->rr_step = 1;
+  x->random_spread = 0.0;
+  x->spatial_corr = 0.0;
+  x->pitch_min = 20.0;
+  x->pitch_max = 20000.0;
+  x->traj_shape = 0;
+  x->traj_rate = 0.5;
+  x->traj_depth = 1.0;
+
+  x->buffer_name = gensym("");
+  x->buffer_ref = nullptr;
+  x->sound_file = 0;
+
+  // Parse first argument as buffer name (if provided and not an attribute)
+  if (argc > 0 && atom_gettype(argv) == A_SYM) {
+    t_symbol* first_arg = atom_getsym(argv);
+    // Check if it's not an attribute (doesn't start with @)
+    if (first_arg->s_name[0] != '@') {
+      x->buffer_name = first_arg;
+
+      // Create buffer_ref to monitor buffer~ changes
+      x->buffer_ref = buffer_ref_new((t_object*)x, first_arg);
+
+      // Load the buffer
+      auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(first_arg->s_name);
       if (audio_buf) {
-        m_engine->setAudioBuffer(audio_buf, 0);
-      } else {
-        // Only warn if buffer name was explicitly set (not during init)
-        cerr << "ec2~: warning - buffer '" << name << "' not found" << endl;
+        x->engine->setAudioBuffer(audio_buf, 0);
       }
-      return args;
+      // Skip first arg for attr_args_process
+      argc--;
+      argv++;
     }
   }
-};
 
-attribute<int> sound_file{
-    this, "soundfile", 0,
-    description{"Sound file index for polybuffer~ (0-based)"}, range{0, 15}};
+  // Process remaining attributes AFTER engine is created
+  attr_args_process(x, argc, argv);
 
-// LFO PARAMETERS (Phase 9) - Now messages instead of attributes
+  // Create outlets (right to left in Max)
+  x->osc_outlet = outlet_new(x, nullptr);  // Rightmost: OSC messages
+
+  if (x->mc_mode == 1) {
+    // MC mode: ONE multichannelsignal outlet
+    void* sig_outlet = outlet_new(x, "multichannelsignal");
+    x->signal_outlets->push_back(sig_outlet);
+    object_attr_setlong(sig_outlet, gensym("chans"), x->outputs);
+  } else {
+    // Separated mode: N signal outlets (right to left)
+    for (int i = x->outputs - 1; i >= 0; --i) {
+      void* sig_outlet = outlet_new(x, "signal");
+      x->signal_outlets->insert(x->signal_outlets->begin(), sig_outlet);
+    }
+  }
+
+  // Initialize engine
+  x->engine->initialize(sys_getsr());
+  ec2_update_engine_params(x);
+
+  // Print banner on first instantiation only
+  static bool banner_printed = false;
+  if (!banner_printed) {
+    post("═══════════════════════════════════════════════════════");
+    post("ec2~ - %s", EC2_DESCRIPTION);
+    post("Version: %s | Build: %s %s", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
+    post("%s", EC2_COPYRIGHT);
+    post("GPL-3.0 License");
+    post("═══════════════════════════════════════════════════════");
+    banner_printed = true;
+  }
+
+  return x;
+}
+
+void ec2_free(t_ec2* x) {
+  dsp_free((t_pxobject*)x);
+
+  if (x->buffer_ref) object_free(x->buffer_ref);
+  if (x->engine) delete x->engine;
+  if (x->signal_outlets) delete x->signal_outlets;
+  if (x->osc_bundle_buffer) delete x->osc_bundle_buffer;
+  if (x->input_buffer) delete x->input_buffer;
+}
+
+void ec2_assist(t_ec2* x, void* b, long m, long a, char* s) {
+  if (m == ASSIST_INLET) {
+    switch (a) {
+      case 0: snprintf(s, 256, "(signal) Scan position"); break;
+      case 1: snprintf(s, 256, "(signal) Grain rate (Hz)"); break;
+      case 2: snprintf(s, 256, "(signal) Playback rate"); break;
+    }
+  } else {
+    if (a < x->outputs) {
+      snprintf(s, 256, "(signal) Audio out %ld", a + 1);
+    } else {
+      snprintf(s, 256, "(OSC) Parameters");
+    }
+  }
+}
+
+void ec2_dblclick(t_ec2* x) {
+  // Open buffer editor when double-clicking the object
+  if (!x->buffer_name || x->buffer_name == gensym("")) {
+    object_error((t_object*)x, "no buffer set");
+    return;
+  }
+
+  t_buffer_ref* buf_ref = buffer_ref_new((t_object*)x, x->buffer_name);
+  if (!buf_ref) {
+    object_error((t_object*)x, "buffer '%s' not found", x->buffer_name->s_name);
+    return;
+  }
+
+  t_buffer_obj* buffer = buffer_ref_getobject(buf_ref);
+  if (buffer) {
+    // Open the buffer editor
+    mess0(buffer, gensym("dblclick"));
+  }
+
+  object_free(buf_ref);
+}
+
+t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* data) {
+  // Check if notification is from our buffer_ref
+  if (msg == gensym("buffer_modified") || msg == gensym("globalsymbol_binding")) {
+    // Reload buffer when it changes
+    if (x->buffer_name && x->buffer_name != gensym("")) {
+      auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(x->buffer_name->s_name);
+      if (audio_buf) {
+        x->engine->setAudioBuffer(audio_buf, 0);
+        // Update engine parameters after loading buffer
+        ec2_update_engine_params(x);
+      }
+    }
+  }
+
+  return MAX_ERR_NONE;
+}
+
+// ==================================================================
+// DSP
+// ==================================================================
+
+void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags) {
+  x->engine->setSampleRate(samplerate);
+
+  // Store signal connection status
+  // count[0] = scan inlet connected
+  // count[1] = rate inlet connected
+  // count[2] = playback inlet connected
+  object_method(dsp64, gensym("dsp_add64"), x, ec2_perform64, 0, nullptr);
+}
+
+void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam) {
+  // CRITICAL: Update engine parameters every audio callback (matches old ec2~)
+  ec2_update_engine_params(x);
+
+  // Process audio
+  float** outBuffers = new float*[x->outputs];
+  for (int i = 0; i < x->outputs; ++i) {
+    outBuffers[i] = new float[sampleframes];
+    memset(outBuffers[i], 0, sampleframes * sizeof(float));
+  }
+
+  // Signal inputs disabled - always use parameter values
+  // TODO: Implement proper signal connection detection using count array from dsp64
+  float* scan_in = nullptr;
+  float* rate_in = nullptr;
+  float* playback_in = nullptr;
+
+  // Process audio through engine
+  x->engine->processWithSignals(outBuffers, x->outputs, sampleframes,
+                                scan_in, rate_in, playback_in);
+
+  // Copy to Max outputs and convert to double
+  for (int ch = 0; ch < x->outputs && ch < numouts; ++ch) {
+    for (long i = 0; i < sampleframes; ++i) {
+      outs[ch][i] = outBuffers[ch][i];
+    }
+  }
+
+  // Cleanup
+  for (int i = 0; i < x->outputs; ++i) {
+    delete[] outBuffers[i];
+  }
+  delete[] outBuffers;
+}
+
+// ==================================================================
+// MULTICHANNEL SUPPORT
+// ==================================================================
+
+long ec2_multichanneloutputs(t_ec2* x, long index) {
+  if (index == 0 && x->mc_mode == 1) {
+    return x->outputs;
+  }
+  return 0;
+}
+
+// ==================================================================
+// MESSAGE HANDLERS - BASIC SYNTHESIS
+// ==================================================================
+
+void ec2_grainrate(t_ec2* x, double v) {
+  x->grain_rate = std::max(0.1, std::min(500.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_async(t_ec2* x, double v) {
+  x->async = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_intermittency(t_ec2* x, double v) {
+  x->intermittency = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_streams(t_ec2* x, double v) {
+  x->streams = std::max(1.0, std::min(20.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_playback(t_ec2* x, double v) {
+  x->playback_rate = std::max(-32.0, std::min(32.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_duration(t_ec2* x, double v) {
+  x->grain_duration = std::max(1.0, std::min(1000.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_envelope(t_ec2* x, double v) {
+  x->envelope_shape = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_amplitude(t_ec2* x, double v) {
+  x->amplitude = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
+// FILTERING
+// ==================================================================
+
+void ec2_filterfreq(t_ec2* x, double v) {
+  x->filter_freq = std::max(20.0, std::min(22000.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_resonance(t_ec2* x, double v) {
+  x->resonance = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
+// SPATIAL/SCANNING
+// ==================================================================
+
+void ec2_pan(t_ec2* x, double v) {
+  x->stereo_pan = std::max(-1.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanstart(t_ec2* x, double v) {
+  x->scan_start = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanrange(t_ec2* x, double v) {
+  x->scan_range = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanspeed(t_ec2* x, double v) {
+  x->scan_speed = std::max(-32.0, std::min(32.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
+// DEVIATION PARAMETERS (14 total)
+// ==================================================================
+
+void ec2_grainrate_dev(t_ec2* x, double v) {
+  x->grain_rate_dev = std::max(0.0, std::min(250.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_async_dev(t_ec2* x, double v) {
+  x->async_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_intermittency_dev(t_ec2* x, double v) {
+  x->intermittency_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_streams_dev(t_ec2* x, double v) {
+  x->streams_dev = std::max(0.0, std::min(10.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_playback_dev(t_ec2* x, double v) {
+  x->playback_dev = std::max(0.0, std::min(16.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_duration_dev(t_ec2* x, double v) {
+  x->duration_dev = std::max(0.0, std::min(500.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_envelope_dev(t_ec2* x, double v) {
+  x->envelope_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_pan_dev(t_ec2* x, double v) {
+  x->pan_dev = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_amp_dev(t_ec2* x, double v) {
+  x->amp_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_filterfreq_dev(t_ec2* x, double v) {
+  x->filterfreq_dev = std::max(0.0, std::min(11000.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_resonance_dev(t_ec2* x, double v) {
+  x->resonance_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanstart_dev(t_ec2* x, double v) {
+  x->scanstart_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanrange_dev(t_ec2* x, double v) {
+  x->scanrange_dev = std::max(0.0, std::min(0.5, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_scanspeed_dev(t_ec2* x, double v) {
+  x->scanspeed_dev = std::max(0.0, std::min(16.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
+// LFO PARAMETERS (24 total: 6 LFOs × 4 params)
+// ==================================================================
 
 // LFO 1
-message<> lfo1shape{this, "lfo1shape", "LFO1 shape (0-4)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0 && m_engine) {
-                        auto lfo = m_engine->getLFO(0);
-                        if (lfo) {
-                          int val = std::max(0, std::min(4, int(args[0])));
-                          lfo->setShape(static_cast<ec2::LFOShape>(val));
-                          sendOSCBundle();
-                        }
-                      }
-                      return {};
-                    }};
+void ec2_lfo1shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(0);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo1rate{this, "lfo1rate", "LFO1 frequency in Hz (0.001-100.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(0);
-                       if (lfo) {
-                         double val = std::max(0.001, std::min(100.0, double(args[0])));
-                         lfo->setFrequency(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo1rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(0);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo1polarity{this, "lfo1polarity", "LFO1 polarity (0-2)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0 && m_engine) {
-                           auto lfo = m_engine->getLFO(0);
-                           if (lfo) {
-                             int val = std::max(0, std::min(2, int(args[0])));
-                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
-                             sendOSCBundle();
-                           }
-                         }
-                         return {};
-                       }};
+void ec2_lfo1polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(0);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo1duty{this, "lfo1duty", "LFO1 duty cycle (0.0-1.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(0);
-                       if (lfo) {
-                         double val = std::max(0.0, std::min(1.0, double(args[0])));
-                         lfo->setDuty(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo1duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(0);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
 // LFO 2
-message<> lfo2shape{this, "lfo2shape", "LFO2 shape (0-4)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0 && m_engine) {
-                        auto lfo = m_engine->getLFO(1);
-                        if (lfo) {
-                          int val = std::max(0, std::min(4, int(args[0])));
-                          lfo->setShape(static_cast<ec2::LFOShape>(val));
-                          sendOSCBundle();
-                        }
-                      }
-                      return {};
-                    }};
+void ec2_lfo2shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(1);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo2rate{this, "lfo2rate", "LFO2 frequency in Hz (0.001-100.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(1);
-                       if (lfo) {
-                         double val = std::max(0.001, std::min(100.0, double(args[0])));
-                         lfo->setFrequency(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo2rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(1);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo2polarity{this, "lfo2polarity", "LFO2 polarity (0-2)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0 && m_engine) {
-                           auto lfo = m_engine->getLFO(1);
-                           if (lfo) {
-                             int val = std::max(0, std::min(2, int(args[0])));
-                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
-                             sendOSCBundle();
-                           }
-                         }
-                         return {};
-                       }};
+void ec2_lfo2polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(1);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo2duty{this, "lfo2duty", "LFO2 duty cycle (0.0-1.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(1);
-                       if (lfo) {
-                         double val = std::max(0.0, std::min(1.0, double(args[0])));
-                         lfo->setDuty(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo2duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(1);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
 // LFO 3
-message<> lfo3shape{this, "lfo3shape", "LFO3 shape (0-4)",
-                    MIN_FUNCTION{
-                      if (args.size() > 0 && m_engine) {
-                        auto lfo = m_engine->getLFO(2);
-                        if (lfo) {
-                          int val = std::max(0, std::min(4, int(args[0])));
-                          lfo->setShape(static_cast<ec2::LFOShape>(val));
-                          sendOSCBundle();
-                        }
-                      }
-                      return {};
-                    }};
+void ec2_lfo3shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(2);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo3rate{this, "lfo3rate", "LFO3 frequency in Hz (0.001-100.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(2);
-                       if (lfo) {
-                         double val = std::max(0.001, std::min(100.0, double(args[0])));
-                         lfo->setFrequency(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo3rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(2);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo3polarity{this, "lfo3polarity", "LFO3 polarity (0-2)",
-                       MIN_FUNCTION{
-                         if (args.size() > 0 && m_engine) {
-                           auto lfo = m_engine->getLFO(2);
-                           if (lfo) {
-                             int val = std::max(0, std::min(2, int(args[0])));
-                             lfo->setPolarity(static_cast<ec2::LFOPolarity>(val));
-                             sendOSCBundle();
-                           }
-                         }
-                         return {};
-                       }};
+void ec2_lfo3polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(2);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo3duty{this, "lfo3duty", "LFO3 duty cycle (0.0-1.0)",
-                   MIN_FUNCTION{
-                     if (args.size() > 0 && m_engine) {
-                       auto lfo = m_engine->getLFO(2);
-                       if (lfo) {
-                         double val = std::max(0.0, std::min(1.0, double(args[0])));
-                         lfo->setDuty(val);
-                         sendOSCBundle();
-                       }
-                     }
-                     return {};
-                   }};
+void ec2_lfo3duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(2);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-// LFO 4-6 (converted to messages)
-message<> lfo4shape{this, "lfo4shape", "LFO4 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo4rate{this, "lfo4rate", "LFO4 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
-message<> lfo4polarity{this, "lfo4polarity", "LFO4 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo4duty{this, "lfo4duty", "LFO4 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(3); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
+// LFO 4
+void ec2_lfo4shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(3);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo5shape{this, "lfo5shape", "LFO5 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo5rate{this, "lfo5rate", "LFO5 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
-message<> lfo5polarity{this, "lfo5polarity", "LFO5 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo5duty{this, "lfo5duty", "LFO5 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(4); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
+void ec2_lfo4rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(3);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> lfo6shape{this, "lfo6shape", "LFO6 shape (0-4)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo6rate{this, "lfo6rate", "LFO6 rate (0.001-100.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setFrequency(std::max(0.001, std::min(100.0, double(args[0])))); sendOSCBundle();}} return {};}};
-message<> lfo6polarity{this, "lfo6polarity", "LFO6 polarity (0-2)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, int(args[0]))))); sendOSCBundle();}} return {};}};
-message<> lfo6duty{this, "lfo6duty", "LFO6 duty (0.0-1.0)", MIN_FUNCTION{if (args.size() > 0 && m_engine) {auto lfo = m_engine->getLFO(5); if (lfo) {lfo->setDuty(std::max(0.0, std::min(1.0, double(args[0])))); sendOSCBundle();}} return {};}};
+void ec2_lfo4polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(3);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
+void ec2_lfo4duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(3);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-// MESSAGES
+// LFO 5
+void ec2_lfo5shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(4);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-// DSP setup method - called by Max when audio is turned on/off
-message<> dspsetup{
-    this, "dspsetup",
-    MIN_FUNCTION{
-      cout << "[DEBUG] dspsetup called" << endl;
-      setupDSP();
-      c74::max::object_method(
-          maxobj(), c74::max::gensym("dsp_add64"),
-          maxobj(), perform64_static, 0, this);
-      cout << "[DEBUG] dspsetup registered perform64" << endl;
-      return {};
-    }
-};
+void ec2_lfo5rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(4);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> clear{this, "clear",
-                MIN_FUNCTION{
-                  if (m_engine) {
-                    m_engine->stopAllGrains();
-                  }
-                  return {};
-                }
-};
+void ec2_lfo5polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(4);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
 
-message<> m_read{
-    this, "read",
-    MIN_FUNCTION{
-      if (args.empty()) {
-        cerr << "ec2~: read requires a buffer name argument" << endl;
-        return {};
+void ec2_lfo5duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(4);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
+
+// LFO 6
+void ec2_lfo6shape(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(5);
+  if (lfo) {
+    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
+
+void ec2_lfo6rate(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(5);
+  if (lfo) {
+    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
+
+void ec2_lfo6polarity(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(5);
+  if (lfo) {
+    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
+
+void ec2_lfo6duty(t_ec2* x, double v) {
+  auto lfo = x->engine->getLFO(5);
+  if (lfo) {
+    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  }
+}
+
+// ==================================================================
+// BUFFER MANAGEMENT
+// ==================================================================
+
+t_max_err ec2_buffer_setter(t_ec2* x, void* attr, long argc, t_atom* argv) {
+  if (!x || !x->engine) return MAX_ERR_NONE;
+
+  if (argc && argv) {
+    t_symbol* s = atom_getsym(argv);
+    if (s && s != gensym("")) {
+      x->buffer_name = s;
+
+      // Free old buffer_ref if exists
+      if (x->buffer_ref) {
+        object_free(x->buffer_ref);
       }
 
-      if (!m_engine) {
-        cerr << "ec2~: engine not initialized" << endl;
-        return {};
-      }
+      // Create buffer_ref to monitor buffer~ changes
+      x->buffer_ref = buffer_ref_new((t_object*)x, s);
 
-      symbol buffer_sym = args[0];
-      std::string buffer_str = std::string(buffer_sym);
-
-      auto audio_buf = ec2_buffer::loadFromMaxBuffer(buffer_str);
+      auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(s->s_name);
       if (audio_buf) {
-        m_engine->setAudioBuffer(audio_buf, 0);
-        buffer_name = buffer_sym;
-      } else {
-        cerr << "ec2~: failed to load buffer '" << buffer_str << "'" << endl;
+        x->engine->setAudioBuffer(audio_buf, 0);
       }
-
-      return {};
     }
-};
-
-message<> polybuffer{
-    this, "polybuffer",
-    MIN_FUNCTION{
-      if (args.size() < 2) {
-        cerr << "ec2~: polybuffer requires basename and count arguments" << endl;
-        return {};
-      }
-
-      if (!m_engine) {
-        cerr << "ec2~: engine not initialized" << endl;
-        return {};
-      }
-
-      symbol basename = args[0];
-      int count = static_cast<int>(args[1]);
-
-      // Load all buffers
-      int loaded_count = 0;
-      for (int i = 0; i < count; ++i) {
-        std::string buf_name = std::string(basename) + "." + std::to_string(i);
-        auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_name);
-        if (audio_buf) {
-          m_engine->setAudioBuffer(audio_buf, i);
-          loaded_count++;
-        }
-      }
-
-if (loaded_count < count) {
-  cerr << "polybuffer: loaded " << loaded_count << " of " << count
-       << " buffers" << endl;
-}
-
-return {};
-}
-}
-;
-
-message<> modroute{
-    this, "modroute",
-    MIN_FUNCTION{if (args.size() < 2){
-        cerr
-        << "modroute requires parameter name and LFO number (or 'none')"
-        << endl;
-cerr << "      usage: modroute <param> <lfo_num> [depth]" << endl;
-cerr << "      example: modroute grainrate 1 0.5" << endl;
-return {};
-}
-
-symbol param_sym = args[0];
-std::string param_name = std::string(param_sym);
-
-// Get modulation parameters reference
-ec2::ModulationParameters *modParams = getModulationParameters(param_name);
-if (!modParams) {
-  cerr << "unknown parameter '" << param_name << "'" << endl;
-  return {};
-}
-
-// Check if clearing modulation
-if (args.size() == 2) {
-  symbol lfo_arg = args[1];
-  std::string lfo_str = std::string(lfo_arg);
-  if (lfo_str == "none" || lfo_str == "0") {
-    modParams->lfoSource = 0;
-    modParams->depth = 0.0f;
-    return {};
   }
+  return MAX_ERR_NONE;
 }
 
-// Setting modulation
-int lfo_num = args[1];
-float depth = (args.size() >= 3) ? static_cast<float>(args[2]) : 0.5f;
+void ec2_buffer(t_ec2* x, t_symbol* s) {
+  if (!x || !x->engine) return;
 
-if (lfo_num < 0 || lfo_num > 6) {
-  cerr << "LFO number must be 0-6 (0=none, 1-6=LFO1-6)" << endl;
-  return {};
-}
-
-modParams->lfoSource = lfo_num;
-modParams->depth = std::max(0.0f, std::min(depth, 1.0f));
-
-return {};
-}
-}
-;
-
-message<> anything{
-    this, "anything",
-    MIN_FUNCTION{
-      // Handle OSC-style messages: /param_name value
-      // FullPacket bundles are handled by direct Max SDK method
-
-      if (inlet == 0) { // Only handle messages on main inlet
-        if (args.empty()) return {};
-
-        symbol msg_name = args[0];
-        std::string msg_str = std::string(msg_name);
-
-        // Check if it's an OSC path (starts with "/")
-        if (!msg_str.empty() && msg_str[0] == '/') {
-  // Remove leading "/"
-  std::string param_name = msg_str.substr(1);
-
-  // Handle nested paths (e.g., "/ec2/grainrate" -> "grainrate")
-  size_t last_slash = param_name.find_last_of('/');
-  if (last_slash != std::string::npos) {
-    param_name = param_name.substr(last_slash + 1);
-  }
-
-  // Handle special /set message for buffer loading
-  if (param_name == "set") {
-    // Format: /set buffer_name [buffer_name2 ...]
-    // Load one or more buffers
-    if (args.size() >= 2) {
-      for (size_t i = 1; i < args.size(); ++i) {
-        symbol buf_name = args[i];
-        std::string buf_str = std::string(buf_name);
-        auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_str);
-
-        if (audio_buf) {
-          int buf_index = static_cast<int>(i - 1);
-          m_engine->setAudioBuffer(audio_buf, buf_index);
-
-          // Update attribute for first buffer
-          if (i == 1) {
-            buffer_name = buf_name;
-          }
-        } else {
-          cerr << "failed to load buffer '" << buf_str << "' via /set"
-               << endl;
-        }
-      }
-    } else {
-      cerr << "/set requires at least one buffer name argument" << endl;
+  if (!s || s == gensym("")) {
+    if (x->buffer_ref) {
+      object_free(x->buffer_ref);
+      x->buffer_ref = nullptr;
     }
-    return {};
+    x->engine->setAudioBuffer(nullptr, 0);
+    return;
   }
 
-  // Handle /buffer message for buffer loading (OSC-style)
-  if (param_name == "buffer") {
-    if (args.size() >= 2) {
-      symbol buf_name = args[1];
-      std::string buf_str = std::string(buf_name);
-      auto audio_buf = ec2_buffer::loadFromMaxBuffer(buf_str);
+  x->buffer_name = s;
 
-      if (audio_buf) {
-        m_engine->setAudioBuffer(audio_buf, 0);
-        buffer_name = buf_name;
-      } else {
-        cerr << "failed to load buffer '" << buf_str << "' via /buffer" << endl;
-      }
-    } else {
-      cerr << "/buffer requires a buffer name argument" << endl;
-    }
-    return {};
+  // Free old buffer_ref if exists
+  if (x->buffer_ref) {
+    object_free(x->buffer_ref);
   }
 
-          // Get the value (should be second argument)
-          if (args.size() >= 2) {
-            handleOSCParameter(param_name, args[1]);
-          }
-        }
-        // FullPacket bundles are handled by dedicated Max SDK handler
-      }
+  // Create buffer_ref to monitor buffer~ changes
+  x->buffer_ref = buffer_ref_new((t_object*)x, s);
 
-return {};
-}
-}
-;
-
-message<> bang{this, "bang",
-               MIN_FUNCTION{// Output current parameter state as OSC bundle
-                            outputOSCState();
-return {};
-}
-}
-;
-
-message<> loadbang{this, "loadbang",
-                   MIN_FUNCTION{// Send initial OSC bundle on object creation
-                                sendOSCBundle();
-return {};
-}
-}
-;
-
-message<> waveform{
-    this, "waveform",
-    MIN_FUNCTION{// Phase 13: Report buffer waveform info (simplified approach)
-                 // Full graphical display requires jbox UI object which is
-                 // beyond min-devkit scope
-
-                 int buffer_index = static_cast<int>(sound_file.get());
-auto current_buffer = m_engine->getAudioBuffer(buffer_index);
-
-if (!current_buffer || current_buffer->size == 0) {
-  return {};
-}
-
-return {};
-}
-}
-;
-
-message<> openbuffer{
-    this, "openbuffer",
-    MIN_FUNCTION{// Phase 13: Open buffer editor
-                 // This provides a way to view/edit the waveform using Max's
-                 // built-in buffer editor
-
-                 std::string buf_name_str = std::string(buffer_name.get());
-if (buf_name_str.empty()) {
-  cerr << "no buffer loaded (use 'read' or 'polybuffer' message first)"
-       << endl;
-  return {};
-}
-
-// Open buffer editor using Max SDK
-auto buf_ref = c74::max::buffer_ref_new((c74::max::t_object *)this->maxobj(),
-                                        buffer_name.get());
-if (buf_ref) {
-  auto buffer = c74::max::buffer_ref_getobject(buf_ref);
-  if (buffer) {
-    // Send 'wclose' then 'open' to ensure editor appears
-    c74::max::object_method_typed(buffer, c74::max::gensym("wclose"), 0,
-                                  nullptr, nullptr);
-    c74::max::object_method_typed(buffer, c74::max::gensym("open"), 0, nullptr,
-                                  nullptr);
+  auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(s->s_name);
+  if (audio_buf) {
+    post("ec2_buffer: loaded buffer '%s', size=%d, frames=%d, channels=%d",
+         s->s_name, audio_buf->size, audio_buf->frames, audio_buf->channels);
+    x->engine->setAudioBuffer(audio_buf, 0);
   } else {
-    cerr << "failed to get buffer object" << endl;
+    post("ec2_buffer: buffer '%s' not found yet (will load when available)", s->s_name);
   }
-  c74::max::object_free((c74::max::t_object *)buf_ref);
-} else {
-  cerr << "failed to create buffer reference" << endl;
 }
 
-return {};
-}
-}
-;
+// ==================================================================
+// FULLPACKET HANDLER (OSC from udpreceive)
+// ==================================================================
 
-message<> dblclick{
-    this, "dblclick",
-    MIN_FUNCTION{// Phase 13: Double-click opens buffer editor (like waveform~)
-                 // Delegate to openbuffer message
-                 atoms a;
-this->try_call("openbuffer", a);
-return {};
-}
-}
-;
+void ec2_fullpacket(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
+  if (argc < 2) return;
 
-// Assist strings for inlets and outlets
-message<> assist{
-    this, "assist",
-    MIN_FUNCTION{
-        long inlet_idx = args[0];
-        long outlet_idx = args[1];
+  long bundle_size = atom_getlong(&argv[0]);
+  long bundle_ptr_val = atom_getlong(&argv[1]);
 
-        if (inlet_idx >= 0) {
-            // Inlet assist strings
-            switch (inlet_idx) {
-                case 0:
-                    return {"Main inlet: messages, OSC bundles (@out: n/t)"};
-                case 1:
-                    return {"Signal: scan position (0.0-1.0)"};
-                case 2:
-                    return {"Signal: grain rate modulation (Hz)"};
-                case 3:
-                    return {"Signal: playback rate modulation"};
-                default:
-                    return {};
-            }
-        } else if (outlet_idx >= 0) {
-            // Outlet assist strings - dynamically adjust based on @mc mode
-            if (outlet_idx < m_outputs && m_mc_mode == 0) {
-                // Separated outputs
-                std::stringstream ss;
-                ss << "Audio out " << (outlet_idx + 1);
-                return {ss.str()};
-            } else if (outlet_idx == 0 && m_mc_mode == 1) {
-                // MC cable
-                std::stringstream ss;
-                ss << "Multichannel audio (" << m_outputs << " channels)";
-                return {ss.str()};
-            } else if ((m_mc_mode == 0 && outlet_idx == m_outputs) ||
-                       (m_mc_mode == 1 && outlet_idx == 1)) {
-                // OSC outlet (rightmost)
-                return {"OSC outlet: parameter updates (@out: n=FullPacket, t=text)"};
-            }
-        }
-
-        return {};
-    }
-};
-
-  // Min-DevKit DSP setup method - called when audio is turned on/off
-  void setupDSP() {
-    if (!m_engine) {
-      return;
-    }
-
-    // Initialize engine with current sample rate
-    double sr = c74::max::sys_getsr();
-    m_engine->setSampleRate(static_cast<float>(sr));
-
-    // Update engine parameters
-    updateEngineParameters();
-  }
-
-  // DSP64 Perform callback - static wrapper
-  static void perform64_static(c74::max::t_object *dsp64, double **ins,
-                                long numins, double **outs, long numouts,
-                                long sampleframes, long flags, void *userparam) {
-    ec2_tilde *self = static_cast<ec2_tilde *>(userparam);
-    self->perform64(ins, numins, outs, numouts, sampleframes);
-  }
-
-  // DSP64 Perform callback - actual processing
-  void perform64(double **ins, long numins, double **outs, long numouts,
-                 long sampleframes) {
-    static int call_count = 0;
-    if (call_count++ % 1000 == 0) {
-      cout << "[DEBUG] perform64 called " << call_count << " times, numouts=" << numouts << " frames=" << sampleframes << endl;
-    }
-
-    // Safety check - engine must be initialized
-    if (!m_engine) {
-      cout << "[DEBUG] perform64: m_engine is NULL!" << endl;
-      return;
-    }
-
-    // Update engine parameters from attributes
-    updateEngineParameters();
-
-    // Allocate temporary float buffers (engine uses float, Max uses double)
-    std::vector<std::vector<float>> tempBuffers(m_outputs);
-    std::vector<float *> outBuffers(m_outputs);
-
-    for (int ch = 0; ch < m_outputs; ++ch) {
-      tempBuffers[ch].resize(sampleframes, 0.0f);
-      outBuffers[ch] = tempBuffers[ch].data();
-    }
-
-    // Process signal inputs (Phase 12)
-    // Signal inlets: 0=scan, 1=grain rate, 2=playback rate
-    bool has_scan = (numins > 0);
-    bool has_rate = (numins > 1);
-    bool has_playback = (numins > 2);
-
-    // Convert signal inputs from double to float
-    std::vector<float> scan_signal(sampleframes);
-    std::vector<float> rate_signal(sampleframes);
-    std::vector<float> playback_signal(sampleframes);
-
-    if (has_scan) {
-      for (long i = 0; i < sampleframes; ++i) {
-        scan_signal[i] = static_cast<float>(ins[0][i]);
-      }
-    }
-
-    if (has_rate) {
-      for (long i = 0; i < sampleframes; ++i) {
-        rate_signal[i] = static_cast<float>(ins[1][i]);
-      }
-    }
-
-    if (has_playback) {
-      for (long i = 0; i < sampleframes; ++i) {
-        playback_signal[i] = static_cast<float>(ins[2][i]);
-      }
-    }
-
-    // Process synthesis engine with signal inputs
-    m_engine->processWithSignals(
-        outBuffers.data(), m_outputs, static_cast<int>(sampleframes),
-        has_scan ? scan_signal.data() : nullptr,
-        has_rate ? rate_signal.data() : nullptr,
-        has_playback ? playback_signal.data() : nullptr);
-
-    // Route output to outlets based on @mc mode
-    if (m_mc_mode == 1) {
-      // Multichannel mode: all channels bundled into first outlet
-      // Max MC outlets expect all channels in the first numouts channels
-      for (int ch = 0; ch < m_outputs && ch < numouts; ++ch) {
-        for (long i = 0; i < sampleframes; ++i) {
-          outs[ch][i] = static_cast<double>(tempBuffers[ch][i]);
-        }
-      }
-    } else {
-      // Separated mode: each channel to its own outlet
-      for (int ch = 0; ch < m_outputs && ch < numouts; ++ch) {
-        for (long i = 0; i < sampleframes; ++i) {
-          outs[ch][i] = static_cast<double>(tempBuffers[ch][i]);
-        }
-      }
-    }
-  }
-
-private:
-
-// Helper: Parse OSC bundle and extract messages
-void parseOSCBundle(const unsigned char* data, size_t size) {
-  cout << "[DEBUG] parseOSCBundle: size=" << size << endl;
-
-  // Check for OSC bundle header "#bundle\0"
-  if (size < 16) {
-    cout << "[DEBUG] parseOSCBundle: size too small (" << size << " < 16)" << endl;
+  if (bundle_ptr_val == 0 || bundle_size <= 0 || bundle_size >= 1048576) {
     return;
   }
 
-  if (memcmp(data, "#bundle", 8) != 0) {
-    cout << "[DEBUG] parseOSCBundle: not a bundle (header mismatch)" << endl;
-    cout << "[DEBUG] Header bytes: ";
-    for (int i = 0; i < 8; i++) {
-      cout << std::hex << (int)data[i] << " ";
-    }
-    cout << std::dec << endl;
+  char* data = (char*)bundle_ptr_val;
+  if (!data) return;
+
+  // Check for #bundle header
+  if (bundle_size < 8 || memcmp(data, "#bundle", 8) != 0) {
     return;
   }
 
-  cout << "[DEBUG] parseOSCBundle: valid bundle header" << endl;
+  // CRITICAL: Copy immediately (udpreceive will free the buffer)
+  x->input_buffer->resize(bundle_size);
+  std::memcpy(x->input_buffer->data(), data, bundle_size);
 
-  // Skip bundle header (8 bytes) and timetag (8 bytes)
-  size_t offset = 16;
+  // Parse and update
+  x->suppress_osc_output = true;
+  ec2_parse_osc_bundle(x, x->input_buffer->data(), bundle_size);
+  x->suppress_osc_output = false;
 
-  int message_count = 0;
-
-  // Parse bundle elements
-  while (offset < size) {
-    // Read element size (big-endian int32)
-    if (offset + 4 > size) break;
-
-    uint32_t element_size =
-        (data[offset] << 24) |
-        (data[offset + 1] << 16) |
-        (data[offset + 2] << 8) |
-        data[offset + 3];
-    offset += 4;
-
-    cout << "[DEBUG] parseOSCBundle: message #" << message_count++ << " size=" << element_size << endl;
-
-    if (offset + element_size > size) {
-      cout << "[DEBUG] parseOSCBundle: element size exceeds bundle size" << endl;
-      break;
-    }
-
-    // Parse OSC message from this element
-    parseOSCMessage(data + offset, element_size);
-
-    offset += element_size;
-  }
-
-  cout << "[DEBUG] parseOSCBundle: parsed " << message_count << " messages" << endl;
+  ec2_update_engine_params(x);
+  ec2_send_osc_bundle(x);
 }
 
-// Helper: Parse single OSC message
-void parseOSCMessage(const unsigned char* data, size_t size) {
-  if (size < 4) {
-    return;
+// ==================================================================
+// ANYTHING HANDLER (OSC-style messages)
+// ==================================================================
+
+void ec2_anything(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
+  // Handle OSC-style messages like "/grainrate 50"
+  if (s && s->s_name[0] == '/') {
+    std::string param_name = s->s_name + 1;  // Skip '/'
+    if (argc > 0) {
+      double value = atom_getfloat(&argv[0]);
+      ec2_handle_osc_parameter(x, param_name, value);
+    }
+  }
+}
+
+// ==================================================================
+// HELPER FUNCTIONS
+// ==================================================================
+
+void ec2_update_engine_params(t_ec2* x) {
+  ec2::SynthParameters params;
+
+  // Basic synthesis
+  params.grainRate = x->grain_rate;
+  params.async = x->async;
+  params.intermittency = x->intermittency;
+  params.streams = (int)x->streams;
+  params.playbackRate = x->playback_rate;
+  params.grainDuration = x->grain_duration;
+  params.envelope = x->envelope_shape;
+
+  // Amplitude is linear (0-1)
+  params.amplitude = x->amplitude;
+
+  // Filtering
+  params.filterFreq = x->filter_freq;
+  params.resonance = x->resonance;
+
+  // Spatial
+  params.pan = x->stereo_pan;
+  params.scanBegin = x->scan_start;
+  params.scanRange = x->scan_range;
+  params.scanSpeed = x->scan_speed;
+
+  // Deviations
+  params.grainRateDeviation = x->grain_rate_dev;
+  params.asyncDeviation = x->async_dev;
+  params.intermittencyDeviation = x->intermittency_dev;
+  params.streamsDeviation = x->streams_dev;
+  params.playbackDeviation = x->playback_dev;
+  params.durationDeviation = x->duration_dev;
+  params.envelopeDeviation = x->envelope_dev;
+  params.panDeviation = x->pan_dev;
+  params.amplitudeDeviation = x->amp_dev;
+  params.filterFreqDeviation = x->filterfreq_dev;
+  params.resonanceDeviation = x->resonance_dev;
+  params.scanBeginDeviation = x->scanstart_dev;
+  params.scanRangeDeviation = x->scanrange_dev;
+  params.scanSpeedDeviation = x->scanspeed_dev;
+
+  // Spatial allocation
+  params.spatial.mode = static_cast<ec2::AllocationMode>(x->alloc_mode);
+  params.spatial.numChannels = x->outputs;  // CRITICAL: Set number of output channels!
+  params.spatial.fixedChannel = x->fixed_channel;
+  params.spatial.roundRobinStep = x->rr_step;
+  params.spatial.spread = x->random_spread;
+  params.spatial.spatialCorr = x->spatial_corr;
+  params.spatial.pitchMin = x->pitch_min;
+  params.spatial.pitchMax = x->pitch_max;
+  params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape);
+  params.spatial.trajRate = x->traj_rate;
+  params.spatial.trajDepth = x->traj_depth;
+
+  x->engine->updateParameters(params);
+}
+
+void ec2_send_osc_bundle(t_ec2* x) {
+  // Check suppress flag (matches old ec2~old.mxo at offset 0x4ae1)
+  if (x->suppress_osc_output) return;
+
+  // Build OSC bundle with all current parameters
+  x->osc_bundle_buffer->clear();
+
+  // OSC bundle header: "#bundle\0" (8 bytes)
+  const char* bundle_header = "#bundle";
+  for (int i = 0; i < 8; i++) {
+    x->osc_bundle_buffer->push_back(i < 7 ? bundle_header[i] : 0);
   }
 
-  // Parse address pattern (null-terminated string)
+  // Timetag (8 bytes) - immediate (0x0000000000000001)
+  for (int i = 0; i < 7; i++) x->osc_bundle_buffer->push_back(0);
+  x->osc_bundle_buffer->push_back(1);
+
+  // Helper lambda to add OSC message to bundle (EXACT copy from decompiled ec2~old.mxo)
+  // Lambda signature: takes float, converts to double, stores as double with ',d' type tag
+  auto add_message = [&](std::vector<unsigned char>& vec, const std::string& addr, float value) {
+    size_t start_pos = vec.size();
+
+    // Add size placeholder (4 zero bytes) - will be back-filled later
+    vec.push_back(0);
+    vec.push_back(0);
+    vec.push_back(0);
+    vec.push_back(0);
+
+    // Add "/" + address string
+    std::string full_addr = std::string("/") + addr;
+    for (char c : full_addr) {
+      vec.push_back(static_cast<unsigned char>(c));
+    }
+    vec.push_back(0); // null terminator
+
+    // Pad to 4-byte boundary
+    while (vec.size() % 4 != 0) {
+      vec.push_back(0);
+    }
+
+    // Type tag string ",d\0\0" (4 bytes) - DOUBLE type tag
+    vec.push_back(',');
+    vec.push_back('d'); // 'd' for double (8 bytes)
+    vec.push_back(0);
+    vec.push_back(0);
+
+    // Convert float to double, then store as 8-byte big-endian double
+    double dval = static_cast<double>(value);
+    union { double d; uint64_t i; } u;
+    u.d = dval;
+
+    // Store as big-endian (network byte order)
+    uint64_t val = u.i;
+    vec.push_back(static_cast<unsigned char>((val >> 56) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 48) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 40) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 32) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 24) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 16) & 0xFF));
+    vec.push_back(static_cast<unsigned char>((val >> 8) & 0xFF));
+    vec.push_back(static_cast<unsigned char>(val & 0xFF));
+
+    // Back-fill message size (excluding the 4-byte size field itself)
+    uint32_t msg_size = static_cast<uint32_t>(vec.size() - start_pos - 4);
+    // Store as big-endian (network byte order) - MSB first
+    vec[start_pos + 0] = static_cast<unsigned char>((msg_size >> 24) & 0xFF);
+    vec[start_pos + 1] = static_cast<unsigned char>((msg_size >> 16) & 0xFF);
+    vec[start_pos + 2] = static_cast<unsigned char>((msg_size >> 8) & 0xFF);
+    vec[start_pos + 3] = static_cast<unsigned char>(msg_size & 0xFF);
+  };
+
+  // Add parameters in EXACT order from old ec2~old.mxo disassembly (addresses 0x4b96-0x500f)
+  // Order: grainrate, async, intermittency, streams, playback, duration, envelope,
+  //        scanstart, scanrange, amplitude, filterfreq, resonance, pan, scanspeed
+  // Then all deviation parameters in same order
+  add_message(*x->osc_bundle_buffer, "grainrate", static_cast<float>(x->grain_rate));
+  add_message(*x->osc_bundle_buffer, "async", static_cast<float>(x->async));
+  add_message(*x->osc_bundle_buffer, "intermittency", static_cast<float>(x->intermittency));
+  add_message(*x->osc_bundle_buffer, "streams", static_cast<float>(x->streams));
+  add_message(*x->osc_bundle_buffer, "playback", static_cast<float>(x->playback_rate));
+  add_message(*x->osc_bundle_buffer, "duration", static_cast<float>(x->grain_duration));
+  add_message(*x->osc_bundle_buffer, "envelope", static_cast<float>(x->envelope_shape));
+  add_message(*x->osc_bundle_buffer, "scanstart", static_cast<float>(x->scan_start));
+  add_message(*x->osc_bundle_buffer, "scanrange", static_cast<float>(x->scan_range));
+  add_message(*x->osc_bundle_buffer, "amplitude", static_cast<float>(x->amplitude));
+  add_message(*x->osc_bundle_buffer, "filterfreq", static_cast<float>(x->filter_freq));
+  add_message(*x->osc_bundle_buffer, "resonance", static_cast<float>(x->resonance));
+  add_message(*x->osc_bundle_buffer, "pan", static_cast<float>(x->stereo_pan));
+  add_message(*x->osc_bundle_buffer, "scanspeed", static_cast<float>(x->scan_speed));
+
+  // Deviation parameters in matching order
+  add_message(*x->osc_bundle_buffer, "grainrate_dev", static_cast<float>(x->grain_rate_dev));
+  add_message(*x->osc_bundle_buffer, "async_dev", static_cast<float>(x->async_dev));
+  add_message(*x->osc_bundle_buffer, "intermittency_dev", static_cast<float>(x->intermittency_dev));
+  add_message(*x->osc_bundle_buffer, "streams_dev", static_cast<float>(x->streams_dev));
+  add_message(*x->osc_bundle_buffer, "playback_dev", static_cast<float>(x->playback_dev));
+  add_message(*x->osc_bundle_buffer, "duration_dev", static_cast<float>(x->duration_dev));
+  add_message(*x->osc_bundle_buffer, "envelope_dev", static_cast<float>(x->envelope_dev));
+  add_message(*x->osc_bundle_buffer, "pan_dev", static_cast<float>(x->pan_dev));
+  add_message(*x->osc_bundle_buffer, "amp_dev", static_cast<float>(x->amp_dev));
+  add_message(*x->osc_bundle_buffer, "filterfreq_dev", static_cast<float>(x->filterfreq_dev));
+  add_message(*x->osc_bundle_buffer, "resonance_dev", static_cast<float>(x->resonance_dev));
+  add_message(*x->osc_bundle_buffer, "scanstart_dev", static_cast<float>(x->scanstart_dev));
+  add_message(*x->osc_bundle_buffer, "scanrange_dev", static_cast<float>(x->scanrange_dev));
+  add_message(*x->osc_bundle_buffer, "scanspeed_dev", static_cast<float>(x->scanspeed_dev));
+
+  // Output as FullPacket (size + pointer)
+  t_atom out_atoms[2];
+  long bundle_size = x->osc_bundle_buffer->size();
+  unsigned char* bundle_ptr = x->osc_bundle_buffer->data();
+
+
+  atom_setlong(&out_atoms[0], bundle_size);
+  atom_setlong(&out_atoms[1], (t_atom_long)bundle_ptr);
+  outlet_anything(x->osc_outlet, gensym("FullPacket"), 2, out_atoms);
+}
+
+void ec2_parse_osc_bundle(t_ec2* x, const unsigned char* data, size_t size) {
+  if (size < 16) return;  // Minimum bundle size: 8 (header) + 8 (timetag)
+
+  // Verify bundle header "#bundle\0"
+  if (memcmp(data, "#bundle", 8) != 0) return;
+
+  size_t pos = 16;  // Skip header (8) + timetag (8)
+
+  // Parse all messages in bundle
+  while (pos + 4 <= size) {
+    // Read message size (big-endian)
+    uint32_t msg_size = (data[pos] << 24) | (data[pos+1] << 16) |
+                        (data[pos+2] << 8) | data[pos+3];
+    pos += 4;
+
+    if (pos + msg_size > size) break;
+
+    // Parse this message
+    ec2_parse_osc_message(x, data + pos, msg_size);
+
+    pos += msg_size;
+  }
+}
+
+void ec2_parse_osc_message(t_ec2* x, const unsigned char* data, size_t size) {
+  if (size < 4) return;
+
+  // Extract OSC address (null-terminated string)
   std::string address;
-  size_t offset = 0;
-  while (offset < size && data[offset] != '\0') {
-    address += (char)data[offset++];
+  size_t pos = 0;
+  while (pos < size && data[pos] != 0) {
+    address += data[pos++];
+  }
+  if (pos >= size) return;
+
+  // Skip to 4-byte boundary after address
+  pos = (pos + 4) & ~3;
+  if (pos >= size) return;
+
+  // Extract type tag string (starts with ',')
+  if (data[pos] != ',') return;
+  pos++;
+
+  char type_tag = (pos < size) ? data[pos] : 0;
+  pos++;
+
+  // Skip to 4-byte boundary after type tags
+  pos = (pos + 3) & ~3;
+  if (pos >= size) return;
+
+  // Parse value based on type tag
+  double value = 0.0;
+  if (type_tag == 'f') {
+    // Float (4 bytes, big-endian)
+    if (pos + 4 > size) return;
+    uint32_t raw = (data[pos] << 24) | (data[pos+1] << 16) |
+                   (data[pos+2] << 8) | data[pos+3];
+    float fval;
+    memcpy(&fval, &raw, 4);
+    value = fval;
+  } else if (type_tag == 'd') {
+    // Double (8 bytes, big-endian)
+    if (pos + 8 > size) return;
+    uint64_t raw = ((uint64_t)data[pos] << 56) | ((uint64_t)data[pos+1] << 48) |
+                   ((uint64_t)data[pos+2] << 40) | ((uint64_t)data[pos+3] << 32) |
+                   ((uint64_t)data[pos+4] << 24) | ((uint64_t)data[pos+5] << 16) |
+                   ((uint64_t)data[pos+6] << 8) | (uint64_t)data[pos+7];
+    memcpy(&value, &raw, 8);
+  } else if (type_tag == 'i') {
+    // Integer (4 bytes, big-endian)
+    if (pos + 4 > size) return;
+    int32_t ival = (data[pos] << 24) | (data[pos+1] << 16) |
+                   (data[pos+2] << 8) | data[pos+3];
+    value = ival;
   }
 
-  if (offset >= size) {
-    return;
-  }
-
-  // Skip past null terminator and align to next 4-byte boundary
-  offset++; // Skip the null terminator
-  offset = (offset + 3) & ~3; // Round up to next 4-byte boundary
-
-  // Extract parameter name from address (remove leading '/')
+  // Remove leading '/' from address if present
   std::string param_name = address;
   if (!param_name.empty() && param_name[0] == '/') {
     param_name = param_name.substr(1);
   }
 
-
-  // Check if we have type tags
-  if (offset >= size) return;
-
-  if (data[offset] != ',') return;
-
-  // Parse type tag string
-  std::string typetags;
-  offset++; // Skip comma
-  while (offset < size && data[offset] != '\0') {
-    typetags += (char)data[offset++];
-  }
-
-  // Skip past null terminator and align to next 4-byte boundary
-  offset++; // Skip the null terminator
-  offset = (offset + 3) & ~3; // Round up to next 4-byte boundary
-
-
-  // Parse arguments based on type tags
-  for (size_t tag_idx = 0; tag_idx < typetags.length(); tag_idx++) {
-    char tag = typetags[tag_idx];
-
-    if (offset >= size) {
-      break;
-    }
-
-    if (tag == 'd') {
-      // Double (64-bit float, big-endian) - odot uses this by default
-      if (offset + 8 > size) {
-        break;
-      }
-
-      uint64_t bits =
-          ((uint64_t)data[offset] << 56) |
-          ((uint64_t)data[offset + 1] << 48) |
-          ((uint64_t)data[offset + 2] << 40) |
-          ((uint64_t)data[offset + 3] << 32) |
-          ((uint64_t)data[offset + 4] << 24) |
-          ((uint64_t)data[offset + 5] << 16) |
-          ((uint64_t)data[offset + 6] << 8) |
-          ((uint64_t)data[offset + 7]);
-
-      double value;
-      memcpy(&value, &bits, 8);
-
-
-      // Route to parameter
-      handleOSCParameter(param_name, value);
-
-      offset += 8;
-      break; // Only use first argument
-
-    } else if (tag == 'f') {
-      // Float32 (big-endian)
-      if (offset + 4 > size) {
-        break;
-      }
-
-      uint32_t bits =
-          (data[offset] << 24) |
-          (data[offset + 1] << 16) |
-          (data[offset + 2] << 8) |
-          data[offset + 3];
-
-      float value;
-      memcpy(&value, &bits, 4);
-
-
-      // Route to parameter
-      handleOSCParameter(param_name, value);
-
-      offset += 4;
-      break; // Only use first argument
-
-    } else if (tag == 'i') {
-      // Int32 (big-endian)
-      if (offset + 4 > size) {
-        break;
-      }
-
-      int32_t value =
-          (data[offset] << 24) |
-          (data[offset + 1] << 16) |
-          (data[offset + 2] << 8) |
-          data[offset + 3];
-
-
-      // Route to parameter
-      handleOSCParameter(param_name, (double)value);
-
-      offset += 4;
-      break; // Only use first argument
-
-    } else if (tag == 's') {
-      // String (null-terminated, padded to 4-byte boundary)
-      std::string str_value;
-      size_t str_start = offset;
-      while (offset < size && data[offset] != '\0') {
-        str_value += (char)data[offset++];
-      }
-
-
-      // Handle string parameter (e.g., buffer name)
-      if (param_name == "buffer") {
-        // Load buffer by name
-        auto audio_buf = ec2_buffer::loadFromMaxBuffer(str_value);
-        if (audio_buf) {
-          m_engine->setAudioBuffer(audio_buf, 0);
-          buffer_name = c74::max::gensym(str_value.c_str());
-        } else {
-        }
-      }
-
-      break; // Only use first argument
-
-    } else {
-      // Unsupported type, skip
-      break;
-    }
-  }
+  // Route to parameter handler
+  ec2_handle_osc_parameter(x, param_name, value);
 }
 
-// Helper: get effective output channel count
-size_t getOutputChannelCount() const {
-  // @outputs controls the number of channels
-  // @mc only controls whether they're delivered as separated outputs or bundled
-  // in a multichannel cable
-  return m_outputs;
+void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double value) {
+  // Route OSC parameter to appropriate handler
+  if (param_name == "grainrate") ec2_grainrate(x, value);
+  else if (param_name == "async") ec2_async(x, value);
+  else if (param_name == "intermittency") ec2_intermittency(x, value);
+  else if (param_name == "streams") ec2_streams(x, value);
+  else if (param_name == "playback") ec2_playback(x, value);
+  else if (param_name == "duration") ec2_duration(x, value);
+  else if (param_name == "envelope") ec2_envelope(x, value);
+  else if (param_name == "amplitude" || param_name == "amp") ec2_amplitude(x, value);
+  else if (param_name == "filterfreq") ec2_filterfreq(x, value);
+  else if (param_name == "resonance") ec2_resonance(x, value);
+  else if (param_name == "pan") ec2_pan(x, value);
+  else if (param_name == "scanstart") ec2_scanstart(x, value);
+  else if (param_name == "scanrange") ec2_scanrange(x, value);
+  else if (param_name == "scanspeed") ec2_scanspeed(x, value);
+  // Deviations
+  else if (param_name == "grainrate_dev") ec2_grainrate_dev(x, value);
+  else if (param_name == "async_dev") ec2_async_dev(x, value);
+  else if (param_name == "intermittency_dev") ec2_intermittency_dev(x, value);
+  else if (param_name == "streams_dev") ec2_streams_dev(x, value);
+  else if (param_name == "playback_dev") ec2_playback_dev(x, value);
+  else if (param_name == "duration_dev") ec2_duration_dev(x, value);
+  else if (param_name == "envelope_dev") ec2_envelope_dev(x, value);
+  else if (param_name == "pan_dev") ec2_pan_dev(x, value);
+  else if (param_name == "amp_dev") ec2_amp_dev(x, value);
+  else if (param_name == "filterfreq_dev") ec2_filterfreq_dev(x, value);
+  else if (param_name == "resonance_dev") ec2_resonance_dev(x, value);
+  else if (param_name == "scanstart_dev") ec2_scanstart_dev(x, value);
+  else if (param_name == "scanrange_dev") ec2_scanrange_dev(x, value);
+  else if (param_name == "scanspeed_dev") ec2_scanspeed_dev(x, value);
+  // LFOs
+  else if (param_name == "lfo1shape") ec2_lfo1shape(x, value);
+  else if (param_name == "lfo1rate") ec2_lfo1rate(x, value);
+  else if (param_name == "lfo1polarity") ec2_lfo1polarity(x, value);
+  else if (param_name == "lfo1duty") ec2_lfo1duty(x, value);
+  else if (param_name == "lfo2shape") ec2_lfo2shape(x, value);
+  else if (param_name == "lfo2rate") ec2_lfo2rate(x, value);
+  else if (param_name == "lfo2polarity") ec2_lfo2polarity(x, value);
+  else if (param_name == "lfo2duty") ec2_lfo2duty(x, value);
+  else if (param_name == "lfo3shape") ec2_lfo3shape(x, value);
+  else if (param_name == "lfo3rate") ec2_lfo3rate(x, value);
+  else if (param_name == "lfo3polarity") ec2_lfo3polarity(x, value);
+  else if (param_name == "lfo3duty") ec2_lfo3duty(x, value);
+  else if (param_name == "lfo4shape") ec2_lfo4shape(x, value);
+  else if (param_name == "lfo4rate") ec2_lfo4rate(x, value);
+  else if (param_name == "lfo4polarity") ec2_lfo4polarity(x, value);
+  else if (param_name == "lfo4duty") ec2_lfo4duty(x, value);
+  else if (param_name == "lfo5shape") ec2_lfo5shape(x, value);
+  else if (param_name == "lfo5rate") ec2_lfo5rate(x, value);
+  else if (param_name == "lfo5polarity") ec2_lfo5polarity(x, value);
+  else if (param_name == "lfo5duty") ec2_lfo5duty(x, value);
+  else if (param_name == "lfo6shape") ec2_lfo6shape(x, value);
+  else if (param_name == "lfo6rate") ec2_lfo6rate(x, value);
+  else if (param_name == "lfo6polarity") ec2_lfo6polarity(x, value);
+  else if (param_name == "lfo6duty") ec2_lfo6duty(x, value);
 }
-
-// Helper: get modulation parameters for a given parameter name (Phase 9)
-ec2::ModulationParameters *
-getModulationParameters(const std::string &param_name) {
-  auto &params = m_engine->getParameters();
-
-  if (param_name == "grainrate")
-    return const_cast<ec2::ModulationParameters *>(&params.modGrainRate);
-  if (param_name == "async")
-    return const_cast<ec2::ModulationParameters *>(&params.modAsync);
-  if (param_name == "intermittency")
-    return const_cast<ec2::ModulationParameters *>(&params.modIntermittency);
-  if (param_name == "streams")
-    return const_cast<ec2::ModulationParameters *>(&params.modStreams);
-  if (param_name == "playback")
-    return const_cast<ec2::ModulationParameters *>(&params.modPlaybackRate);
-  if (param_name == "duration")
-    return const_cast<ec2::ModulationParameters *>(&params.modGrainDuration);
-  if (param_name == "envelope")
-    return const_cast<ec2::ModulationParameters *>(&params.modEnvelope);
-  if (param_name == "filterfreq")
-    return const_cast<ec2::ModulationParameters *>(&params.modFilterFreq);
-  if (param_name == "resonance")
-    return const_cast<ec2::ModulationParameters *>(&params.modResonance);
-  if (param_name == "pan")
-    return const_cast<ec2::ModulationParameters *>(&params.modPan);
-  if (param_name == "amp")
-    return const_cast<ec2::ModulationParameters *>(&params.modAmplitude);
-  if (param_name == "scanstart")
-    return const_cast<ec2::ModulationParameters *>(&params.modScanBegin);
-  if (param_name == "scanrange")
-    return const_cast<ec2::ModulationParameters *>(&params.modScanRange);
-  if (param_name == "scanspeed")
-    return const_cast<ec2::ModulationParameters *>(&params.modScanSpeed);
-
-  return nullptr;
-}
-
-// Helper: update engine parameters from member variables
-void updateEngineParameters() {
-  ec2::SynthParameters params;
-
-  // Grain scheduling
-  params.grainRate = m_grain_rate;
-  params.async = m_async;
-  params.intermittency = m_intermittency;
-  params.streams = m_streams;
-
-  // Grain characteristics
-  params.playbackRate = m_playback_rate;
-  params.grainDuration = m_grain_duration;
-  params.envelope = m_envelope_shape;
-  params.pan = m_stereo_pan;
-  params.amplitude = m_amplitude;
-
-  // Filtering
-  params.filterFreq = m_filter_freq;
-  params.resonance = m_filter_resonance;
-
-  // Scanning
-  params.scanBegin = m_scan_start;
-  params.scanRange = m_scan_range;
-  params.scanSpeed = m_scan_speed;
-  params.soundFile = sound_file; // Phase 6: Buffer selection
-
-  // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
-  params.grainRateDeviation = m_grain_rate_dev;
-  params.asyncDeviation = m_async_dev;
-  params.intermittencyDeviation = m_intermittency_dev;
-  params.streamsDeviation = m_streams_dev;
-  params.playbackDeviation = m_playback_dev;
-  params.durationDeviation = m_duration_dev;
-  params.envelopeDeviation = m_envelope_dev;
-  params.panDeviation = m_pan_dev;
-  params.amplitudeDeviation = m_amp_dev;
-  params.filterFreqDeviation = m_filterfreq_dev;
-  params.resonanceDeviation = m_resonance_dev;
-  params.scanBeginDeviation = m_scanstart_dev;
-  params.scanRangeDeviation = m_scanrange_dev;
-  params.scanSpeedDeviation = m_scanspeed_dev;
-
-  // Spatial allocation (Phase 5)
-  params.spatial.mode = static_cast<ec2::AllocationMode>(alloc_mode.get());
-  params.spatial.numChannels = static_cast<int>(getOutputChannelCount());
-
-  // Fixed mode
-  params.spatial.fixedChannel = fixed_channel;
-
-  // Round-robin mode
-  params.spatial.roundRobinStep = rr_step;
-
-  // Random mode
-  params.spatial.spread = random_spread;
-  params.spatial.spatialCorr = spatial_corr;
-
-  // Pitchmap mode
-  params.spatial.pitchMin = pitch_min;
-  params.spatial.pitchMax = pitch_max;
-
-  // Trajectory mode
-  params.spatial.trajShape =
-      static_cast<ec2::TrajectoryShape>(traj_shape.get());
-  params.spatial.trajRate = traj_rate;
-  params.spatial.trajDepth = traj_depth;
-
-  m_engine->updateParameters(params);
-}
-
-// Helper: handle OSC parameter setting (Phase 10)
-void handleOSCParameter(const std::string &param_name, const atom &value) {
-  // Map OSC parameter names to member variables
-  // Use lowercase, no special chars for OSC compatibility
-
-  try {
-    double val = static_cast<double>(value);
-
-    cout << "[DEBUG] handleOSCParameter: " << param_name << " = " << val << endl;
-
-    // Grain scheduling
-    if (param_name == "grainrate") {
-      m_grain_rate = std::max(0.1, std::min(500.0, val));
-      cout << "[DEBUG] Set grainrate to " << m_grain_rate << endl;
-    } else if (param_name == "async") {
-      m_async = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "intermittency") {
-      m_intermittency = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "streams") {
-      m_streams = std::max(1.0, std::min(20.0, val));
-    }
-
-    // Grain characteristics
-    else if (param_name == "playback") {
-      m_playback_rate = std::max(-32.0, std::min(32.0, val));
-    } else if (param_name == "duration") {
-      m_grain_duration = std::max(1.0, std::min(1000.0, val));
-    } else if (param_name == "envelope") {
-      m_envelope_shape = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "amp" || param_name == "amplitude") {
-      m_amplitude = std::max(0.0, std::min(1.0, val));
-    }
-
-    // Filtering
-    else if (param_name == "filterfreq") {
-      m_filter_freq = std::max(20.0, std::min(22000.0, val));
-    } else if (param_name == "resonance") {
-      m_filter_resonance = std::max(0.0, std::min(1.0, val));
-    }
-
-    // Stereo panning
-    else if (param_name == "pan") {
-      m_stereo_pan = std::max(-1.0, std::min(1.0, val));
-    }
-
-    // Scanning
-    else if (param_name == "scanstart") {
-      m_scan_start = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "scanrange") {
-      m_scan_range = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "scanspeed") {
-      m_scan_speed = std::max(-32.0, std::min(32.0, val));
-    }
-
-    // Buffer
-    else if (param_name == "soundfile") {
-      sound_file = static_cast<int>(val);
-    }
-
-    // Multichannel
-    else if (param_name == "mc") {
-      m_mc_mode = static_cast<int>(val);
-    } else if (param_name == "outputs") {
-      m_outputs = static_cast<int>(val);
-    }
-
-    // Spatial allocation
-    else if (param_name == "allocmode") {
-      alloc_mode = static_cast<int>(val);
-    } else if (param_name == "fixedchan") {
-      fixed_channel = static_cast<int>(val);
-    } else if (param_name == "rrstep") {
-      rr_step = static_cast<int>(val);
-    } else if (param_name == "randspread") {
-      random_spread = val;
-    } else if (param_name == "spatialcorr") {
-      spatial_corr = val;
-    } else if (param_name == "pitchmin") {
-      pitch_min = val;
-    } else if (param_name == "pitchmax") {
-      pitch_max = val;
-    } else if (param_name == "trajshape") {
-      traj_shape = static_cast<int>(val);
-    } else if (param_name == "trajrate") {
-      traj_rate = val;
-    } else if (param_name == "trajdepth") {
-      traj_depth = val;
-    }
-
-    // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
-    else if (param_name == "grainrate_dev") {
-      m_grain_rate_dev = std::max(0.0, std::min(250.0, val));
-    } else if (param_name == "async_dev") {
-      m_async_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "intermittency_dev") {
-      m_intermittency_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "streams_dev") {
-      m_streams_dev = std::max(0.0, std::min(10.0, val));
-    } else if (param_name == "playback_dev") {
-      m_playback_dev = std::max(0.0, std::min(16.0, val));
-    } else if (param_name == "duration_dev") {
-      m_duration_dev = std::max(0.0, std::min(500.0, val));
-    } else if (param_name == "envelope_dev") {
-      m_envelope_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "pan_dev") {
-      m_pan_dev = std::max(0.0, std::min(1.0, val));
-    } else if (param_name == "amp_dev") {
-      m_amp_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "filterfreq_dev") {
-      m_filterfreq_dev = std::max(0.0, std::min(11000.0, val));
-    } else if (param_name == "resonance_dev") {
-      m_resonance_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "scanstart_dev") {
-      m_scanstart_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "scanrange_dev") {
-      m_scanrange_dev = std::max(0.0, std::min(0.5, val));
-    } else if (param_name == "scanspeed_dev") {
-      m_scanspeed_dev = std::max(0.0, std::min(16.0, val));
-    }
-
-    // LFOs are now handled as messages, not attributes
-    // OSC messages for LFOs will be routed through the message system
-
-    else {
-      // Unknown parameter - ignore silently for OSC compatibility
-      // (some OSC messages might be for other purposes)
-    }
-
-    // NOTE: updateEngineParameters() is NOT called here for batch updates
-    // When parsing FullPacket bundles, we update once after all params are set
-    // For individual messages, updateEngineParameters() is called by the message handler
-
-    // Send OSC bundle to notify of parameter change (unless suppressed for batch updates)
-    if (!m_suppress_osc_output) {
-      updateEngineParameters();  // Update engine for single parameter changes
-      sendOSCBundle();
-    }
-
-  } catch (...) {
-    // Type conversion error - ignore
-  }
-}
-
-// Helper: Send OSC bundle with all parameters (automatic output)
-// Helper: Write big-endian 32-bit integer
-void writeBigEndianInt32(std::vector<unsigned char>& buffer, uint32_t value) {
-  buffer.push_back((value >> 24) & 0xFF);
-  buffer.push_back((value >> 16) & 0xFF);
-  buffer.push_back((value >> 8) & 0xFF);
-  buffer.push_back(value & 0xFF);
-}
-
-// Helper: Write big-endian 32-bit float
-void writeBigEndianFloat32(std::vector<unsigned char>& buffer, float value) {
-  uint32_t bits;
-  memcpy(&bits, &value, 4);
-  writeBigEndianInt32(buffer, bits);
-}
-
-// Helper: Write OSC string (null-terminated, padded to 4-byte boundary)
-void writeOSCString(std::vector<unsigned char>& buffer, const std::string& str) {
-  buffer.insert(buffer.end(), str.begin(), str.end());
-  buffer.push_back('\0'); // Null terminator
-
-  // Pad to 4-byte boundary
-  while (buffer.size() % 4 != 0) {
-    buffer.push_back('\0');
-  }
-}
-
-// Helper: Write single OSC message to buffer (float value)
-void writeOSCMessage(std::vector<unsigned char>& buffer, const std::string& address, float value) {
-  std::vector<unsigned char> message;
-
-  // Write address pattern
-  writeOSCString(message, address);
-
-  // Write type tag string (,f = float)
-  writeOSCString(message, ",f");
-
-  // Write float argument
-  writeBigEndianFloat32(message, value);
-
-  // Write message size
-  writeBigEndianInt32(buffer, message.size());
-
-  // Write message content
-  buffer.insert(buffer.end(), message.begin(), message.end());
-}
-
-// Helper: Write single OSC message to buffer (string value)
-void writeOSCMessageString(std::vector<unsigned char>& buffer, const std::string& address, const std::string& value) {
-  std::vector<unsigned char> message;
-
-  // Write address pattern
-  writeOSCString(message, address);
-
-  // Write type tag string (,s = string)
-  writeOSCString(message, ",s");
-
-  // Write string argument
-  writeOSCString(message, value);
-
-  // Write message size
-  writeBigEndianInt32(buffer, message.size());
-
-  // Write message content
-  buffer.insert(buffer.end(), message.begin(), message.end());
-}
-
-// Helper: Send parameters as text (for @out t)
-void sendTextOutput() {
-  if (!m_osc_outlet) return;
-
-  // Build human-readable parameter string
-  std::stringstream ss;
-  ss << "ec2~ parameters: ";
-
-  // Synthesis parameters
-  ss << "grainrate=" << m_grain_rate << " ";
-  ss << "async=" << m_async << " ";
-  ss << "intermittency=" << m_intermittency << " ";
-  ss << "streams=" << m_streams << " ";
-  ss << "playback=" << m_playback_rate << " ";
-  ss << "duration=" << m_grain_duration << " ";
-  ss << "envelope=" << m_envelope_shape << " ";
-  ss << "amp=" << m_amplitude << " ";
-  ss << "filterfreq=" << m_filter_freq << " ";
-  ss << "resonance=" << m_filter_resonance << " ";
-  ss << "pan=" << m_stereo_pan << " ";
-  ss << "scanstart=" << m_scan_start << " ";
-  ss << "scanrange=" << m_scan_range << " ";
-  ss << "scanspeed=" << m_scan_speed << " ";
-
-  // Attributes
-  ss << "outputs=" << m_outputs << " ";
-  ss << "mc=" << m_mc_mode << " ";
-  ss << "allocmode=" << alloc_mode.get() << " ";
-  ss << "fixedchan=" << fixed_channel.get() << " ";
-  ss << "rrstep=" << rr_step.get() << " ";
-  ss << "randspread=" << random_spread.get() << " ";
-  ss << "spatialcorr=" << spatial_corr.get() << " ";
-  ss << "pitchmin=" << pitch_min.get() << " ";
-  ss << "pitchmax=" << pitch_max.get() << " ";
-  ss << "trajshape=" << traj_shape.get() << " ";
-  ss << "trajrate=" << traj_rate.get() << " ";
-  ss << "trajdepth=" << traj_depth.get() << " ";
-  ss << "soundfile=" << sound_file.get();
-
-  // Send as symbol
-  c74::max::t_atom arg;
-  c74::max::atom_setsym(&arg, c74::max::gensym(ss.str().c_str()));
-  c74::max::outlet_anything(m_osc_outlet, c74::max::gensym("text"), 1, &arg);
-}
-
-void sendOSCBundle() {
-  if (!m_osc_outlet) return;
-
-  // Check output format
-  std::string format_str = std::string(out_format.get());
-  if (format_str == "t" || format_str == "text") {
-    sendTextOutput();
-    return;
-  }
-
-  // Native FullPacket bundle format (default)
-
-  // Create binary OSC bundle following OSC 1.0 specification
-  m_osc_bundle_buffer.clear();
-
-  // Bundle header: "#bundle\0" (8 bytes)
-  m_osc_bundle_buffer.push_back('#');
-  m_osc_bundle_buffer.push_back('b');
-  m_osc_bundle_buffer.push_back('u');
-  m_osc_bundle_buffer.push_back('n');
-  m_osc_bundle_buffer.push_back('d');
-  m_osc_bundle_buffer.push_back('l');
-  m_osc_bundle_buffer.push_back('e');
-  m_osc_bundle_buffer.push_back('\0');
-
-  // Timetag: immediate (0x0000000000000001) (8 bytes)
-  for (int i = 0; i < 7; i++) m_osc_bundle_buffer.push_back(0x00);
-  m_osc_bundle_buffer.push_back(0x01);
-
-  // Add all parameter messages
-  // Grain scheduling
-  writeOSCMessage(m_osc_bundle_buffer, "/grainrate", m_grain_rate);
-  writeOSCMessage(m_osc_bundle_buffer, "/async", m_async);
-  writeOSCMessage(m_osc_bundle_buffer, "/intermittency", m_intermittency);
-  writeOSCMessage(m_osc_bundle_buffer, "/streams", m_streams);
-
-  // Grain characteristics
-  writeOSCMessage(m_osc_bundle_buffer, "/playback", m_playback_rate);
-  writeOSCMessage(m_osc_bundle_buffer, "/duration", m_grain_duration);
-  writeOSCMessage(m_osc_bundle_buffer, "/envelope", m_envelope_shape);
-  writeOSCMessage(m_osc_bundle_buffer, "/amp", m_amplitude);
-
-  // Filtering
-  writeOSCMessage(m_osc_bundle_buffer, "/filterfreq", m_filter_freq);
-  writeOSCMessage(m_osc_bundle_buffer, "/resonance", m_filter_resonance);
-
-  // Panning
-  writeOSCMessage(m_osc_bundle_buffer, "/pan", m_stereo_pan);
-
-  // Scanning
-  writeOSCMessage(m_osc_bundle_buffer, "/scanstart", m_scan_start);
-  writeOSCMessage(m_osc_bundle_buffer, "/scanrange", m_scan_range);
-  writeOSCMessage(m_osc_bundle_buffer, "/scanspeed", m_scan_speed);
-
-  // Statistical/Probabilistic Deviations (Curtis Roads: stochastic grain clouds)
-  writeOSCMessage(m_osc_bundle_buffer, "/grainrate_dev", m_grain_rate_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/async_dev", m_async_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/intermittency_dev", m_intermittency_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/streams_dev", m_streams_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/playback_dev", m_playback_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/duration_dev", m_duration_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/envelope_dev", m_envelope_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/pan_dev", m_pan_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/amp_dev", m_amp_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/filterfreq_dev", m_filterfreq_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/resonance_dev", m_resonance_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/scanstart_dev", m_scanstart_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/scanrange_dev", m_scanrange_dev);
-  writeOSCMessage(m_osc_bundle_buffer, "/scanspeed_dev", m_scanspeed_dev);
-
-  // Attributes (configuration parameters)
-  writeOSCMessage(m_osc_bundle_buffer, "/outputs", m_outputs);
-  writeOSCMessage(m_osc_bundle_buffer, "/mc", m_mc_mode);
-  writeOSCMessage(m_osc_bundle_buffer, "/allocmode", alloc_mode);
-  writeOSCMessage(m_osc_bundle_buffer, "/fixedchan", fixed_channel);
-  writeOSCMessage(m_osc_bundle_buffer, "/rrstep", rr_step);
-  writeOSCMessage(m_osc_bundle_buffer, "/randspread", random_spread);
-  writeOSCMessage(m_osc_bundle_buffer, "/spatialcorr", spatial_corr);
-  writeOSCMessage(m_osc_bundle_buffer, "/pitchmin", pitch_min);
-  writeOSCMessage(m_osc_bundle_buffer, "/pitchmax", pitch_max);
-  writeOSCMessage(m_osc_bundle_buffer, "/trajshape", traj_shape);
-  writeOSCMessage(m_osc_bundle_buffer, "/trajrate", traj_rate);
-  writeOSCMessage(m_osc_bundle_buffer, "/trajdepth", traj_depth);
-  writeOSCMessage(m_osc_bundle_buffer, "/soundfile", sound_file.get());
-
-  // Buffer name (always send, even if empty, for consistency)
-  std::string buf_name = std::string(buffer_name.get());
-  writeOSCMessageString(m_osc_bundle_buffer, "/buffer", buf_name.empty() ? "" : buf_name);
-
-  // LFO Parameters (24 total: 6 LFOs × 4 params each)
-  if (m_engine) {
-    for (int i = 0; i < 6; i++) {
-      auto lfo = m_engine->getLFO(i);
-      if (lfo) {
-        std::string lfo_prefix = "/lfo" + std::to_string(i + 1);
-        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "shape", static_cast<float>(lfo->getShape()));
-        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "rate", lfo->getFrequency());
-        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "polarity", static_cast<float>(lfo->getPolarity()));
-        writeOSCMessage(m_osc_bundle_buffer, lfo_prefix + "duty", lfo->getDuty());
-      }
-    }
-  }
-
-  // Send as FullPacket (odot format)
-  // FullPacket format: TWO arguments
-  //   1st: size (long)
-  //   2nd: pointer address (long) to buffer
-  c74::max::t_atom args[2];
-  c74::max::atom_setlong(&args[0], m_osc_bundle_buffer.size());
-  c74::max::atom_setlong(&args[1], (long)m_osc_bundle_buffer.data());
-
-  // Send as FullPacket message
-  c74::max::outlet_anything(m_osc_outlet, c74::max::gensym("FullPacket"), 2, args);
-}
-
-// Legacy function for bang message
-void outputOSCState() {
-  sendOSCBundle();
-}
-
-// Helper: Create outlets dynamically based on @outputs and @mc
-void createOutlets() {
-  auto max_obj = (c74::max::t_object *)maxobj();
-
-  // Create outlets from right to left (Max convention)
-  // Rightmost outlet: OSC (message outlet)
-  m_osc_outlet = c74::max::outlet_new(max_obj, nullptr);
-
-  // Signal outlets (created right to left)
-  if (m_mc_mode == 1) {
-    // Multichannel mode: Create 1 MC signal outlet
-    void *mc_outlet = c74::max::outlet_new(max_obj, "multichannelsignal");
-    m_signal_outlets.insert(m_signal_outlets.begin(), mc_outlet);
-
-    // Set the channel count attribute on the MC outlet
-    c74::max::object_attr_setlong(mc_outlet, c74::max::gensym("chans"), m_outputs);
-  } else {
-    // Separated mode: Create N separate signal outlets (right to left)
-    for (int i = m_outputs - 1; i >= 0; --i) {
-      void *sig_outlet = c74::max::outlet_new(max_obj, "signal");
-      m_signal_outlets.insert(m_signal_outlets.begin(), sig_outlet);
-    }
-  }
-}
-
-// Helper: Recreate outlets when @outputs or @mc changes
-void recreateOutlets() {
-  // Delete all existing outlets (in reverse order)
-  if (m_osc_outlet) {
-    c74::max::outlet_delete(m_osc_outlet);
-    m_osc_outlet = nullptr;
-  }
-
-  for (auto it = m_signal_outlets.rbegin(); it != m_signal_outlets.rend(); ++it) {
-    c74::max::outlet_delete(*it);
-  }
-  m_signal_outlets.clear();
-
-  // Recreate outlets with new configuration
-  createOutlets();
-}
-}
-;
-
-MIN_EXTERNAL(ec2_tilde);
