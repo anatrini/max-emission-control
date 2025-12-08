@@ -118,6 +118,36 @@ typedef struct _ec2 {
   double scanrange_dev;
   double scanspeed_dev;
 
+  // Modulation routing parameters (28 total: 14 params × 2 controls)
+  long grainrate_lfosource;      // 0-6 (0=none, 1-6=LFO number)
+  double grainrate_moddepth;     // 0.0-1.0
+  long async_lfosource;
+  double async_moddepth;
+  long intermittency_lfosource;
+  double intermittency_moddepth;
+  long streams_lfosource;
+  double streams_moddepth;
+  long playback_lfosource;
+  double playback_moddepth;
+  long duration_lfosource;
+  double duration_moddepth;
+  long envelope_lfosource;
+  double envelope_moddepth;
+  long filterfreq_lfosource;
+  double filterfreq_moddepth;
+  long resonance_lfosource;
+  double resonance_moddepth;
+  long pan_lfosource;
+  double pan_moddepth;
+  long amplitude_lfosource;
+  double amplitude_moddepth;
+  long scanstart_lfosource;
+  double scanstart_moddepth;
+  long scanrange_lfosource;
+  double scanrange_moddepth;
+  long scanspeed_lfosource;
+  double scanspeed_moddepth;
+
   // Spatial allocation parameters (10 total)
   long alloc_mode;       // 0-6
   long fixed_channel;    // 0-15
@@ -189,6 +219,36 @@ void ec2_resonance_dev(t_ec2* x, double v);
 void ec2_scanstart_dev(t_ec2* x, double v);
 void ec2_scanrange_dev(t_ec2* x, double v);
 void ec2_scanspeed_dev(t_ec2* x, double v);
+
+// Modulation routing parameters (28 total: 14 params × 2 controls each)
+void ec2_grainrate_lfosource(t_ec2* x, long v);
+void ec2_grainrate_moddepth(t_ec2* x, double v);
+void ec2_async_lfosource(t_ec2* x, long v);
+void ec2_async_moddepth(t_ec2* x, double v);
+void ec2_intermittency_lfosource(t_ec2* x, long v);
+void ec2_intermittency_moddepth(t_ec2* x, double v);
+void ec2_streams_lfosource(t_ec2* x, long v);
+void ec2_streams_moddepth(t_ec2* x, double v);
+void ec2_playback_lfosource(t_ec2* x, long v);
+void ec2_playback_moddepth(t_ec2* x, double v);
+void ec2_duration_lfosource(t_ec2* x, long v);
+void ec2_duration_moddepth(t_ec2* x, double v);
+void ec2_envelope_lfosource(t_ec2* x, long v);
+void ec2_envelope_moddepth(t_ec2* x, double v);
+void ec2_filterfreq_lfosource(t_ec2* x, long v);
+void ec2_filterfreq_moddepth(t_ec2* x, double v);
+void ec2_resonance_lfosource(t_ec2* x, long v);
+void ec2_resonance_moddepth(t_ec2* x, double v);
+void ec2_pan_lfosource(t_ec2* x, long v);
+void ec2_pan_moddepth(t_ec2* x, double v);
+void ec2_amplitude_lfosource(t_ec2* x, long v);
+void ec2_amplitude_moddepth(t_ec2* x, double v);
+void ec2_scanstart_lfosource(t_ec2* x, long v);
+void ec2_scanstart_moddepth(t_ec2* x, double v);
+void ec2_scanrange_lfosource(t_ec2* x, long v);
+void ec2_scanrange_moddepth(t_ec2* x, double v);
+void ec2_scanspeed_lfosource(t_ec2* x, long v);
+void ec2_scanspeed_moddepth(t_ec2* x, double v);
 
 // LFO parameters (24 total: 6 LFOs × 4 params each)
 void ec2_lfo1shape(t_ec2* x, double v);
@@ -307,6 +367,36 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_scanstart_dev, "scanstart_dev", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_scanrange_dev, "scanrange_dev", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_scanspeed_dev, "scanspeed_dev", A_FLOAT, 0);
+
+  // Modulation routing parameters (28 total: 14 params × 2 controls)
+  class_addmethod(c, (method)ec2_grainrate_lfosource, "grainrate_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_grainrate_moddepth, "grainrate_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_async_lfosource, "async_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_async_moddepth, "async_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_intermittency_lfosource, "intermittency_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_intermittency_moddepth, "intermittency_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_streams_lfosource, "streams_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_streams_moddepth, "streams_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_playback_lfosource, "playback_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_playback_moddepth, "playback_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_duration_lfosource, "duration_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_duration_moddepth, "duration_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_envelope_lfosource, "envelope_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_envelope_moddepth, "envelope_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_filterfreq_lfosource, "filterfreq_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_filterfreq_moddepth, "filterfreq_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_resonance_lfosource, "resonance_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_resonance_moddepth, "resonance_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_pan_lfosource, "pan_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_pan_moddepth, "pan_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_amplitude_lfosource, "amplitude_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_amplitude_moddepth, "amplitude_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanstart_lfosource, "scanstart_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_scanstart_moddepth, "scanstart_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanrange_lfosource, "scanrange_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_scanrange_moddepth, "scanrange_moddepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_scanspeed_lfosource, "scanspeed_lfosource", A_LONG, 0);
+  class_addmethod(c, (method)ec2_scanspeed_moddepth, "scanspeed_moddepth", A_FLOAT, 0);
 
   // LFO parameters (24 total)
   class_addmethod(c, (method)ec2_lfo1shape, "lfo1shape", A_FLOAT, 0);
@@ -448,10 +538,10 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->grain_duration = 100.0;
   x->envelope_shape = 0.5;
   x->amplitude = 0.5;
-  x->filter_freq = 22000.0;
+  x->filter_freq = 1000.0;
   x->resonance = 0.0;
   x->stereo_pan = 0.0;
-  x->scan_start = 0.0;
+  x->scan_start = 0.5;
   x->scan_range = 1.0;
   x->scan_speed = 1.0;
 
@@ -470,6 +560,36 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->scanstart_dev = 0.0;
   x->scanrange_dev = 0.0;
   x->scanspeed_dev = 0.0;
+
+  // Initialize modulation routing to defaults (all off)
+  x->grainrate_lfosource = 0;
+  x->grainrate_moddepth = 0.0;
+  x->async_lfosource = 0;
+  x->async_moddepth = 0.0;
+  x->intermittency_lfosource = 0;
+  x->intermittency_moddepth = 0.0;
+  x->streams_lfosource = 0;
+  x->streams_moddepth = 0.0;
+  x->playback_lfosource = 0;
+  x->playback_moddepth = 0.0;
+  x->duration_lfosource = 0;
+  x->duration_moddepth = 0.0;
+  x->envelope_lfosource = 0;
+  x->envelope_moddepth = 0.0;
+  x->filterfreq_lfosource = 0;
+  x->filterfreq_moddepth = 0.0;
+  x->resonance_lfosource = 0;
+  x->resonance_moddepth = 0.0;
+  x->pan_lfosource = 0;
+  x->pan_moddepth = 0.0;
+  x->amplitude_lfosource = 0;
+  x->amplitude_moddepth = 0.0;
+  x->scanstart_lfosource = 0;
+  x->scanstart_moddepth = 0.0;
+  x->scanrange_lfosource = 0;
+  x->scanrange_moddepth = 0.0;
+  x->scanspeed_lfosource = 0;
+  x->scanspeed_moddepth = 0.0;
 
   // Initialize spatial allocation to defaults
   x->alloc_mode = 1;  // roundrobin
@@ -534,10 +654,14 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   // Print banner on first instantiation only
   static bool banner_printed = false;
   if (!banner_printed) {
+    // Extract year from build date for copyright
+    std::string build_date(EC2_BUILD_DATE);
+    std::string year = build_date.substr(build_date.length() - 4);  // Last 4 chars = year
+
     post("——————————————————————————————————————————————————————————————————");
     post("ec2~ version %s-%s (compiled %s %s)", EC2_VERSION, EC2_GIT_COMMIT, EC2_BUILD_DATE, EC2_BUILD_TIME);
     post("based on EmissionControl2 by Curtis Roads, Jack Kilgore, Rodney DuPlessis");
-    post("Max port, spatial audio & multichannel allocation by Alessandro Anatrini");
+    post("Max port, spatial audio & multichannel allocation by Alessandro Anatrini ©%s", year.c_str());
     post("——————————————————————————————————————————————————————————————————");
     banner_printed = true;
   }
@@ -1057,6 +1181,164 @@ void ec2_lfo6duty(t_ec2* x, double v) {
 }
 
 // ==================================================================
+// MODULATION ROUTING PARAMETERS (28 total: 14 params × 2 controls)
+// ==================================================================
+
+// Grainrate modulation
+void ec2_grainrate_lfosource(t_ec2* x, long v) {
+  x->grainrate_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_grainrate_moddepth(t_ec2* x, double v) {
+  x->grainrate_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Async modulation
+void ec2_async_lfosource(t_ec2* x, long v) {
+  x->async_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_async_moddepth(t_ec2* x, double v) {
+  x->async_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Intermittency modulation
+void ec2_intermittency_lfosource(t_ec2* x, long v) {
+  x->intermittency_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_intermittency_moddepth(t_ec2* x, double v) {
+  x->intermittency_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Streams modulation
+void ec2_streams_lfosource(t_ec2* x, long v) {
+  x->streams_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_streams_moddepth(t_ec2* x, double v) {
+  x->streams_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Playback modulation
+void ec2_playback_lfosource(t_ec2* x, long v) {
+  x->playback_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_playback_moddepth(t_ec2* x, double v) {
+  x->playback_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Duration modulation
+void ec2_duration_lfosource(t_ec2* x, long v) {
+  x->duration_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_duration_moddepth(t_ec2* x, double v) {
+  x->duration_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Envelope modulation
+void ec2_envelope_lfosource(t_ec2* x, long v) {
+  x->envelope_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_envelope_moddepth(t_ec2* x, double v) {
+  x->envelope_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Filterfreq modulation
+void ec2_filterfreq_lfosource(t_ec2* x, long v) {
+  x->filterfreq_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_filterfreq_moddepth(t_ec2* x, double v) {
+  x->filterfreq_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Resonance modulation
+void ec2_resonance_lfosource(t_ec2* x, long v) {
+  x->resonance_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_resonance_moddepth(t_ec2* x, double v) {
+  x->resonance_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Pan modulation
+void ec2_pan_lfosource(t_ec2* x, long v) {
+  x->pan_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_pan_moddepth(t_ec2* x, double v) {
+  x->pan_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Amplitude modulation
+void ec2_amplitude_lfosource(t_ec2* x, long v) {
+  x->amplitude_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_amplitude_moddepth(t_ec2* x, double v) {
+  x->amplitude_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Scanstart modulation
+void ec2_scanstart_lfosource(t_ec2* x, long v) {
+  x->scanstart_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_scanstart_moddepth(t_ec2* x, double v) {
+  x->scanstart_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Scanrange modulation
+void ec2_scanrange_lfosource(t_ec2* x, long v) {
+  x->scanrange_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_scanrange_moddepth(t_ec2* x, double v) {
+  x->scanrange_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// Scanspeed modulation
+void ec2_scanspeed_lfosource(t_ec2* x, long v) {
+  x->scanspeed_lfosource = std::max(0L, std::min(6L, v));
+  ec2_update_engine_params(x);
+}
+
+void ec2_scanspeed_moddepth(t_ec2* x, double v) {
+  x->scanspeed_moddepth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+}
+
+// ==================================================================
 // BUFFER MANAGEMENT
 // ==================================================================
 
@@ -1224,6 +1506,36 @@ void ec2_update_engine_params(t_ec2* x) {
   params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape);
   params.spatial.trajRate = x->traj_rate;
   params.spatial.trajDepth = x->traj_depth;
+
+  // Modulation routing (14 parameters × 2 controls = 28 values)
+  params.modGrainRate.lfoSource = x->grainrate_lfosource;
+  params.modGrainRate.depth = x->grainrate_moddepth;
+  params.modAsync.lfoSource = x->async_lfosource;
+  params.modAsync.depth = x->async_moddepth;
+  params.modIntermittency.lfoSource = x->intermittency_lfosource;
+  params.modIntermittency.depth = x->intermittency_moddepth;
+  params.modStreams.lfoSource = x->streams_lfosource;
+  params.modStreams.depth = x->streams_moddepth;
+  params.modPlaybackRate.lfoSource = x->playback_lfosource;
+  params.modPlaybackRate.depth = x->playback_moddepth;
+  params.modGrainDuration.lfoSource = x->duration_lfosource;
+  params.modGrainDuration.depth = x->duration_moddepth;
+  params.modEnvelope.lfoSource = x->envelope_lfosource;
+  params.modEnvelope.depth = x->envelope_moddepth;
+  params.modFilterFreq.lfoSource = x->filterfreq_lfosource;
+  params.modFilterFreq.depth = x->filterfreq_moddepth;
+  params.modResonance.lfoSource = x->resonance_lfosource;
+  params.modResonance.depth = x->resonance_moddepth;
+  params.modPan.lfoSource = x->pan_lfosource;
+  params.modPan.depth = x->pan_moddepth;
+  params.modAmplitude.lfoSource = x->amplitude_lfosource;
+  params.modAmplitude.depth = x->amplitude_moddepth;
+  params.modScanBegin.lfoSource = x->scanstart_lfosource;
+  params.modScanBegin.depth = x->scanstart_moddepth;
+  params.modScanRange.lfoSource = x->scanrange_lfosource;
+  params.modScanRange.depth = x->scanrange_moddepth;
+  params.modScanSpeed.lfoSource = x->scanspeed_lfosource;
+  params.modScanSpeed.depth = x->scanspeed_moddepth;
 
   x->engine->updateParameters(params);
 }
@@ -1487,4 +1799,33 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "lfo6rate") ec2_lfo6rate(x, value);
   else if (param_name == "lfo6polarity") ec2_lfo6polarity(x, value);
   else if (param_name == "lfo6duty") ec2_lfo6duty(x, value);
+  // Modulation routing
+  else if (param_name == "grainrate_lfosource") ec2_grainrate_lfosource(x, (long)value);
+  else if (param_name == "grainrate_moddepth") ec2_grainrate_moddepth(x, value);
+  else if (param_name == "async_lfosource") ec2_async_lfosource(x, (long)value);
+  else if (param_name == "async_moddepth") ec2_async_moddepth(x, value);
+  else if (param_name == "intermittency_lfosource") ec2_intermittency_lfosource(x, (long)value);
+  else if (param_name == "intermittency_moddepth") ec2_intermittency_moddepth(x, value);
+  else if (param_name == "streams_lfosource") ec2_streams_lfosource(x, (long)value);
+  else if (param_name == "streams_moddepth") ec2_streams_moddepth(x, value);
+  else if (param_name == "playback_lfosource") ec2_playback_lfosource(x, (long)value);
+  else if (param_name == "playback_moddepth") ec2_playback_moddepth(x, value);
+  else if (param_name == "duration_lfosource") ec2_duration_lfosource(x, (long)value);
+  else if (param_name == "duration_moddepth") ec2_duration_moddepth(x, value);
+  else if (param_name == "envelope_lfosource") ec2_envelope_lfosource(x, (long)value);
+  else if (param_name == "envelope_moddepth") ec2_envelope_moddepth(x, value);
+  else if (param_name == "filterfreq_lfosource") ec2_filterfreq_lfosource(x, (long)value);
+  else if (param_name == "filterfreq_moddepth") ec2_filterfreq_moddepth(x, value);
+  else if (param_name == "resonance_lfosource") ec2_resonance_lfosource(x, (long)value);
+  else if (param_name == "resonance_moddepth") ec2_resonance_moddepth(x, value);
+  else if (param_name == "pan_lfosource") ec2_pan_lfosource(x, (long)value);
+  else if (param_name == "pan_moddepth") ec2_pan_moddepth(x, value);
+  else if (param_name == "amplitude_lfosource") ec2_amplitude_lfosource(x, (long)value);
+  else if (param_name == "amplitude_moddepth") ec2_amplitude_moddepth(x, value);
+  else if (param_name == "scanstart_lfosource") ec2_scanstart_lfosource(x, (long)value);
+  else if (param_name == "scanstart_moddepth") ec2_scanstart_moddepth(x, value);
+  else if (param_name == "scanrange_lfosource") ec2_scanrange_lfosource(x, (long)value);
+  else if (param_name == "scanrange_moddepth") ec2_scanrange_moddepth(x, value);
+  else if (param_name == "scanspeed_lfosource") ec2_scanspeed_lfosource(x, (long)value);
+  else if (param_name == "scanspeed_moddepth") ec2_scanspeed_moddepth(x, value);
 }

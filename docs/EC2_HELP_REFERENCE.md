@@ -65,6 +65,10 @@ Used for real-time performance control of synthesis parameters:
 - `lfo1polarity` through `lfo6polarity` - LFO polarities
 - `lfo1duty` through `lfo6duty` - LFO duty cycles
 
+**LFO Modulation Routing (28 messages):**
+- `<parameter>_lfosource` - Assign LFO to parameter (14 parameters)
+- `<parameter>_moddepth` - Set modulation depth (14 parameters)
+
 **Send as messages:**
 ```
 [grainrate 50(                     // Single message
@@ -1109,14 +1113,12 @@ Each LFO (LFO1 through LFO6) has four control attributes:
 
 ### Modulation Routing
 
-Use the `modroute` message to connect LFOs to synthesis parameters:
+ec2~ provides direct message control for LFO routing. Each of the 14 modulatable parameters has two dedicated controls:
 
-**Format**: `modroute <parameter_name> <lfo_number> [depth]`
-- **parameter_name**: Name of the parameter to modulate (see list below)
-- **lfo_number**: Which LFO to use (1-6), or 0/"none" to clear modulation
-- **depth**: Modulation depth (0.0-1.0, default: 0.5)
+1. **`<parameter>_lfosource`** (int, 0-6): Which LFO to use (0=none, 1-6=LFO number)
+2. **`<parameter>_moddepth`** (float, 0.0-1.0): Modulation depth/amount
 
-**Modulatable Parameters**:
+**Modulatable Parameters** (14 total):
 - `grainrate` - Grain emission rate
 - `async` - Asynchronicity
 - `intermittency` - Intermittency probability
@@ -1126,11 +1128,48 @@ Use the `modroute` message to connect LFOs to synthesis parameters:
 - `envelope` - Envelope shape
 - `filterfreq` - Filter cutoff frequency
 - `resonance` - Filter resonance
-- `pan` - Stereo pan (stereo mode only)
-- `amp` - Amplitude
+- `pan` - Stereo pan
+- `amplitude` - Amplitude
 - `scanstart` - Scan start position
 - `scanrange` - Scan range
 - `scanspeed` - Scan speed
+
+**Control Messages** (28 total: 14 parameters × 2 controls):
+
+Each parameter has two routing messages:
+```
+<parameter>_lfosource <0-6>    // 0=none, 1-6=LFO number
+<parameter>_moddepth <0.0-1.0> // Modulation depth
+```
+
+**Examples**:
+```
+[grainrate_lfosource 1(         // Assign LFO1 to grainrate
+[grainrate_moddepth 0.8(        // Set modulation depth to 80%
+
+[filterfreq_lfosource 2(        // Assign LFO2 to filter frequency
+[filterfreq_moddepth 0.5(       // Set modulation depth to 50%
+
+[duration_lfosource 0(          // Disable duration modulation (source=0)
+
+[playback_lfosource 3(          // Assign LFO3 to playback rate
+[playback_moddepth 0.3(         // Subtle pitch modulation (30%)
+```
+
+**Multiple LFOs on Different Parameters**:
+```
+[lfo1shape 0(                   // LFO1: Sine wave
+[lfo1rate 0.5(                  // LFO1: 0.5 Hz
+[grainrate_lfosource 1(         // Use LFO1 for grain rate
+[grainrate_moddepth 0.6(        // 60% depth
+
+[lfo2shape 4(                   // LFO2: Random/noise
+[lfo2rate 5(                    // LFO2: 5 Hz
+[filterfreq_lfosource 2(        // Use LFO2 for filter
+[filterfreq_moddepth 0.7(       // 70% depth
+```
+
+**Note**: Multiple parameters can use the same LFO, and each parameter can only be modulated by one LFO at a time (setting a new source replaces the previous one)
 
 ### Modulation Examples
 
