@@ -9,6 +9,26 @@ endif()
 set(PROJECT_NAME ec2_tilde)
 project(${PROJECT_NAME})
 
+# Get git commit hash for versioning
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "unknown")
+endif()
+
+# Generate version header
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/ec2_version.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ec2_version.h"
+    @ONLY
+)
+
 # Target Universal Binary (Apple Silicon + Intel)
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for Mac OS X" FORCE)
 

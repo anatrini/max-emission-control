@@ -1,8 +1,8 @@
-# ec2~ - Granular Synthesis for Max/MSP
+# ec2~ - Granular Synthesis for Max
 
 **⚠️ ALPHA VERSION - UNDER ACTIVE TESTING ⚠️**
 
-High-performance multichannel granular synthesis external for Max/MSP, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and real-time parameter control.
+High-performance multichannel granular synthesis external for Max, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and real-time parameter control.
 
 ---
 
@@ -38,7 +38,7 @@ This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While t
 
 #### Prerequisites
 
-1. **Max/MSP 8.0 or later**
+1. **Max 8.0 or later**
 2. **Xcode Command Line Tools**
    ```bash
    xcode-select --install
@@ -233,8 +233,8 @@ This is an ALPHA release. Known areas under testing:
 - **Rodney DuPlessis** - Development
 - **Karl Yerkes** - Spatial audio
 
-### Max/MSP Port (ec2~)
-- **Alessandro Anatrini** - Max/MSP porting, spatial audio engine, multichannel allocation system, and grain scheduling implementation
+### Max Port (ec2~)
+- **Alessandro Anatrini** - Max port, spatial audio engine, multichannel allocation, and OSC integration
 
 ### Theoretical Foundation
 - Curtis Roads - *Microsound* (MIT Press, 2001)
@@ -253,7 +253,7 @@ Copyright © 2025 Alessandro Anatrini
 
 - **EmissionControl2**: https://github.com/EmissionControl2/EmissionControl2
 - **Curtis Roads - Microsound**: https://mitpress.mit.edu/books/microsound
-- **Max/MSP**: https://cycling74.com
+- **Max**: https://cycling74.com
 - **GPL-3.0 License**: https://www.gnu.org/licenses/gpl-3.0.en.html
 
 ---

@@ -18,13 +18,7 @@
 #include "ec2_constants.h"
 #include "ec2_engine.h"
 #include "ec2_utility.h"
-
-// Version info
-#define EC2_VERSION "1.0.0-alpha"
-#define EC2_BUILD_DATE __DATE__
-#define EC2_BUILD_TIME __TIME__
-#define EC2_COPYRIGHT "© 2025 Alessandro Anatrini"
-#define EC2_DESCRIPTION "Curtis Roads' Granular Synthesis + Spatial Audio"
+#include "ec2_version.h"
 
 // Buffer loading helper
 namespace ec2_buffer_helper {
@@ -540,9 +534,11 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   // Print banner on first instantiation only
   static bool banner_printed = false;
   if (!banner_printed) {
-    post("ec2~ version %s (compiled %s %s)", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
+    post("——————————————————————————————————————————————————————————————————");
+    post("ec2~ version %s-%s (compiled %s %s)", EC2_VERSION, EC2_GIT_COMMIT, EC2_BUILD_DATE, EC2_BUILD_TIME);
     post("based on EmissionControl2 by Curtis Roads, Jack Kilgore, Rodney DuPlessis");
-    post("Max/MSP port by Alessandro Anatrini");
+    post("Max port, spatial audio & multichannel allocation by Alessandro Anatrini");
+    post("——————————————————————————————————————————————————————————————————");
     banner_printed = true;
   }
 

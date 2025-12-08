@@ -40,5 +40,8 @@ COMMIT_MESSAGES.txt
 # Backup files
 *.backup
 
+# Auto-generated files
+source/ec2_tilde/ec2_version.h
+
 # IDE
 .vscode/
