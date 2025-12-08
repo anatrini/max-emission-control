@@ -51,20 +51,29 @@ This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While t
 #### Build Steps
 
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/yourusername/max-emission-control.git
 cd max-emission-control
 
-# Initialize submodules
+# 2. Initialize submodules
 git submodule update --init --recursive
 
-# Build
+# 3. Install Max SDK package (REQUIRED)
+# Download and install the Max SDK from Cycling '74 Package Manager
+# Or manually from: https://cycling74.com/downloads/sdk
+# Install it to: ~/Documents/Max 9/Packages/max-sdk
+# Then create symlink in project root:
+ln -s ~/Documents/Max\ 9/Packages/max-sdk max-sdk
+
+# 4. Build
 mkdir build && cd build
 cmake .. && cmake --build . --config Release
 
-# Install to Max externals folder
+# 5. Install to Max externals folder
 cp -r ../externals/ec2~.mxo ~/Documents/Max\ 9/Library/
 ```
+
+**Important**: The Max SDK package must be installed in `~/Documents/Max 9/Packages/max-sdk`. This is the standard location for Max SDK. Download it from Cycling '74's Package Manager or website.
 
 **macOS Security Note**: Remove quarantine attribute if needed:
 ```bash

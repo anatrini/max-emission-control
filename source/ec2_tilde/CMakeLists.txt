@@ -12,8 +12,17 @@ project(${PROJECT_NAME})
 # Target Universal Binary (Apple Silicon + Intel)
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build architectures for Mac OS X" FORCE)
 
-# Max SDK path
-set(MAX_SDK_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../my-min-devkit/source/min-api/max-sdk-base" CACHE PATH "Path to Max SDK")
+# Max SDK path - looks for symlink or set MAX_SDK_BASE_DIR
+if(NOT DEFINED MAX_SDK_BASE_DIR)
+    set(MAX_SDK_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../max-sdk/source/max-sdk-base" CACHE PATH "Path to Max SDK")
+endif()
+
+if(NOT EXISTS "${MAX_SDK_BASE_DIR}/c74support/max-includes")
+    message(FATAL_ERROR "Max SDK not found at: ${MAX_SDK_BASE_DIR}\n"
+                        "Please install Max SDK package to: ~/Documents/Max 9/Packages/max-sdk\n"
+                        "Download from: https://cycling74.com/downloads/sdk\n"
+                        "Then create symlink: ln -s ~/Documents/Max\\ 9/Packages/max-sdk max-sdk\n")
+endif()
 
 # Include directories
 include_directories(

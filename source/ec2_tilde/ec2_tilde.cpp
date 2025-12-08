@@ -540,12 +540,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   // Print banner on first instantiation only
   static bool banner_printed = false;
   if (!banner_printed) {
-    post("═══════════════════════════════════════════════════════");
-    post("ec2~ - %s", EC2_DESCRIPTION);
-    post("Version: %s | Build: %s %s", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
-    post("%s", EC2_COPYRIGHT);
-    post("GPL-3.0 License");
-    post("═══════════════════════════════════════════════════════");
+    post("ec2~ version %s (compiled %s %s)", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
+    post("based on EmissionControl2 by Curtis Roads, Jack Kilgore, Rodney DuPlessis");
+    post("Max/MSP port by Alessandro Anatrini");
     banner_printed = true;
   }
 
