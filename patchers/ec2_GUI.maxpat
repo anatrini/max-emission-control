@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 132.0, 149.0, 953.0, 755.0 ],
+        "rect": [ 132.0, 149.0, 1310.0, 755.0 ],
         "openinpresentation": 1,
         "boxes": [
             {
@@ -1100,8 +1100,8 @@
                     "numinlets": 0,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 29.0, 161.0, 49.0, 22.0 ],
-                    "text": "r #0-init"
+                    "patching_rect": [ 29.0, 161.0, 31.0, 22.0 ],
+                    "text": "r init"
                 }
             },
             {
@@ -1111,7 +1111,7 @@
                     "numinlets": 1,
                     "numoutlets": 1,
                     "outlettype": [ "bang" ],
-                    "patching_rect": [ 1197.0, 582.0, 58.0, 22.0 ],
+                    "patching_rect": [ 1256.0, 226.0, 58.0, 22.0 ],
                     "text": "loadbang"
                 }
             },
@@ -1135,17 +1135,6 @@
                         "boxes": [
                             {
                                 "box": {
-                                    "id": "obj-5",
-                                    "maxclass": "button",
-                                    "numinlets": 1,
-                                    "numoutlets": 1,
-                                    "outlettype": [ "bang" ],
-                                    "parameter_enable": 0,
-                                    "patching_rect": [ 199.0, 61.0, 24.0, 24.0 ]
-                                }
-                            },
-                            {
-                                "box": {
                                     "comment": "",
                                     "id": "obj-1",
                                     "index": 1,
@@ -1162,8 +1151,8 @@
                                     "maxclass": "newobj",
                                     "numinlets": 1,
                                     "numoutlets": 0,
-                                    "patching_rect": [ 50.0, 381.0, 51.0, 22.0 ],
-                                    "text": "s #0-init"
+                                    "patching_rect": [ 50.0, 381.0, 33.0, 22.0 ],
+                                    "text": "s init"
                                 }
                             },
                             {
@@ -1208,19 +1197,13 @@
                             },
                             {
                                 "patchline": {
-                                    "destination": [ "obj-10", 0 ],
-                                    "source": [ "obj-5", 0 ]
-                                }
-                            },
-                            {
-                                "patchline": {
                                     "destination": [ "obj-8", 0 ],
                                     "source": [ "obj-9", 0 ]
                                 }
                             }
                         ]
                     },
-                    "patching_rect": [ 1197.0, 641.0, 34.0, 22.0 ],
+                    "patching_rect": [ 1256.0, 285.0, 34.0, 22.0 ],
                     "text": "p init"
                 }
             },
@@ -1266,7 +1249,6 @@
                     "numoutlets": 2,
                     "outlettype": [ "FullPacket", "FullPacket" ],
                     "patching_rect": [ 95.0, 265.0, 317.0, 415.0 ],
-                    "presentation_linecount": 30,
                     "text": "### Synthesis\n/grainrate = /scheduling[[ 0 ]],\n/async = /scheduling[[ 1 ]],\n/intermittency = /scheduling[[ 2 ]],\n/streams = /scheduling[[ 3 ]],\n/duration = /characteristics[[ 0 ]],\n/playback = /characteristics[[ 1 ]],\n/amp = /characteristics[[ 2 ]],\n/envelope = /characteristics[[ 3 ]],\n/filterfreq = /filtering[[ 0 ]],\n/resonance = /filtering[[ 1 ]],\n/scanspeed = /scanning[[ 0 ]],\n/scanstart = /scanning[[ 1 ]],\n/scanrange = /scanning[[ 2 ]],\n\n### Deviation\n/grainrate_dev = /deviation[[ 0 ]],\n/async_dev = /deviation[[ 1 ]],\n/intermittency_dev = /deviation[[ 2 ]],\n/streams_dev = /deviation[[ 3 ]],\n/duration_dev = /deviation[[ 4 ]],\n/playback_dev = /deviation[[ 5 ]],\n/amp_dev = /deviation[[ 6 ]],\n/envelope_dev = /deviation[[ 7 ]],\n/filterfreq_dev = /deviation[[ 8 ]],\n/resonance_dev = /deviation[[ 9 ]],\n/pan_dev = /deviation[[ 10 ]],\n/scanspeed_dev = /deviation[[ 11 ]],\n/scanstart_dev = /deviation[[ 12 ]],\n/scanrange_dev = /deviation[[ 13 ]]\n"
                 }
             },

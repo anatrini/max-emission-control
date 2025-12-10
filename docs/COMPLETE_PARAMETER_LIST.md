@@ -1,0 +1,263 @@
+# ec2~ - Lista Completa Parametri
+
+**Versione**: 1.0.0-alpha
+**Data**: Dicembre 2025
+
+---
+
+## Riepilogo Totale
+
+| Categoria | Numero Parametri | Tipo |
+|-----------|-----------------|------|
+| **Attributi** | 14 | @ (set at creation) |
+| **Sintesi Base** | 14 | messages |
+| **Deviazioni** | 14 | messages |
+| **LFO** | 24 | messages (6 LFOs × 4 params) |
+| **Modulation Routing** | 28 | messages (14 params × 2 controls) |
+| **TOTALE** | **94** | |
+
+---
+
+## 1. ATTRIBUTI (14 total)
+
+Attributi strutturali configurati con `@` - **da impostare alla creazione dell'oggetto**.
+
+### Output Configuration (2)
+- `@outputs` (int, 1-16, default: 2) - Numero di canali output
+- `@mc` (int, 0-1, default: 0) - Multichannel cable mode
+
+### Buffer (1)
+- `@buffer` (symbol, default: none) - Nome del buffer~ sorgente
+
+### Spatial Allocation (11)
+- `@allocmode` (int, 0-6, default: 1) - Modalità allocazione spaziale
+- `@soundfile` (int, 0-15, default: 0) - Indice file audio
+- `@fixedchan` (int, 0-15, default: 0) - Canale fisso (allocmode=0)
+- `@rrstep` (int, 1-16, default: 1) - Passo round-robin (allocmode=1)
+- `@randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione random (allocmode=2,3)
+- `@spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale (allocmode=3)
+- `@pitchmin` (float, 20-20000 Hz, default: 20.0) - Pitch minimo mapping (allocmode=5)
+- `@pitchmax` (float, 20-20000 Hz, default: 20000.0) - Pitch massimo mapping (allocmode=5)
+- `@trajshape` (int, 0-3, default: 0) - Forma traiettoria (allocmode=6)
+- `@trajrate` (float, 0.001-100 Hz, default: 1.0) - Velocità traiettoria (allocmode=6)
+- `@trajdepth` (float, 0.0-1.0, default: 1.0) - Profondità traiettoria (allocmode=6)
+
+---
+
+## 2. PARAMETRI DI SINTESI (14 total)
+
+Messaggi per controllo real-time dei parametri di sintesi.
+
+### Grain Scheduling (4)
+- `grainrate` (float, 0.1-500 Hz, default: 20.0) - Frequenza emissione grani
+- `async` (float, 0.0-1.0, default: 0.0) - Asincronia temporale
+- `intermittency` (float, 0.0-1.0, default: 0.0) - Probabilità dropout grani
+- `streams` (int, 1-20, default: 1) - Numero stream polifonici
+
+### Grain Characteristics (4)
+- `playback` (float, -32 to 32, default: 1.0) - Velocità riproduzione/trasposizione
+- `duration` (float, 1-1000 ms, default: 100.0) - Durata grani
+- `envelope` (float, 0.0-1.0, default: 0.5) - Forma inviluppo (0=Hann, 1=Exp)
+- `amplitude` (float, 0.0-1.0, default: 0.5) - Ampiezza output
+
+### Filtering (2)
+- `filterfreq` (float, 20-22000 Hz, default: 1000.0) - Frequenza filtro lowpass
+- `resonance` (float, 0.0-1.0, default: 0.0) - Risonanza filtro
+
+### Spatial/Scanning (4)
+- `pan` (float, -1.0 to 1.0, default: 0.0) - Posizione panorama stereo
+- `scanstart` (float, 0.0-1.0, default: 0.5) - Posizione inizio scansione buffer
+- `scanrange` (float, 0.0-1.0, default: 1.0) - Ampiezza finestra scansione
+- `scanspeed` (float, -32 to 32, default: 1.0) - Velocità scansione automatica
+
+---
+
+## 3. PARAMETRI DI DEVIAZIONE (14 total)
+
+Deviazioni statistiche (Curtis Roads: stochastic grain clouds).
+Ogni parametro aggiunge variazione casuale uniforme (±) al valore base.
+
+### Grain Scheduling Deviations (4)
+- `grainrate_dev` (float, 0-250 Hz, default: 0.0) - Deviazione frequenza grani
+- `async_dev` (float, 0.0-0.5, default: 0.0) - Deviazione asincronia
+- `intermittency_dev` (float, 0.0-0.5, default: 0.0) - Deviazione intermittenza
+- `streams_dev` (float, 0-10, default: 0.0) - Deviazione numero stream
+
+### Grain Characteristics Deviations (4)
+- `playback_dev` (float, 0-16, default: 0.0) - Deviazione playback rate
+- `duration_dev` (float, 0-500 ms, default: 0.0) - Deviazione durata grani
+- `envelope_dev` (float, 0.0-0.5, default: 0.0) - Deviazione forma inviluppo
+- `amp_dev` (float, 0.0-0.5, default: 0.0) - Deviazione ampiezza
+
+### Filtering Deviations (2)
+- `filterfreq_dev` (float, 0-11000 Hz, default: 0.0) - Deviazione frequenza filtro
+- `resonance_dev` (float, 0.0-0.5, default: 0.0) - Deviazione risonanza
+
+### Spatial/Scanning Deviations (4)
+- `pan_dev` (float, 0.0-1.0, default: 0.0) - Deviazione panorama
+- `scanstart_dev` (float, 0.0-0.5, default: 0.0) - Deviazione posizione scan
+- `scanrange_dev` (float, 0.0-0.5, default: 0.0) - Deviazione ampiezza scan
+- `scanspeed_dev` (float, 0-16, default: 0.0) - Deviazione velocità scan
+
+---
+
+## 4. LFO PARAMETERS (24 total = 6 LFOs × 4 params)
+
+ec2~ include 6 LFO indipendenti (LFO1-LFO6) per modulazione dinamica.
+
+### LFO1 (4 params)
+- `lfo1shape` (int, 0-4, default: 0) - Forma d'onda (0=Sine, 1=Square, 2=Rise, 3=Fall, 4=Noise)
+- `lfo1rate` (float, 0.001-100 Hz, default: 1.0) - Frequenza oscillazione
+- `lfo1polarity` (int, 0-2, default: 0) - Polarità (0=Bipolar ±1, 1=Unipolar+ 0→1, 2=Unipolar- -1→0)
+- `lfo1duty` (float, 0.0-1.0, default: 0.5) - Duty cycle (solo square wave)
+
+### LFO2 (4 params)
+- `lfo2shape` (int, 0-4, default: 0)
+- `lfo2rate` (float, 0.001-100 Hz, default: 1.0)
+- `lfo2polarity` (int, 0-2, default: 0)
+- `lfo2duty` (float, 0.0-1.0, default: 0.5)
+
+### LFO3 (4 params)
+- `lfo3shape` (int, 0-4, default: 0)
+- `lfo3rate` (float, 0.001-100 Hz, default: 1.0)
+- `lfo3polarity` (int, 0-2, default: 0)
+- `lfo3duty` (float, 0.0-1.0, default: 0.5)
+
+### LFO4 (4 params)
+- `lfo4shape` (int, 0-4, default: 0)
+- `lfo4rate` (float, 0.001-100 Hz, default: 1.0)
+- `lfo4polarity` (int, 0-2, default: 0)
+- `lfo4duty` (float, 0.0-1.0, default: 0.5)
+
+### LFO5 (4 params)
+- `lfo5shape` (int, 0-4, default: 0)
+- `lfo5rate` (float, 0.001-100 Hz, default: 1.0)
+- `lfo5polarity` (int, 0-2, default: 0)
+- `lfo5duty` (float, 0.0-1.0, default: 0.5)
+
+### LFO6 (4 params)
+- `lfo6shape` (int, 0-4, default: 0)
+- `lfo6rate` (float, 0.001-100 Hz, default: 1.0)
+- `lfo6polarity` (int, 0-2, default: 0)
+- `lfo6duty` (float, 0.0-1.0, default: 0.5)
+
+---
+
+## 5. MODULATION ROUTING (28 total = 14 params × 2 controls)
+
+Sistema di routing per assegnare LFO ai parametri di sintesi.
+Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
+
+### Grain Scheduling Routing (8 = 4 × 2)
+- `grainrate_lfosource` (int, 0-6, default: 0) - LFO sorgente (0=none, 1-6=LFO number)
+- `grainrate_moddepth` (float, 0.0-1.0, default: 0.0) - Profondità modulazione
+- `async_lfosource` (int, 0-6, default: 0)
+- `async_moddepth` (float, 0.0-1.0, default: 0.0)
+- `intermittency_lfosource` (int, 0-6, default: 0)
+- `intermittency_moddepth` (float, 0.0-1.0, default: 0.0)
+- `streams_lfosource` (int, 0-6, default: 0)
+- `streams_moddepth` (float, 0.0-1.0, default: 0.0)
+
+### Grain Characteristics Routing (8 = 4 × 2)
+- `playback_lfosource` (int, 0-6, default: 0)
+- `playback_moddepth` (float, 0.0-1.0, default: 0.0)
+- `duration_lfosource` (int, 0-6, default: 0)
+- `duration_moddepth` (float, 0.0-1.0, default: 0.0)
+- `envelope_lfosource` (int, 0-6, default: 0)
+- `envelope_moddepth` (float, 0.0-1.0, default: 0.0)
+- `amplitude_lfosource` (int, 0-6, default: 0)
+- `amplitude_moddepth` (float, 0.0-1.0, default: 0.0)
+
+### Filtering Routing (4 = 2 × 2)
+- `filterfreq_lfosource` (int, 0-6, default: 0)
+- `filterfreq_moddepth` (float, 0.0-1.0, default: 0.0)
+- `resonance_lfosource` (int, 0-6, default: 0)
+- `resonance_moddepth` (float, 0.0-1.0, default: 0.0)
+
+### Spatial/Scanning Routing (8 = 4 × 2)
+- `pan_lfosource` (int, 0-6, default: 0)
+- `pan_moddepth` (float, 0.0-1.0, default: 0.0)
+- `scanstart_lfosource` (int, 0-6, default: 0)
+- `scanstart_moddepth` (float, 0.0-1.0, default: 0.0)
+- `scanrange_lfosource` (int, 0-6, default: 0)
+- `scanrange_moddepth` (float, 0.0-1.0, default: 0.0)
+- `scanspeed_lfosource` (int, 0-6, default: 0)
+- `scanspeed_moddepth` (float, 0.0-1.0, default: 0.0)
+
+---
+
+## Esempi Pratici
+
+### Esempio 1: Setup Base con LFO
+```
+// Crea ec2~ con 8 canali
+[ec2~ @outputs 8 @buffer mysound]
+
+// Imposta parametri base
+[grainrate 40(
+[duration 150(
+[amplitude 0.6(
+
+// Configura LFO1 per modulare filter frequency
+[lfo1shape 0(        // Sine wave
+[lfo1rate 0.5(       // 0.5 Hz
+[lfo1polarity 0(     // Bipolar
+[filterfreq_lfosource 1(   // Assign LFO1
+[filterfreq_moddepth 0.7(  // 70% depth
+```
+
+### Esempio 2: Modulazione Multipla
+```
+// LFO1 → grainrate (slow variation)
+[lfo1shape 0(
+[lfo1rate 0.2(
+[grainrate_lfosource 1(
+[grainrate_moddepth 0.5(
+
+// LFO2 → pan (auto-pan)
+[lfo2shape 0(
+[lfo2rate 2.0(
+[pan_lfosource 2(
+[pan_moddepth 0.8(
+
+// LFO3 → playback (vibrato)
+[lfo3shape 0(
+[lfo3rate 5.0(
+[playback_lfosource 3(
+[playback_moddepth 0.2(
+```
+
+### Esempio 3: Disattivazione LFO
+```
+// Rimuovi assegnazione LFO da parametro
+[grainrate_lfosource 0(  // 0 = none
+
+// L'LFO continua a funzionare ma non modula più quel parametro
+```
+
+---
+
+## Note Implementazione
+
+1. **Attributi vs Messages**:
+   - Attributi (@) configurano la struttura dell'oggetto (outlets, buffer, spatial allocation)
+   - Messages controllano i parametri di sintesi in tempo reale
+
+2. **LFO Always Active**:
+   - Gli LFO sono sempre attivi in background
+   - Consumano CPU minima (~0.1% per LFO)
+   - Per "disattivare" un LFO: impostare `lfosource=0` per tutti i parametri
+
+3. **Deviazioni vs LFO**:
+   - Deviazioni: variazione casuale uniforme per ogni grano
+   - LFO: modulazione periodica continua
+   - Possono essere usati simultaneamente
+
+4. **OSC Output**:
+   - Tutti i 94 parametri sono trasmessi via OSC outlet (rightmost)
+   - Formato odot-compatible (FullPacket)
+   - Automatic transmission on parameter change
+
+---
+
+**Fine documento**

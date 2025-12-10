@@ -2,8 +2,7 @@
 #ifndef EC2_VERSION_H
 #define EC2_VERSION_H
 
-#define EC2_VERSION "1.0.0-alpha"
-#define EC2_GIT_COMMIT "@GIT_COMMIT_HASH@"
+#define EC2_VERSION "@GIT_VERSION@"
 #define EC2_BUILD_DATE __DATE__
 #define EC2_BUILD_TIME __TIME__
 

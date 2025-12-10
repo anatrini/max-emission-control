@@ -9,17 +9,33 @@ endif()
 set(PROJECT_NAME ec2_tilde)
 project(${PROJECT_NAME})
 
-# Get git commit hash for versioning
+# Get git version using git describe (semantic versioning with auto-increment)
+# Format: v1.0.0-alpha-5-g33e56c1 where 5 is number of commits since tag
 execute_process(
-    COMMAND git rev-parse --short HEAD
+    COMMAND git describe --tags --long --always --dirty
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_VARIABLE GIT_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET
 )
 
-if(NOT GIT_COMMIT_HASH)
-    set(GIT_COMMIT_HASH "unknown")
+# Fallback if git describe fails (no tags yet)
+if(NOT GIT_VERSION OR GIT_VERSION STREQUAL "")
+    execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_COMMIT_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(GIT_COMMIT_HASH)
+        set(GIT_VERSION "1.0.0-alpha-0-g${GIT_COMMIT_HASH}")
+    else()
+        set(GIT_VERSION "1.0.0-alpha-unknown")
+    endif()
+else()
+    # Remove 'v' prefix if present
+    string(REGEX REPLACE "^v" "" GIT_VERSION "${GIT_VERSION}")
 endif()
 
 # Generate version header

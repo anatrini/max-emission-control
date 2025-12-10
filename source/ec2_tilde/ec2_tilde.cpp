@@ -428,13 +428,15 @@ extern "C" void ext_main(void* r) {
   // (Attribute @buffer is registered below with CLASS_ATTR_SYM + setter)
 
   // Attributes - Output configuration
+  // Note: outputs and mc cannot be changed at runtime - they require object recreation
   CLASS_ATTR_LONG(c, "outputs", 0, t_ec2, outputs);
   CLASS_ATTR_FILTER_CLIP(c, "outputs", 1, 16);
-  CLASS_ATTR_LABEL(c, "outputs", 0, "Number of output channels");
+  CLASS_ATTR_LABEL(c, "outputs", 0, "Number of output channels (set at creation only)");
   CLASS_ATTR_SAVE(c, "outputs", 0);
+  CLASS_ATTR_STYLE(c, "outputs", 0, "text");  // Text only, discourage runtime editing
 
   CLASS_ATTR_LONG(c, "mc", 0, t_ec2, mc_mode);
-  CLASS_ATTR_STYLE_LABEL(c, "mc", 0, "onoff", "Multichannel mode");
+  CLASS_ATTR_STYLE_LABEL(c, "mc", 0, "onoff", "Multichannel mode (set at creation only)");
   CLASS_ATTR_SAVE(c, "mc", 0);
 
   // Spatial allocation attributes (10 total)
@@ -659,7 +661,7 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
     std::string year = build_date.substr(build_date.length() - 4);  // Last 4 chars = year
 
     post("——————————————————————————————————————————————————————————————————");
-    post("ec2~ version %s-%s (compiled %s %s)", EC2_VERSION, EC2_GIT_COMMIT, EC2_BUILD_DATE, EC2_BUILD_TIME);
+    post("ec2~ version %s (compiled %s %s)", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
     post("based on EmissionControl2 by Curtis Roads, Jack Kilgore, Rodney DuPlessis");
     post("Max port, spatial audio & multichannel allocation by Alessandro Anatrini ©%s", year.c_str());
     post("——————————————————————————————————————————————————————————————————");
@@ -1645,6 +1647,49 @@ void ec2_send_osc_bundle(t_ec2* x) {
   add_message(*x->osc_bundle_buffer, "scanstart_dev", static_cast<float>(x->scanstart_dev));
   add_message(*x->osc_bundle_buffer, "scanrange_dev", static_cast<float>(x->scanrange_dev));
   add_message(*x->osc_bundle_buffer, "scanspeed_dev", static_cast<float>(x->scanspeed_dev));
+
+  // LFO parameters (24 total: 6 LFOs × 4 params each)
+  // LFO values are read directly from engine
+  for (int i = 0; i < 6; i++) {
+    auto lfo = x->engine->getLFO(i);
+    if (lfo) {
+      std::string prefix = "lfo" + std::to_string(i + 1);
+      add_message(*x->osc_bundle_buffer, prefix + "shape", static_cast<float>(static_cast<int>(lfo->getShape())));
+      add_message(*x->osc_bundle_buffer, prefix + "rate", lfo->getFrequency());
+      add_message(*x->osc_bundle_buffer, prefix + "polarity", static_cast<float>(static_cast<int>(lfo->getPolarity())));
+      add_message(*x->osc_bundle_buffer, prefix + "duty", lfo->getDuty());
+    }
+  }
+
+  // Modulation routing parameters (28 total: 14 params × 2 controls)
+  add_message(*x->osc_bundle_buffer, "grainrate_lfosource", static_cast<float>(x->grainrate_lfosource));
+  add_message(*x->osc_bundle_buffer, "grainrate_moddepth", static_cast<float>(x->grainrate_moddepth));
+  add_message(*x->osc_bundle_buffer, "async_lfosource", static_cast<float>(x->async_lfosource));
+  add_message(*x->osc_bundle_buffer, "async_moddepth", static_cast<float>(x->async_moddepth));
+  add_message(*x->osc_bundle_buffer, "intermittency_lfosource", static_cast<float>(x->intermittency_lfosource));
+  add_message(*x->osc_bundle_buffer, "intermittency_moddepth", static_cast<float>(x->intermittency_moddepth));
+  add_message(*x->osc_bundle_buffer, "streams_lfosource", static_cast<float>(x->streams_lfosource));
+  add_message(*x->osc_bundle_buffer, "streams_moddepth", static_cast<float>(x->streams_moddepth));
+  add_message(*x->osc_bundle_buffer, "playback_lfosource", static_cast<float>(x->playback_lfosource));
+  add_message(*x->osc_bundle_buffer, "playback_moddepth", static_cast<float>(x->playback_moddepth));
+  add_message(*x->osc_bundle_buffer, "duration_lfosource", static_cast<float>(x->duration_lfosource));
+  add_message(*x->osc_bundle_buffer, "duration_moddepth", static_cast<float>(x->duration_moddepth));
+  add_message(*x->osc_bundle_buffer, "envelope_lfosource", static_cast<float>(x->envelope_lfosource));
+  add_message(*x->osc_bundle_buffer, "envelope_moddepth", static_cast<float>(x->envelope_moddepth));
+  add_message(*x->osc_bundle_buffer, "filterfreq_lfosource", static_cast<float>(x->filterfreq_lfosource));
+  add_message(*x->osc_bundle_buffer, "filterfreq_moddepth", static_cast<float>(x->filterfreq_moddepth));
+  add_message(*x->osc_bundle_buffer, "resonance_lfosource", static_cast<float>(x->resonance_lfosource));
+  add_message(*x->osc_bundle_buffer, "resonance_moddepth", static_cast<float>(x->resonance_moddepth));
+  add_message(*x->osc_bundle_buffer, "pan_lfosource", static_cast<float>(x->pan_lfosource));
+  add_message(*x->osc_bundle_buffer, "pan_moddepth", static_cast<float>(x->pan_moddepth));
+  add_message(*x->osc_bundle_buffer, "amplitude_lfosource", static_cast<float>(x->amplitude_lfosource));
+  add_message(*x->osc_bundle_buffer, "amplitude_moddepth", static_cast<float>(x->amplitude_moddepth));
+  add_message(*x->osc_bundle_buffer, "scanstart_lfosource", static_cast<float>(x->scanstart_lfosource));
+  add_message(*x->osc_bundle_buffer, "scanstart_moddepth", static_cast<float>(x->scanstart_moddepth));
+  add_message(*x->osc_bundle_buffer, "scanrange_lfosource", static_cast<float>(x->scanrange_lfosource));
+  add_message(*x->osc_bundle_buffer, "scanrange_moddepth", static_cast<float>(x->scanrange_moddepth));
+  add_message(*x->osc_bundle_buffer, "scanspeed_lfosource", static_cast<float>(x->scanspeed_lfosource));
+  add_message(*x->osc_bundle_buffer, "scanspeed_moddepth", static_cast<float>(x->scanspeed_moddepth));
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];
