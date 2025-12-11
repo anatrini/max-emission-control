@@ -23,13 +23,13 @@ Used for configuration that affects object structure:
 - `@outputs` - Number of output channels (changes outlet count)
 - `@mc` - Multichannel cable mode (changes outlet type)
 - `@buffer` - Source buffer name
-- `@allocmode` - Spatial allocation mode
-- Allocation mode parameters (e.g., `@fixedchan`, `@rrstep`)
+- `@allocmode` - Spatial allocation mode (structural choice)
+- `@soundfile` - Buffer index for polybuffer
 
 **Set at creation or via attribute messages:**
 ```
-[ec2~ @outputs 8 @mc 1]           // At creation
-[message outputs 16(               // Runtime change
+[ec2~ @outputs 8 @mc 1 @allocmode 2]  // At creation
+[message outputs 16(                   // Runtime change
 ```
 
 ### Messages (no prefix)
@@ -58,6 +58,17 @@ Used for real-time performance control of synthesis parameters:
 - `scanstart` - Scan start position
 - `scanrange` - Scan range
 - `scanspeed` - Scan speed
+
+**Spatial Allocation Parameters (9 messages):**
+- `fixedchan` - Fixed channel index
+- `rrstep` - Round-robin step size
+- `randspread` - Random spread amount
+- `spatialcorr` - Spatial correlation
+- `pitchmin` - Pitch-to-space minimum frequency
+- `pitchmax` - Pitch-to-space maximum frequency
+- `trajshape` - Trajectory shape
+- `trajrate` - Trajectory rate
+- `trajdepth` - Trajectory depth
 
 **LFO Control (24 messages):**
 - `lfo1shape` through `lfo6shape` - LFO waveforms
@@ -483,13 +494,13 @@ Routes all grains to a single fixed channel or channel pair.
 
 ### Parameters
 
-#### fixedchan (int, 0-15, default: 0)
-Target output channel index.
+#### fixedchan (message, int, 0-15, default: 0)
+Target output channel index. Real-time message for dynamic control.
 
 **Example:**
 ```
-allocmode 0
-fixedchan 4  // All grains to channel 4
+[message allocmode 0(
+[message fixedchan 4(  // All grains to channel 4
 ```
 
 ---
@@ -505,8 +516,8 @@ Cycles through channels in sequence, creating ordered spatial trajectories.
 
 ### Parameters
 
-#### rrstep (int, 1-16, default: 1)
-Channel increment per grain.
+#### rrstep (message, int, 1-16, default: 1)
+Channel increment per grain. Real-time message for dynamic control.
 - 1: Sequential (0→1→2→3→...)
 - 2: Every other channel (0→2→4→6→...)
 - N: Jump by N channels (wraps around)
@@ -514,12 +525,12 @@ Channel increment per grain.
 **Examples:**
 ```
 // Sequential rotation through all channels
-allocmode 1
-rrstep 1
+[message allocmode 1(
+[message rrstep 1(
 
 // Jump by 3 channels
-allocmode 1
-rrstep 3
+[message allocmode 1(
+[message rrstep 3(
 ```
 
 **Theory:** Implements discrete version of pan envelopes moving across channels. With step=1, creates smooth circular motion. With coprime steps, creates less obvious patterns that still cover all channels.
@@ -537,28 +548,28 @@ Randomly assigns grains to channels with uniform probability.
 
 ### Parameters
 
-#### randspread (float, 0.0-1.0, default: 0.0)
-Controls panning between adjacent channels.
+#### randspread (message, float, 0.0-1.0, default: 0.0)
+Controls panning between adjacent channels. Real-time message for dynamic control.
 - 0.0: Hard assignment to single channel
 - > 0.0: Panning between adjacent channels
 - 1.0: Full constant-power panning
 
-#### spatialcorr (float, 0.0-1.0, default: 0.0)
-Spatial correlation between successive grains.
+#### spatialcorr (message, float, 0.0-1.0, default: 0.0)
+Spatial correlation between successive grains. Real-time message for dynamic control.
 - 0.0: Independent channel selection per grain
 - 1.0: Strong tendency to remain near previous channel (spatial "stickiness")
 
 **Examples:**
 ```
 // Pure random, hard assignment
-allocmode 2
-randspread 0.0
-spatialcorr 0.0
+[message allocmode 2(
+[message randspread 0.0(
+[message spatialcorr 0.0(
 
 // Random with smooth panning
-allocmode 2
-randspread 0.7
-spatialcorr 0.3  // Slight spatial correlation
+[message allocmode 2(
+[message randspread 0.7(
+[message spatialcorr 0.3(  // Slight spatial correlation
 ```
 
 **Theory:** Directly implements Roads's "random dispersion of grains among N channels". Most effective for relatively long grains and moderate densities.
@@ -602,24 +613,24 @@ Maps grain pitch/frequency to spatial position across the channel array.
 
 ### Parameters
 
-#### pitchmin (float, 20.0-20000.0 Hz, default: 20.0)
-Minimum pitch of mapping range (maps to leftmost channels).
+#### pitchmin (message, float, 20.0-20000.0 Hz, default: 20.0)
+Minimum pitch of mapping range (maps to leftmost channels). Real-time message for dynamic control.
 
-#### pitchmax (float, 20.0-20000.0 Hz, default: 20000.0)
-Maximum pitch of mapping range (maps to rightmost channels).
+#### pitchmax (message, float, 20.0-20000.0 Hz, default: 20000.0)
+Maximum pitch of mapping range (maps to rightmost channels). Real-time message for dynamic control.
 
 **Examples:**
 ```
 // Low pitches left, high pitches right
-allocmode 5
-pitchmin 100.0
-pitchmax 4000.0
-playback 1.0  // Use playback rate to modulate pitch
+[message allocmode 5(
+[message pitchmin 100.0(
+[message pitchmax 4000.0(
+[message playback 1.0(  // Use playback rate to modulate pitch
 
 // Narrow range for subtle spatial-spectral effects
-allocmode 5
-pitchmin 440.0
-pitchmax 880.0
+[message allocmode 5(
+[message pitchmin 440.0(
+[message pitchmax 880.0(
 ```
 
 **Theory:** Implements spatial-spectral mapping where spectral characteristics correspond to spatial position. Low frequencies map to lower channel indices, high frequencies to higher indices. Uses logarithmic mapping by default for perceptual scaling.
@@ -637,18 +648,18 @@ Grains follow a time-based spatial trajectory across the channel array.
 
 ### Parameters
 
-#### trajshape (int, 0-3, default: 0)
-Trajectory shape:
+#### trajshape (message, int, 0-3, default: 0)
+Trajectory shape. Real-time message for dynamic control.
 - **0**: Sine - Sinusoidal back-and-forth motion
 - **1**: Saw - Linear sweep (sawtooth)
 - **2**: Triangle - Linear back-and-forth
 - **3**: Random walk - Constrained random movement
 
-#### trajrate (float, 0.001-100.0 Hz, default: 0.5)
-Speed of trajectory movement in Hertz.
+#### trajrate (message, float, 0.001-100.0 Hz, default: 0.5)
+Speed of trajectory movement in Hertz. Real-time message for dynamic control.
 
-#### trajdepth (float, 0.0-1.0, default: 1.0)
-Proportion of channel array covered by trajectory.
+#### trajdepth (message, float, 0.0-1.0, default: 1.0)
+Proportion of channel array covered by trajectory. Real-time message for dynamic control.
 - 1.0: Full array (all channels)
 - 0.5: Center half of channels
 - 0.25: Center quarter
@@ -656,22 +667,22 @@ Proportion of channel array covered by trajectory.
 **Examples:**
 ```
 // Slow sine wave across all channels
-allocmode 6
-trajshape 0
-trajrate 0.2
-trajdepth 1.0
+[message allocmode 6(
+[message trajshape 0(
+[message trajrate 0.2(
+[message trajdepth 1.0(
 
 // Fast sweep across center channels only
-allocmode 6
-trajshape 1
-trajrate 2.0
-trajdepth 0.5
+[message allocmode 6(
+[message trajshape 1(
+[message trajrate 2.0(
+[message trajdepth 0.5(
 
 // Slow random walk
-allocmode 6
-trajshape 3
-trajrate 0.1
-trajdepth 1.0
+[message allocmode 6(
+[message trajshape 3(
+[message trajrate 0.1(
+[message trajdepth 1.0(
 ```
 
 **Theory:** Discrete implementation of pan envelopes that continuously move across N channels. Grain emission time determines position on trajectory. Roads explicitly discusses such envelopes as key strategy for spatial microsound.
@@ -1275,10 +1286,16 @@ All attribute names can be used as OSC messages by adding a `/` prefix and using
 **Multichannel**:
 - `/mc`, `/outputs`
 
-**Spatial Allocation**:
-- `/allocmode`, `/fixedchan`, `/rrstep`, `/randspread`, `/spatialcorr`
-- `/pitchmin`, `/pitchmax`
-- `/trajshape`, `/trajrate`, `/trajdepth`
+**Spatial Allocation (mode)**:
+- `/allocmode` - Spatial allocation mode (0-6)
+
+**Spatial Allocation Parameters (real-time messages)**:
+- `/fixedchan` - Fixed channel index (mode 0)
+- `/rrstep` - Round-robin step (mode 1)
+- `/randspread` - Random spread amount (mode 2,3)
+- `/spatialcorr` - Spatial correlation (mode 3)
+- `/pitchmin`, `/pitchmax` - Pitch-to-space mapping range (mode 5)
+- `/trajshape`, `/trajrate`, `/trajdepth` - Trajectory parameters (mode 6)
 
 **LFO Parameters**:
 - `/lfo1rate`, `/lfo2rate`, `/lfo3rate`, `/lfo4rate`, `/lfo5rate`, `/lfo6rate`

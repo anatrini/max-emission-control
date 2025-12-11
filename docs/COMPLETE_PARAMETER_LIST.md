@@ -9,16 +9,17 @@
 
 | Categoria | Numero Parametri | Tipo |
 |-----------|-----------------|------|
-| **Attributi** | 14 | @ (set at creation) |
+| **Attributi** | 5 | @ (set at creation) |
 | **Sintesi Base** | 14 | messages |
 | **Deviazioni** | 14 | messages |
 | **LFO** | 24 | messages (6 LFOs × 4 params) |
 | **Modulation Routing** | 28 | messages (14 params × 2 controls) |
+| **Spatial Allocation** | 9 | messages |
 | **TOTALE** | **94** | |
 
 ---
 
-## 1. ATTRIBUTI (14 total)
+## 1. ATTRIBUTI (5 total)
 
 Attributi strutturali configurati con `@` - **da impostare alla creazione dell'oggetto**.
 
@@ -29,18 +30,9 @@ Attributi strutturali configurati con `@` - **da impostare alla creazione dell'o
 ### Buffer (1)
 - `@buffer` (symbol, default: none) - Nome del buffer~ sorgente
 
-### Spatial Allocation (11)
+### Spatial Allocation Mode (2)
 - `@allocmode` (int, 0-6, default: 1) - Modalità allocazione spaziale
 - `@soundfile` (int, 0-15, default: 0) - Indice file audio
-- `@fixedchan` (int, 0-15, default: 0) - Canale fisso (allocmode=0)
-- `@rrstep` (int, 1-16, default: 1) - Passo round-robin (allocmode=1)
-- `@randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione random (allocmode=2,3)
-- `@spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale (allocmode=3)
-- `@pitchmin` (float, 20-20000 Hz, default: 20.0) - Pitch minimo mapping (allocmode=5)
-- `@pitchmax` (float, 20-20000 Hz, default: 20000.0) - Pitch massimo mapping (allocmode=5)
-- `@trajshape` (int, 0-3, default: 0) - Forma traiettoria (allocmode=6)
-- `@trajrate` (float, 0.001-100 Hz, default: 1.0) - Velocità traiettoria (allocmode=6)
-- `@trajdepth` (float, 0.0-1.0, default: 1.0) - Profondità traiettoria (allocmode=6)
 
 ---
 
@@ -183,6 +175,37 @@ Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
 - `scanrange_moddepth` (float, 0.0-1.0, default: 0.0)
 - `scanspeed_lfosource` (int, 0-6, default: 0)
 - `scanspeed_moddepth` (float, 0.0-1.0, default: 0.0)
+
+---
+
+## 6. SPATIAL ALLOCATION PARAMETERS (9 total)
+
+Parametri di allocazione spaziale per controllo real-time.
+Ogni modalità allocazione (@allocmode) usa parametri specifici.
+
+### Fixed Channel Mode (allocmode=0) - 1 param
+- `fixedchan` (int, 0-15, default: 0) - Canale fisso output
+
+### Round-Robin Mode (allocmode=1) - 1 param
+- `rrstep` (int, 1-16, default: 1) - Passo incremento round-robin
+
+### Random/Weighted Random Mode (allocmode=2,3) - 2 params
+- `randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione casuale (1.0=uniforme)
+- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale (solo mode 3)
+
+### Pitch-to-Space Mapping (allocmode=5) - 2 params
+- `pitchmin` (float, 20-20000 Hz, default: 20.0) - Pitch minimo mappato a canale 0
+- `pitchmax` (float, 20-20000 Hz, default: 20000.0) - Pitch massimo mappato a ultimo canale
+
+### Trajectory Mode (allocmode=6) - 3 params
+- `trajshape` (int, 0-3, default: 0) - Forma traiettoria (0=Linear, 1=Circular, 2=Random, 3=Bounce)
+- `trajrate` (float, 0.001-100 Hz, default: 1.0) - Velocità movimento traiettoria
+- `trajdepth` (float, 0.0-1.0, default: 1.0) - Profondità/ampiezza movimento spaziale
+
+**Nota**: Questi parametri sono ora messaggi (non più attributi) per permettere:
+- Controllo real-time durante esecuzione
+- Modulazione futura via LFO (prossima implementazione)
+- Automazione e controllo OSC bidirezionale
 
 ---
 

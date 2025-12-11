@@ -9,8 +9,42 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 1699.0, 118.0, 1407.0, 832.0 ],
+        "rect": [ 71.0, 116.0, 1007.0, 832.0 ],
         "boxes": [
+            {
+                "box": {
+                    "format": 6,
+                    "id": "obj-18",
+                    "maxclass": "flonum",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [ "", "bang" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 450.0, 445.0, 50.0, 22.0 ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-16",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 424.0, 507.0, 59.0, 22.0 ],
+                    "text": "/rrstep $1"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-84",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 743.0, 124.0, 79.0, 22.0 ],
+                    "text": "r ec2-params"
+                }
+            },
             {
                 "box": {
                     "attr": "allocmode",
@@ -46,13 +80,13 @@
                 "box": {
                     "fontface": 0,
                     "id": "obj-3",
-                    "linecount": 28,
+                    "linecount": 80,
                     "maxclass": "o.display",
                     "numinlets": 1,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 911.0, 321.5, 248.0, 379.0 ],
-                    "text": "/grainrate : 3.91322,\n/async : 0.,\n/intermittency : 0.,\n/streams : 5.,\n/playback : -7.81102,\n/duration : 370.709,\n/envelope : 0.5,\n/scanstart : 0.5,\n/scanrange : 1.,\n/amplitude : 1.,\n/filterfreq : 1066.74,\n/resonance : 0.,\n/pan : 0.,\n/scanspeed : 1.,\n/grainrate_dev : 0.,\n/async_dev : 0.,\n/intermittency_dev : 0.,\n/streams_dev : 0.,\n/playback_dev : 2.14173,\n/duration_dev : 255.906,\n/envelope_dev : 0.,\n/pan_dev : 0.,\n/amp_dev : 3.16228e-05,\n/filterfreq_dev : 0.,\n/resonance_dev : 0.,\n/scanstart_dev : 0.,\n/scanrange_dev : 0.,\n/scanspeed_dev : 0."
+                    "patching_rect": [ 911.0, 321.5, 248.0, 1045.0 ],
+                    "text": "/grainrate : 20.,\n/async : 0.,\n/intermittency : 0.,\n/streams : 20.,\n/playback : 1.,\n/duration : 100.,\n/envelope : 0.5,\n/scanstart : 0.5,\n/scanrange : 1.,\n/amplitude : 0.5,\n/filterfreq : 1000.,\n/resonance : 0.,\n/pan : 0.,\n/scanspeed : 1.,\n/grainrate_dev : 0.,\n/async_dev : 0.,\n/intermittency_dev : 0.,\n/streams_dev : 0.,\n/playback_dev : 0.,\n/duration_dev : 0.,\n/envelope_dev : 0.,\n/pan_dev : 0.,\n/amp_dev : 0.,\n/filterfreq_dev : 0.,\n/resonance_dev : 0.,\n/scanstart_dev : 0.,\n/scanrange_dev : 0.,\n/scanspeed_dev : 0.,\n/lfo1shape : 0.,\n/lfo1rate : 1.,\n/lfo1polarity : 0.,\n/lfo1duty : 0.5,\n/lfo2shape : 0.,\n/lfo2rate : 1.,\n/lfo2polarity : 0.,\n/lfo2duty : 0.5,\n/lfo3shape : 0.,\n/lfo3rate : 1.,\n/lfo3polarity : 0.,\n/lfo3duty : 0.5,\n/lfo4shape : 0.,\n/lfo4rate : 1.,\n/lfo4polarity : 0.,\n/lfo4duty : 0.5,\n/lfo5shape : 0.,\n/lfo5rate : 1.,\n/lfo5polarity : 0.,\n/lfo5duty : 0.5,\n/lfo6shape : 0.,\n/lfo6rate : 1.,\n/lfo6polarity : 0.,\n/lfo6duty : 0.5,\n/grainrate_lfosource : 0.,\n/grainrate_moddepth : 0.,\n/async_lfosource : 0.,\n/async_moddepth : 0.,\n/intermittency_lfosource : 0.,\n/intermittency_moddepth : 0.,\n/streams_lfosource : 0.,\n/streams_moddepth : 0.,\n/playback_lfosource : 0.,\n/playback_moddepth : 0.,\n/duration_lfosource : 0.,\n/duration_moddepth : 0.,\n/envelope_lfosource : 0.,\n/envelope_moddepth : 0.,\n/filterfreq_lfosource : 0.,\n/filterfreq_moddepth : 0.,\n/resonance_lfosource : 0.,\n/resonance_moddepth : 0.,\n/pan_lfosource : 0.,\n/pan_moddepth : 0.,\n/amplitude_lfosource : 0.,\n/amplitude_moddepth : 0.,\n/scanstart_lfosource : 0.,\n/scanstart_moddepth : 0.,\n/scanrange_lfosource : 0.,\n/scanrange_moddepth : 0.,\n/scanspeed_lfosource : 0.,\n/scanspeed_moddepth : 0."
                 }
             },
             {
@@ -81,17 +115,6 @@
             },
             {
                 "box": {
-                    "id": "obj-21",
-                    "maxclass": "newobj",
-                    "numinlets": 1,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 743.0, 124.0, 142.0, 22.0 ],
-                    "text": "udpreceive 8000 CNMAT"
-                }
-            },
-            {
-                "box": {
                     "id": "obj-1",
                     "maxclass": "newobj",
                     "numinlets": 3,
@@ -101,18 +124,9 @@
                     "saved_object_attributes": {
                         "allocmode": 1,
                         "buffer": "johnson",
-                        "fixedchan": 0,
                         "mc": 1,
                         "outputs": 4,
-                        "pitchmax": 20000.0,
-                        "pitchmin": 20.0,
-                        "randspread": 0.0,
-                        "rrstep": 1,
-                        "soundfile": 0,
-                        "spatialcorr": 0.0,
-                        "trajdepth": 1.0,
-                        "trajrate": 0.5,
-                        "trajshape": 0
+                        "soundfile": 0
                     },
                     "text": "ec2~ johnson @outputs 4 @mc 1"
                 }
@@ -183,8 +197,8 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-1", 0 ],
-                    "source": [ "obj-21", 0 ]
+                    "destination": [ "obj-16", 0 ],
+                    "source": [ "obj-18", 0 ]
                 }
             },
             {
@@ -203,6 +217,12 @@
                 "patchline": {
                     "destination": [ "obj-1", 0 ],
                     "source": [ "obj-7", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-1", 0 ],
+                    "source": [ "obj-84", 0 ]
                 }
             }
         ],
@@ -236,6 +256,14 @@
             "obj-6::obj-76": [ "live.numbox[11]", "live.numbox", 0 ],
             "obj-6::obj-77": [ "live.numbox[12]", "live.numbox", 0 ],
             "obj-6::obj-78": [ "live.numbox[13]", "live.numbox", 0 ],
+            "parameterbanks": {
+                "0": {
+                    "index": 0,
+                    "name": "",
+                    "parameters": [ "-", "-", "-", "-", "-", "-", "-", "-" ],
+                    "buttons": [ "-", "-", "-", "-", "-", "-", "-", "-" ]
+                }
+            },
             "inherited_shortname": 1
         },
         "autosave": 0

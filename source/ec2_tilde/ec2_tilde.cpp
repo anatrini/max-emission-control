@@ -250,6 +250,17 @@ void ec2_scanrange_moddepth(t_ec2* x, double v);
 void ec2_scanspeed_lfosource(t_ec2* x, long v);
 void ec2_scanspeed_moddepth(t_ec2* x, double v);
 
+// Spatial allocation parameters (9 total - converted from attributes to messages)
+void ec2_fixedchan(t_ec2* x, long v);
+void ec2_rrstep(t_ec2* x, long v);
+void ec2_randspread(t_ec2* x, double v);
+void ec2_spatialcorr(t_ec2* x, double v);
+void ec2_pitchmin(t_ec2* x, double v);
+void ec2_pitchmax(t_ec2* x, double v);
+void ec2_trajshape(t_ec2* x, long v);
+void ec2_trajrate(t_ec2* x, double v);
+void ec2_trajdepth(t_ec2* x, double v);
+
 // LFO parameters (24 total: 6 LFOs × 4 params each)
 void ec2_lfo1shape(t_ec2* x, double v);
 void ec2_lfo1rate(t_ec2* x, double v);
@@ -398,6 +409,17 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_scanspeed_lfosource, "scanspeed_lfosource", A_LONG, 0);
   class_addmethod(c, (method)ec2_scanspeed_moddepth, "scanspeed_moddepth", A_FLOAT, 0);
 
+  // Spatial allocation parameters (9 total - real-time control)
+  class_addmethod(c, (method)ec2_fixedchan, "fixedchan", A_LONG, 0);
+  class_addmethod(c, (method)ec2_rrstep, "rrstep", A_LONG, 0);
+  class_addmethod(c, (method)ec2_randspread, "randspread", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_spatialcorr, "spatialcorr", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_pitchmin, "pitchmin", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_pitchmax, "pitchmax", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_trajshape, "trajshape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_trajrate, "trajrate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_trajdepth, "trajdepth", A_FLOAT, 0);
+
   // LFO parameters (24 total)
   class_addmethod(c, (method)ec2_lfo1shape, "lfo1shape", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_lfo1rate, "lfo1rate", A_FLOAT, 0);
@@ -439,56 +461,14 @@ extern "C" void ext_main(void* r) {
   CLASS_ATTR_STYLE_LABEL(c, "mc", 0, "onoff", "Multichannel mode (set at creation only)");
   CLASS_ATTR_SAVE(c, "mc", 0);
 
-  // Spatial allocation attributes (10 total)
+  // Spatial allocation mode attribute (structural - set at creation)
   CLASS_ATTR_LONG(c, "allocmode", 0, t_ec2, alloc_mode);
   CLASS_ATTR_FILTER_CLIP(c, "allocmode", 0, 6);
   CLASS_ATTR_LABEL(c, "allocmode", 0, "Spatial allocation mode (0-6)");
   CLASS_ATTR_SAVE(c, "allocmode", 0);
 
-  CLASS_ATTR_LONG(c, "fixedchan", 0, t_ec2, fixed_channel);
-  CLASS_ATTR_FILTER_CLIP(c, "fixedchan", 0, 15);
-  CLASS_ATTR_LABEL(c, "fixedchan", 0, "Fixed channel (0-15)");
-  CLASS_ATTR_SAVE(c, "fixedchan", 0);
-
-  CLASS_ATTR_LONG(c, "rrstep", 0, t_ec2, rr_step);
-  CLASS_ATTR_FILTER_CLIP(c, "rrstep", 1, 16);
-  CLASS_ATTR_LABEL(c, "rrstep", 0, "Round-robin step");
-  CLASS_ATTR_SAVE(c, "rrstep", 0);
-
-  CLASS_ATTR_DOUBLE(c, "randspread", 0, t_ec2, random_spread);
-  CLASS_ATTR_FILTER_CLIP(c, "randspread", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c, "randspread", 0, "Random spread (0.0-1.0)");
-  CLASS_ATTR_SAVE(c, "randspread", 0);
-
-  CLASS_ATTR_DOUBLE(c, "spatialcorr", 0, t_ec2, spatial_corr);
-  CLASS_ATTR_FILTER_CLIP(c, "spatialcorr", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c, "spatialcorr", 0, "Spatial correlation (0.0-1.0)");
-  CLASS_ATTR_SAVE(c, "spatialcorr", 0);
-
-  CLASS_ATTR_DOUBLE(c, "pitchmin", 0, t_ec2, pitch_min);
-  CLASS_ATTR_FILTER_CLIP(c, "pitchmin", 20.0, 20000.0);
-  CLASS_ATTR_LABEL(c, "pitchmin", 0, "Pitch min (Hz)");
-  CLASS_ATTR_SAVE(c, "pitchmin", 0);
-
-  CLASS_ATTR_DOUBLE(c, "pitchmax", 0, t_ec2, pitch_max);
-  CLASS_ATTR_FILTER_CLIP(c, "pitchmax", 20.0, 20000.0);
-  CLASS_ATTR_LABEL(c, "pitchmax", 0, "Pitch max (Hz)");
-  CLASS_ATTR_SAVE(c, "pitchmax", 0);
-
-  CLASS_ATTR_LONG(c, "trajshape", 0, t_ec2, traj_shape);
-  CLASS_ATTR_FILTER_CLIP(c, "trajshape", 0, 3);
-  CLASS_ATTR_LABEL(c, "trajshape", 0, "Trajectory shape (0-3)");
-  CLASS_ATTR_SAVE(c, "trajshape", 0);
-
-  CLASS_ATTR_DOUBLE(c, "trajrate", 0, t_ec2, traj_rate);
-  CLASS_ATTR_FILTER_CLIP(c, "trajrate", 0.001, 100.0);
-  CLASS_ATTR_LABEL(c, "trajrate", 0, "Trajectory rate (Hz)");
-  CLASS_ATTR_SAVE(c, "trajrate", 0);
-
-  CLASS_ATTR_DOUBLE(c, "trajdepth", 0, t_ec2, traj_depth);
-  CLASS_ATTR_FILTER_CLIP(c, "trajdepth", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c, "trajdepth", 0, "Trajectory depth (0.0-1.0)");
-  CLASS_ATTR_SAVE(c, "trajdepth", 0);
+  // Note: allocation mode parameters (fixedchan, rrstep, etc.) are now MESSAGES
+  // for real-time control - see message handlers above
 
   // Buffer attribute
   CLASS_ATTR_SYM(c, "buffer", 0, t_ec2, buffer_name);
@@ -1341,6 +1321,64 @@ void ec2_scanspeed_moddepth(t_ec2* x, double v) {
 }
 
 // ==================================================================
+// SPATIAL ALLOCATION PARAMETERS (9 total - real-time messages)
+// ==================================================================
+
+void ec2_fixedchan(t_ec2* x, long v) {
+  x->fixed_channel = std::max(0L, std::min(15L, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_rrstep(t_ec2* x, long v) {
+  x->rr_step = std::max(1L, std::min(16L, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_randspread(t_ec2* x, double v) {
+  x->random_spread = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_spatialcorr(t_ec2* x, double v) {
+  x->spatial_corr = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_pitchmin(t_ec2* x, double v) {
+  x->pitch_min = std::max(20.0, std::min(20000.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_pitchmax(t_ec2* x, double v) {
+  x->pitch_max = std::max(20.0, std::min(20000.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_trajshape(t_ec2* x, long v) {
+  x->traj_shape = std::max(0L, std::min(3L, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_trajrate(t_ec2* x, double v) {
+  x->traj_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_trajdepth(t_ec2* x, double v) {
+  x->traj_depth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
 // BUFFER MANAGEMENT
 // ==================================================================
 
@@ -1691,6 +1729,17 @@ void ec2_send_osc_bundle(t_ec2* x) {
   add_message(*x->osc_bundle_buffer, "scanspeed_lfosource", static_cast<float>(x->scanspeed_lfosource));
   add_message(*x->osc_bundle_buffer, "scanspeed_moddepth", static_cast<float>(x->scanspeed_moddepth));
 
+  // Spatial allocation parameters (9 total - real-time messages)
+  add_message(*x->osc_bundle_buffer, "fixedchan", static_cast<float>(x->fixed_channel));
+  add_message(*x->osc_bundle_buffer, "rrstep", static_cast<float>(x->rr_step));
+  add_message(*x->osc_bundle_buffer, "randspread", static_cast<float>(x->random_spread));
+  add_message(*x->osc_bundle_buffer, "spatialcorr", static_cast<float>(x->spatial_corr));
+  add_message(*x->osc_bundle_buffer, "pitchmin", static_cast<float>(x->pitch_min));
+  add_message(*x->osc_bundle_buffer, "pitchmax", static_cast<float>(x->pitch_max));
+  add_message(*x->osc_bundle_buffer, "trajshape", static_cast<float>(x->traj_shape));
+  add_message(*x->osc_bundle_buffer, "trajrate", static_cast<float>(x->traj_rate));
+  add_message(*x->osc_bundle_buffer, "trajdepth", static_cast<float>(x->traj_depth));
+
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];
   long bundle_size = x->osc_bundle_buffer->size();
@@ -1873,4 +1922,14 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "scanrange_moddepth") ec2_scanrange_moddepth(x, value);
   else if (param_name == "scanspeed_lfosource") ec2_scanspeed_lfosource(x, (long)value);
   else if (param_name == "scanspeed_moddepth") ec2_scanspeed_moddepth(x, value);
+  // Spatial allocation parameters
+  else if (param_name == "fixedchan") ec2_fixedchan(x, (long)value);
+  else if (param_name == "rrstep") ec2_rrstep(x, (long)value);
+  else if (param_name == "randspread") ec2_randspread(x, value);
+  else if (param_name == "spatialcorr") ec2_spatialcorr(x, value);
+  else if (param_name == "pitchmin") ec2_pitchmin(x, value);
+  else if (param_name == "pitchmax") ec2_pitchmax(x, value);
+  else if (param_name == "trajshape") ec2_trajshape(x, (long)value);
+  else if (param_name == "trajrate") ec2_trajrate(x, value);
+  else if (param_name == "trajdepth") ec2_trajdepth(x, value);
 }
