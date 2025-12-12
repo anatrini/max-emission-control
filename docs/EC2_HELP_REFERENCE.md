@@ -76,18 +76,18 @@ Used for real-time performance control. Sent in 2 ways:
 - `spiral_factor` - Spiral tightness (Trajectory mode)
 - `pendulum_decay` - Pendulum damping (Trajectory mode)
 
-**LFO Control (24 messages):**
-- `lfo1shape` through `lfo6shape` - LFO waveforms
-- `lfo1rate` through `lfo6rate` - LFO frequencies
-- `lfo1polarity` through `lfo6polarity` - LFO polarities
-- `lfo1duty` through `lfo6duty` - LFO duty cycles
+**LFO Control (30 messages):**
+- `lfo1shape` through `lfo6shape` - LFO waveforms (0-4)
+- `lfo1rate` through `lfo6rate` - LFO frequencies (0.001-100 Hz)
+- `lfo1polarity` through `lfo6polarity` - LFO polarities (0-2)
+- `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0)
+- `lfo1_depth` through `lfo6_depth` - LFO global modulation depth (0.0-1.0)
 
-**LFO Modulation Routing (flexible map/unmap system):**
-- `/lfo<N>_to_<parameter> map [depth]` - Map LFO to any of 61 parameters
+**LFO Modulation Routing (special command messages):**
+- `/lfo<N>_to_<parameter> map [destination_depth]` - Map LFO to any of 61 parameters
 - `/lfo<N>_to_<parameter> unmap` - Unmap LFO from parameter
-- `/lfo<N>_depth <value>` - Set global depth for LFO (affects all destinations)
 - Each LFO can modulate up to 8 destinations simultaneously
-- Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params
+- Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params (61 total)
 
 **Send as messages:**
 ```
@@ -1164,21 +1164,21 @@ All modes support:
 
 ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible routing matrix that allows modulation of **all 61 parameters** including synthesis parameters, deviation parameters, spatial allocation parameters, and even other LFO parameters. This enables complex, evolving textures and meta-modulation without external control signals.
 
-### Available LFOs
+### LFO Parameters (30 total)
 
-Each LFO (LFO1 through LFO6) has four control parameters:
+Each LFO (LFO1 through LFO6) has 5 control parameters:
 
-#### LFO Shape Parameters
-- **lfo1shape** through **lfo6shape** (message, int, 0-4, default: 0)
-  - **0**: Sine wave - Smooth, periodic modulation
-  - **1**: Square wave - Abrupt switching between two values
-  - **2**: Rise (ascending sawtooth) - Linear upward ramp
-  - **3**: Fall (descending sawtooth) - Linear downward ramp
-  - **4**: Noise - Random sample-and-hold values
+#### 1. Shape (lfo1shape - lfo6shape)
+**Type:** message, int, 0-4, default: 0
 
-**Message formats:**
-- OSC: `/lfo1shape <value>`, `/lfo2shape <value>`, etc.
-- FullPacket bundle
+**Values:**
+- **0**: Sine wave - Smooth, periodic modulation
+- **1**: Square wave - Abrupt switching between two values
+- **2**: Rise (ascending sawtooth) - Linear upward ramp
+- **3**: Fall (descending sawtooth) - Linear downward ramp
+- **4**: Noise - Random sample-and-hold values
+
+**Message format:** `/lfo1shape <value>`, `/lfo2shape <value>`, etc.
 
 **Examples:**
 ```
@@ -1186,13 +1186,12 @@ Each LFO (LFO1 through LFO6) has four control parameters:
 [message /lfo2shape 4(      // Noise
 ```
 
-#### LFO Rate Parameters
-- **lfo1rate** through **lfo6rate** (message, float, 0.001-100.0 Hz, default: 1.0)
-  - Controls the frequency/speed of the LFO oscillation
+#### 2. Rate (lfo1rate - lfo6rate)
+**Type:** message, float, 0.001-100.0 Hz, default: 1.0
 
-**Message formats:**
-- OSC: `/lfo1rate <value>`, `/lfo2rate <value>`, etc.
-- FullPacket bundle
+**Description:** Controls the frequency/speed of the LFO oscillation
+
+**Message format:** `/lfo1rate <value>`, `/lfo2rate <value>`, etc.
 
 **Examples:**
 ```
@@ -1200,15 +1199,15 @@ Each LFO (LFO1 through LFO6) has four control parameters:
 [message /lfo2rate 0.1(     // 0.1 Hz (10 second cycle)
 ```
 
-#### LFO Polarity Parameters
-- **lfo1polarity** through **lfo6polarity** (message, int, 0-2, default: 0)
-  - **0**: Bipolar - Output range: -1.0 to +1.0
-  - **1**: Unipolar+ - Output range: 0.0 to +1.0
-  - **2**: Unipolar- - Output range: -1.0 to 0.0
+#### 3. Polarity (lfo1polarity - lfo6polarity)
+**Type:** message, int, 0-2, default: 0
 
-**Message formats:**
-- OSC: `/lfo1polarity <value>`, `/lfo2polarity <value>`, etc.
-- FullPacket bundle
+**Values:**
+- **0**: Bipolar - Output range: -1.0 to +1.0
+- **1**: Unipolar+ - Output range: 0.0 to +1.0
+- **2**: Unipolar- - Output range: -1.0 to 0.0
+
+**Message format:** `/lfo1polarity <value>`, `/lfo2polarity <value>`, etc.
 
 **Examples:**
 ```
@@ -1216,16 +1215,15 @@ Each LFO (LFO1 through LFO6) has four control parameters:
 [message /lfo2polarity 1(   // Unipolar+
 ```
 
-#### LFO Duty Cycle Parameters
-- **lfo1duty** through **lfo6duty** (message, float, 0.0-1.0, default: 0.5)
-  - For square wave shape only: controls the high/low time ratio
-  - 0.5 = 50% duty cycle (equal high/low times)
-  - 0.25 = 25% high, 75% low
-  - 0.75 = 75% high, 25% low
+#### 4. Duty Cycle (lfo1duty - lfo6duty)
+**Type:** message, float, 0.0-1.0, default: 0.5
 
-**Message formats:**
-- OSC: `/lfo1duty <value>`, `/lfo2duty <value>`, etc.
-- FullPacket bundle
+**Description:** For square wave shape only, controls the high/low time ratio
+- 0.5 = 50% duty cycle (equal high/low times)
+- 0.25 = 25% high, 75% low
+- 0.75 = 75% high, 25% low
+
+**Message format:** `/lfo1duty <value>`, `/lfo2duty <value>`, etc.
 
 **Examples:**
 ```
@@ -1233,36 +1231,83 @@ Each LFO (LFO1 through LFO6) has four control parameters:
 [message /lfo2duty 0.25(    // 25% duty cycle
 ```
 
-### Modulation Routing
+#### 5. Global Depth (lfo1_depth - lfo6_depth)
+**Type:** message, float, 0.0-1.0, default: 1.0
 
-ec2~ uses a flexible map/unmap system with **dual-depth control**:
-- **Global depth per LFO** (`/lfoN_depth`): Scales all destinations of that LFO
-- **Per-destination depth**: Individual depth for each parameter mapping
-- **Effective modulation** = `lfo_value × global_depth × destination_depth`
+**Description:** Global modulation depth that scales ALL destinations mapped to this LFO. This allows you to control the overall modulation intensity of an LFO without changing individual per-destination depths.
 
-Each LFO can modulate up to **8 destinations** simultaneously.
+**Message format:** `/lfo1_depth <value>`, `/lfo2_depth <value>`, etc.
 
-#### Routing Message Format
-
-**Map LFO to parameter**:
+**Examples:**
 ```
-/lfo<N>_to_<parameter> map [depth]
+[message /lfo1_depth 1.0(   // Full depth (100%)
+[message /lfo2_depth 0.5(   // Half depth (50%)
+[message /lfo3_depth 0.0(   // No modulation (LFO effectively disabled)
+```
+
+**Note:** All LFO parameters can be sent via OSC-style messages or FullPacket bundles.
+
+### Modulation Routing (Command Messages)
+
+ec2~ uses a flexible map/unmap system to route LFO modulation to parameters. These are **special command messages**, NOT standard OSC parameters.
+
+#### How Modulation Depth Works
+
+ec2~ provides **dual-depth control**:
+1. **Global depth** (per LFO): `/lfo1_depth`, `/lfo2_depth`, etc. - These ARE standard parameters (listed above)
+2. **Per-destination depth**: Set during mapping with the `map` command
+3. **Effective modulation** = `lfo_value × global_depth × destination_depth`
+
+#### Mapping Commands
+
+These are SPECIAL COMMAND MESSAGES, not OSC parameters:
+
+**1. Map an LFO to a parameter:**
+```
+/lfo<N>_to_<parameter> map [destination_depth]
 ```
 - `N` = LFO number (1-6)
 - `parameter` = any of 61 modulatable parameters (see list below)
-- `depth` = optional per-destination depth (0.0-1.0, default: 1.0)
+- `destination_depth` = optional per-destination depth (0.0-1.0, default: 1.0)
 
-**Unmap LFO from parameter**:
+**Examples:**
+```
+[message /lfo1_to_grainrate map(          // Map with default depth (1.0)
+[message /lfo1_to_filterfreq map 0.7(     // Map with 70% destination depth
+[message /lfo2_to_amplitude map 0.5(      // Map with 50% destination depth
+```
+
+**2. Unmap an LFO from a parameter:**
 ```
 /lfo<N>_to_<parameter> unmap
 ```
 
-**Set LFO global depth**:
+**Examples:**
+```
+[message /lfo1_to_grainrate unmap(        // Remove LFO1 from grainrate
+[message /lfo2_to_filterfreq unmap(       // Remove LFO2 from filterfreq
+```
+
+**3. Set global depth (this IS a standard parameter):**
 ```
 /lfo<N>_depth <value>
 ```
 - `value` = global depth (0.0-1.0, default: 1.0)
-- Scales ALL destinations of this LFO
+- Scales ALL destinations mapped to this LFO
+
+**Examples:**
+```
+[message /lfo1_depth 1.0(     // Full global depth
+[message /lfo1_depth 0.5(     // 50% global depth - halves all destinations
+[message /lfo1_depth 0.0(     // Disable LFO1 entirely
+```
+
+#### Routing Constraints
+
+- Each LFO can modulate up to **8 destinations** simultaneously
+- Each parameter can only be modulated by **ONE LFO** at a time
+- LFOs cannot modulate their own parameters (no `/lfo1_to_lfo1rate map`)
+- Cross-modulation IS allowed (e.g., `/lfo1_to_lfo2rate map`)
 
 #### Modulatable Parameters (61 total)
 
