@@ -198,10 +198,33 @@ Ogni modalità allocazione (@allocmode) usa parametri specifici.
 - `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale
 - `weights` (list of floats, default: uniform) - Pesi per canale (auto-normalizzati automaticamente)
 
-**Esempio Weighted Mode**:
+**IMPORTANTE - Differenza tra ATTRIBUTI e PARAMETRI**:
+
+**ATTRIBUTI** (5 totali: `@outputs`, `@mc`, `@buffer`, `@allocmode`, `@soundfile`):
+- Impostabili in 3 modi:
+  a) Alla creazione: `[ec2~ @outputs 8 @buffer mysound]`
+  b) Con attrui (inspector Max)
+  c) Come messaggi semplici (alcuni attributi)
+
+**PARAMETRI** (tutti gli altri 94: grainrate, async, randspread, weights, etc.):
+- Inviabili in 2 modi:
+  1. **Messaggi OSC-style**: `/randspread 0.8`, `/weights 0.5 0.3 0.1 0.1`
+  2. **FullPacket bundle** (odot): comunicazione OSC bidirezionale via outlet destro
+
+**Formato messaggio weights**:
+- OSC-style: `/weights <valore1> <valore2> ... <valoreN>`
+- Ogni valore corrisponde a un canale (0-indexed)
+- Valori >= 0.0 (valori negativi vengono clampati a 0)
+- Auto-normalizzazione automatica: somma sempre 1.0 internamente
+- Messaggio vuoto resetta a distribuzione uniforme
+
+**Esempi**:
 ```
-[weights 0.5 0.3 0.1 0.1(    // 4 canali: 50%, 30%, 10%, 10%
-// Auto-normalizzazione automatica - somma sempre 1.0
+[/weights 0.5 0.3 0.1 0.1(   // 4 canali: 50%, 30%, 10%, 10%
+[/weights 5 3 1 1(           // Stesso risultato (auto-normalizzato)
+[/weights(                   // Reset a uniforme
+[/randspread 0.8(            // Altri parametri spatial
+[/spatialcorr 0.3(
 ```
 
 ### Pitch-to-Space Mapping (allocmode=5) - 2 params

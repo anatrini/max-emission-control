@@ -2029,4 +2029,7 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "trajshape") ec2_trajshape(x, (long)value);
   else if (param_name == "trajrate") ec2_trajrate(x, value);
   else if (param_name == "trajdepth") ec2_trajdepth(x, value);
+  else if (param_name == "spiral_factor") ec2_spiral_factor(x, value);
+  else if (param_name == "pendulum_decay") ec2_pendulum_decay(x, value);
+  // NOTE: weights parameter requires list parsing, handled separately in FullPacket parsing
 }

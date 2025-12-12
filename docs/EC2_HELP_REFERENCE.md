@@ -594,23 +594,61 @@ Random distribution with per-channel probability weights.
 
 ### Parameters
 
-#### weights (message, list of floats, default: uniform)
-Array of weights per channel. Weights are automatically normalized to sum to 1.0.
+**IMPORTANT - Attributes vs Parameters**:
 
-**Example:**
+**ATTRIBUTES** (5 total: `@outputs`, `@mc`, `@buffer`, `@allocmode`, `@soundfile`):
+- Set in 3 ways:
+  a) At creation: `[ec2~ @outputs 8 @buffer mysound]`
+  b) With attrui (Max inspector)
+  c) As simple messages (some attributes)
+
+**PARAMETERS** (all other 94: grainrate, async, randspread, weights, etc.):
+- Sent in 2 ways:
+  1. **OSC-style messages**: `/randspread 0.8`, `/weights 0.5 0.3 0.1 0.1`
+  2. **FullPacket bundles** (odot-compatible): bidirectional OSC via rightmost outlet
+
+#### weights (message, list of floats, default: uniform)
+**Message format:** `/weights <value1> <value2> ... <valueN>`
+
+Array of per-channel probability weights. Each value corresponds to one channel (0-indexed).
+- Values can be any positive number (internally clamped to >= 0.0)
+- Automatically normalized so sum = 1.0 (you don't need to normalize manually)
+- Number of values determines number of weighted channels
+
+**Examples:**
 ```
 // 4-channel setup: emphasize channels 0 and 1
-[message weights 0.5 0.3 0.1 0.1(  // 50%, 30%, 10%, 10% after normalization
+[message /weights 0.5 0.3 0.1 0.1(     // Result: 50%, 30%, 10%, 10%
+
+// Same result with unnormalized values (auto-normalized):
+[message /weights 5 3 1 1(             // Result: 50%, 30%, 10%, 10%
 
 // 8-channel setup: create "hot spot" on channels 3-4
-[message weights 0.1 0.1 0.1 1.0 1.0 0.1 0.1 0.1(
+[message /weights 0.1 0.1 0.1 1.0 1.0 0.1 0.1 0.1(
+
+// Reset to uniform distribution (clear weights):
+[message /weights(                     // Empty = uniform across all channels
 ```
 
 #### randspread (message, float, 0.0-1.0, default: 1.0)
+**Message format:** `/randspread <value>`
+
 Controls distribution uniformity. Lower values concentrate grains more strongly according to weights.
 
+**Example:**
+```
+[message /randspread 0.8(
+```
+
 #### spatialcorr (message, float, 0.0-1.0, default: 0.0)
+**Message format:** `/spatialcorr <value>`
+
 Spatial correlation/"stickiness" between adjacent channels. Higher values make consecutive grains more likely to stay in similar spatial regions.
+
+**Example:**
+```
+[message /spatialcorr 0.3(
+```
 
 **Theory:** Allows concentration of grain probability on specific channels. Each channel has a weight determining its selection probability. This implements Roads's concept of "weighted spatial probability distributions" for creating focused or directional spatial textures.
 
