@@ -14,50 +14,53 @@
 Arguments:
 - **num_outputs** (int, optional): Number of output channels (1-16, default: 2)
 
-## Messages vs Attributes
+## Parameters vs Attributes
 
-ec2~ follows Max best practices by using **attributes** for structural configuration and **messages** for performance parameters.
+ec2~ follows Max best practices by using **attributes** for structural configuration and **parameters** for performance control.
 
-### Attributes (@ prefix)
-Used for configuration that affects object structure:
-- `@outputs` - Number of output channels (changes outlet count)
-- `@mc` - Multichannel cable mode (changes outlet type)
-- `@buffer` - Source buffer name
-- `@allocmode` - Spatial allocation mode (structural choice)
-- `@soundfile` - Buffer index for polybuffer
+### Attributes (@ prefix) - 5 total
+Used for configuration that affects object structure. Set in 3 ways:
+- **At creation**: `[ec2~ @outputs 8 @mc 1 @allocmode 2]`
+- **With attrui** (Max inspector)
+- **As simple messages**: `[message outputs 16(`
 
-**Set at creation or via attribute messages:**
-```
-[ec2~ @outputs 8 @mc 1 @allocmode 2]  // At creation
-[message outputs 16(                   // Runtime change
-```
+**Available attributes:**
+- `@outputs` (int, 1-16, default: 2) - Number of output channels
+- `@mc` (int, 0-1, default: 0) - Multichannel cable mode
+- `@buffer` (symbol) - Source buffer name
+- `@allocmode` (int, 0-6, default: 1) - Spatial allocation mode
+- `@soundfile` (int, 0-15, default: 0) - Buffer index for polybuffer
 
-### Messages (no prefix)
-Used for real-time performance control of synthesis parameters:
+### Parameters (OSC-style / prefix) - 97 total
+Used for real-time performance control. Sent in 2 ways:
+- **OSC-style messages**: `[message /grainrate 40(`, `[message /amplitude 0.5(`
+- **FullPacket bundles** (odot): bidirectional OSC via rightmost outlet
 
-**Grain Scheduling:**
-- `grainrate` - Grain emission rate (Hz)
-- `async` - Asynchronicity
-- `intermittency` - Grain sparsity
-- `streams` - Number of grain streams
+**Format**: `/parameter_name <value>` (note the leading slash)
 
-**Grain Characteristics:**
-- `duration` - Grain duration (ms)
-- `playback` - Playback rate/pitch
-- `amp` - Amplitude
-- `envelope` - Envelope shape
+**Grain Scheduling (4):**
+- `/grainrate` - Grain emission rate (Hz)
+- `/async` - Asynchronicity
+- `/intermittency` - Grain sparsity
+- `/streams` - Number of grain streams
 
-**Filtering:**
-- `filterfreq` - Filter cutoff frequency
-- `resonance` - Filter resonance
+**Grain Characteristics (4):**
+- `/duration` - Grain duration (ms)
+- `/playback` - Playback rate/pitch
+- `/amplitude` (or `/amp`) - Amplitude
+- `/envelope` - Envelope shape
 
-**Spatial:**
-- `pan` - Stereo panning
+**Filtering (2):**
+- `/filterfreq` - Filter cutoff frequency
+- `/resonance` - Filter resonance
 
-**Scanning:**
-- `scanstart` - Scan start position
-- `scanrange` - Scan range
-- `scanspeed` - Scan speed
+**Spatial (1):**
+- `/pan` - Stereo panning
+
+**Scanning (3):**
+- `/scanstart` - Scan start position
+- `/scanrange` - Scan range
+- `/scanspeed` - Scan speed
 
 **Spatial Allocation Parameters (12 messages):**
 - `fixedchan` - Fixed channel number (1-16)
@@ -1163,32 +1166,72 @@ ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible rou
 
 ### Available LFOs
 
-Each LFO (LFO1 through LFO6) has four control attributes:
+Each LFO (LFO1 through LFO6) has four control parameters:
 
-#### LFO Shape Attributes
-- **lfo1shape** through **lfo6shape** (int, 0-4, default: 0)
+#### LFO Shape Parameters
+- **lfo1shape** through **lfo6shape** (message, int, 0-4, default: 0)
   - **0**: Sine wave - Smooth, periodic modulation
   - **1**: Square wave - Abrupt switching between two values
   - **2**: Rise (ascending sawtooth) - Linear upward ramp
   - **3**: Fall (descending sawtooth) - Linear downward ramp
   - **4**: Noise - Random sample-and-hold values
 
-#### LFO Rate Attributes
-- **lfo1rate** through **lfo6rate** (float, 0.001-100.0 Hz, default: 1.0)
+**Message formats:**
+- OSC: `/lfo1shape <value>`, `/lfo2shape <value>`, etc.
+- FullPacket bundle
+
+**Examples:**
+```
+[message /lfo1shape 0(      // Sine wave
+[message /lfo2shape 4(      // Noise
+```
+
+#### LFO Rate Parameters
+- **lfo1rate** through **lfo6rate** (message, float, 0.001-100.0 Hz, default: 1.0)
   - Controls the frequency/speed of the LFO oscillation
 
-#### LFO Polarity Attributes
-- **lfo1polarity** through **lfo6polarity** (int, 0-2, default: 0)
+**Message formats:**
+- OSC: `/lfo1rate <value>`, `/lfo2rate <value>`, etc.
+- FullPacket bundle
+
+**Examples:**
+```
+[message /lfo1rate 2.5(     // 2.5 Hz
+[message /lfo2rate 0.1(     // 0.1 Hz (10 second cycle)
+```
+
+#### LFO Polarity Parameters
+- **lfo1polarity** through **lfo6polarity** (message, int, 0-2, default: 0)
   - **0**: Bipolar - Output range: -1.0 to +1.0
   - **1**: Unipolar+ - Output range: 0.0 to +1.0
   - **2**: Unipolar- - Output range: -1.0 to 0.0
 
-#### LFO Duty Cycle Attributes
-- **lfo1duty** through **lfo6duty** (float, 0.0-1.0, default: 0.5)
+**Message formats:**
+- OSC: `/lfo1polarity <value>`, `/lfo2polarity <value>`, etc.
+- FullPacket bundle
+
+**Examples:**
+```
+[message /lfo1polarity 0(   // Bipolar
+[message /lfo2polarity 1(   // Unipolar+
+```
+
+#### LFO Duty Cycle Parameters
+- **lfo1duty** through **lfo6duty** (message, float, 0.0-1.0, default: 0.5)
   - For square wave shape only: controls the high/low time ratio
   - 0.5 = 50% duty cycle (equal high/low times)
   - 0.25 = 25% high, 75% low
   - 0.75 = 75% high, 25% low
+
+**Message formats:**
+- OSC: `/lfo1duty <value>`, `/lfo2duty <value>`, etc.
+- FullPacket bundle
+
+**Examples:**
+```
+[message /lfo1duty 0.5(     // 50% duty cycle
+[message /lfo2duty 0.25(    // 25% duty cycle
+```
 
 ### Modulation Routing
 
@@ -1277,20 +1320,20 @@ Each LFO can modulate up to **8 destinations** simultaneously.
 
 **Multiple LFOs on Different Parameters**:
 ```
-[lfo1shape 0(                    // LFO1: Sine wave
-[lfo1rate 0.5(                   // LFO1: 0.5 Hz
+[message /lfo1shape 0(           // LFO1: Sine wave
+[message /lfo1rate 0.5(          // LFO1: 0.5 Hz
 [message /lfo1_to_grainrate map 0.6(
 
-[lfo2shape 4(                    // LFO2: Random/noise
-[lfo2rate 5(                     // LFO2: 5 Hz
+[message /lfo2shape 4(           // LFO2: Random/noise
+[message /lfo2rate 5(            // LFO2: 5 Hz
 [message /lfo2_to_filterfreq map 0.7(
 ```
 
 **Modulating Deviation Parameters**:
 ```
 // Slowly evolve texture density
-[lfo3shape 0(                    // Sine
-[lfo3rate 0.1(                   // Very slow (10s cycle)
+[message /lfo3shape 0(           // Sine
+[message /lfo3rate 0.1(          // Very slow (10s cycle)
 [message /lfo3_to_grainrate_dev map 0.8(
 // Result: Grain rate deviation smoothly varies from tight to loose
 ```
@@ -1298,13 +1341,13 @@ Each LFO can modulate up to **8 destinations** simultaneously.
 **Meta-Modulation (LFO → LFO)**:
 ```
 // LFO1 modulates LFO2's rate
-[lfo1shape 0(                    // Sine
-[lfo1rate 0.2(                   // 5s cycle
+[message /lfo1shape 0(           // Sine
+[message /lfo1rate 0.2(          // 5s cycle
 [message /lfo1_to_lfo2rate map 0.5(
 
 // LFO2 (with varying rate) modulates filter
-[lfo2shape 0(
-[lfo2rate 2.0(                   // Base rate: 2 Hz
+[message /lfo2shape 0(
+[message /lfo2rate 2.0(          // Base rate: 2 Hz
 [message /lfo2_to_filterfreq map 0.7(
 // Result: Filter sweep rate changes periodically
 ```
@@ -1352,8 +1395,8 @@ ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 **Slowly Evolving Texture Complexity**:
 ```
 // Use slow LFO to modulate deviation parameters
-[lfo1shape 0(                         // Sine
-[lfo1rate 0.05(                       // 20s cycle
+[message /lfo1shape 0(                // Sine
+[message /lfo1rate 0.05(              // 20s cycle
 [message /lfo1_to_grainrate_dev map 0.9(
 [message /lfo1_to_duration_dev map 0.8(
 [message /lfo1_to_pan_dev map 0.7(
@@ -1363,14 +1406,14 @@ ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 **Rhythmic Pulsation with Variable Speed**:
 ```
 // LFO1 varies the speed of LFO2's pulsation
-[lfo1shape 2(                         // Rise (sawtooth)
-[lfo1rate 0.1(                        // Very slow acceleration
+[message /lfo1shape 2(                // Rise (sawtooth)
+[message /lfo1rate 0.1(               // Very slow acceleration
 [message /lfo1_to_lfo2rate map 0.8(
 
 // LFO2 creates rhythmic amplitude pulses
-[lfo2shape 1(                         // Square
-[lfo2rate 2.0(                        // Base: 2 Hz
-[lfo2duty 0.2(                        // Short pulses
+[message /lfo2shape 1(                // Square
+[message /lfo2rate 2.0(               // Base: 2 Hz
+[message /lfo2duty 0.2(               // Short pulses
 [message /lfo2_to_amplitude map 0.6(
 // Result: Pulse rate accelerates over time
 ```
