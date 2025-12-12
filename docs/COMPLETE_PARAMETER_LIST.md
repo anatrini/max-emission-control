@@ -102,42 +102,42 @@ ec2~ include 6 LFO indipendenti (LFO1-LFO6) per modulazione dinamica. Ogni LFO h
 - `lfo1rate` (float, 0.001-100 Hz, default: 1.0) - Frequenza oscillazione
 - `lfo1polarity` (int, 0-2, default: 0) - Polarità (0=Bipolar ±1, 1=Unipolar+ 0→1, 2=Unipolar- -1→0)
 - `lfo1duty` (float, 0.0-1.0, default: 0.5) - Duty cycle (solo square wave)
-- `lfo1_depth` (float, 0.0-1.0, default: 1.0) - Depth globale che scala TUTTE le destinazioni
+- `lfo1depth` (float, 0.0-1.0, default: 1.0) - Depth globale che scala TUTTE le destinazioni
 
 ### LFO2 (5 params)
 - `lfo2shape` (int, 0-4, default: 0)
 - `lfo2rate` (float, 0.001-100 Hz, default: 1.0)
 - `lfo2polarity` (int, 0-2, default: 0)
 - `lfo2duty` (float, 0.0-1.0, default: 0.5)
-- `lfo2_depth` (float, 0.0-1.0, default: 1.0)
+- `lfo2depth` (float, 0.0-1.0, default: 1.0)
 
 ### LFO3 (5 params)
 - `lfo3shape` (int, 0-4, default: 0)
 - `lfo3rate` (float, 0.001-100 Hz, default: 1.0)
 - `lfo3polarity` (int, 0-2, default: 0)
 - `lfo3duty` (float, 0.0-1.0, default: 0.5)
-- `lfo3_depth` (float, 0.0-1.0, default: 1.0)
+- `lfo3depth` (float, 0.0-1.0, default: 1.0)
 
 ### LFO4 (5 params)
 - `lfo4shape` (int, 0-4, default: 0)
 - `lfo4rate` (float, 0.001-100 Hz, default: 1.0)
 - `lfo4polarity` (int, 0-2, default: 0)
 - `lfo4duty` (float, 0.0-1.0, default: 0.5)
-- `lfo4_depth` (float, 0.0-1.0, default: 1.0)
+- `lfo4depth` (float, 0.0-1.0, default: 1.0)
 
 ### LFO5 (5 params)
 - `lfo5shape` (int, 0-4, default: 0)
 - `lfo5rate` (float, 0.001-100 Hz, default: 1.0)
 - `lfo5polarity` (int, 0-2, default: 0)
 - `lfo5duty` (float, 0.0-1.0, default: 0.5)
-- `lfo5_depth` (float, 0.0-1.0, default: 1.0)
+- `lfo5depth` (float, 0.0-1.0, default: 1.0)
 
 ### LFO6 (5 params)
 - `lfo6shape` (int, 0-4, default: 0)
 - `lfo6rate` (float, 0.001-100 Hz, default: 1.0)
 - `lfo6polarity` (int, 0-2, default: 0)
 - `lfo6duty` (float, 0.0-1.0, default: 0.5)
-- `lfo6_depth` (float, 0.0-1.0, default: 1.0)
+- `lfo6depth` (float, 0.0-1.0, default: 1.0)
 
 ---
 

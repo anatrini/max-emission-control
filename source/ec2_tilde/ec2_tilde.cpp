@@ -1196,15 +1196,15 @@ void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int
 // Main message handler for LFO routing
 // Handles: /lfo<N>_to_<param> map [depth]
 //          /lfo<N>_to_<param> unmap
-//          /lfo<N>_depth <value>
+//          /lfo<N>depth <value>
 void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
   std::string msg = s->s_name;
 
-  // Check for /lfo<N>_depth message
-  if (msg.find("/lfo") == 0 && msg.find("_depth") != std::string::npos) {
-    // Extract LFO number from "/lfo<N>_depth"
+  // Check for /lfo<N>depth message (consistent with lfo<N>rate, lfo<N>shape, etc.)
+  if (msg.find("/lfo") == 0 && msg.find("depth") != std::string::npos && msg.find("_to_") == std::string::npos) {
+    // Extract LFO number from "/lfo<N>depth"
     size_t lfo_start = 4;  // After "/lfo"
-    size_t lfo_end = msg.find("_depth");
+    size_t lfo_end = msg.find("depth");
     if (lfo_end == std::string::npos || lfo_end <= lfo_start) {
       object_error((t_object*)x, "invalid LFO depth message format: %s", msg.c_str());
       return;
@@ -1219,7 +1219,7 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     }
 
     if (argc < 1) {
-      object_error((t_object*)x, "/lfo%d_depth requires a value", lfo_num);
+      object_error((t_object*)x, "/lfo%ddepth requires a value", lfo_num);
       return;
     }
 
@@ -1838,7 +1838,7 @@ void ec2_send_osc_bundle(t_ec2* x) {
   // LFO modulation routing (new system: global depths + active destinations)
   // Output LFO global depths (6 values)
   for (int i = 0; i < 6; i++) {
-    std::string depth_msg = "/lfo" + std::to_string(i + 1) + "_depth";
+    std::string depth_msg = "/lfo" + std::to_string(i + 1) + "depth";
     add_message(*x->osc_bundle_buffer, depth_msg, static_cast<float>(x->lfo_states[i].global_depth));
   }
 

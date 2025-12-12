@@ -81,7 +81,7 @@ Used for real-time performance control. Sent in 2 ways:
 - `lfo1rate` through `lfo6rate` - LFO frequencies (0.001-100 Hz)
 - `lfo1polarity` through `lfo6polarity` - LFO polarities (0-2)
 - `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0)
-- `lfo1_depth` through `lfo6_depth` - LFO global modulation depth (0.0-1.0)
+- `lfo1depth` through `lfo6depth` - LFO global modulation depth (0.0-1.0)
 
 **LFO Modulation Routing (special command messages):**
 - `/lfo<N>_to_<parameter> map [destination_depth]` - Map LFO to any of 61 parameters
@@ -1231,18 +1231,18 @@ Each LFO (LFO1 through LFO6) has 5 control parameters:
 [message /lfo2duty 0.25(    // 25% duty cycle
 ```
 
-#### 5. Global Depth (lfo1_depth - lfo6_depth)
+#### 5. Global Depth (lfo1depth - lfo6depth)
 **Type:** message, float, 0.0-1.0, default: 1.0
 
 **Description:** Global modulation depth that scales ALL destinations mapped to this LFO. This allows you to control the overall modulation intensity of an LFO without changing individual per-destination depths.
 
-**Message format:** `/lfo1_depth <value>`, `/lfo2_depth <value>`, etc.
+**Message format:** `/lfo1depth <value>`, `/lfo2depth <value>`, etc.
 
 **Examples:**
 ```
-[message /lfo1_depth 1.0(   // Full depth (100%)
-[message /lfo2_depth 0.5(   // Half depth (50%)
-[message /lfo3_depth 0.0(   // No modulation (LFO effectively disabled)
+[message /lfo1depth 1.0(   // Full depth (100%)
+[message /lfo2depth 0.5(   // Half depth (50%)
+[message /lfo3depth 0.0(   // No modulation (LFO effectively disabled)
 ```
 
 **Note:** All LFO parameters can be sent via OSC-style messages or FullPacket bundles.
@@ -1254,7 +1254,7 @@ ec2~ uses a flexible map/unmap system to route LFO modulation to parameters. The
 #### How Modulation Depth Works
 
 ec2~ provides **dual-depth control**:
-1. **Global depth** (per LFO): `/lfo1_depth`, `/lfo2_depth`, etc. - These ARE standard parameters (listed above)
+1. **Global depth** (per LFO): `/lfo1depth`, `/lfo2depth`, etc. - These ARE standard parameters (listed above)
 2. **Per-destination depth**: Set during mapping with the `map` command
 3. **Effective modulation** = `lfo_value × global_depth × destination_depth`
 
@@ -1290,16 +1290,16 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 
 **3. Set global depth (this IS a standard parameter):**
 ```
-/lfo<N>_depth <value>
+/lfo<N>depth <value>
 ```
 - `value` = global depth (0.0-1.0, default: 1.0)
 - Scales ALL destinations mapped to this LFO
 
 **Examples:**
 ```
-[message /lfo1_depth 1.0(     // Full global depth
-[message /lfo1_depth 0.5(     // 50% global depth - halves all destinations
-[message /lfo1_depth 0.0(     // Disable LFO1 entirely
+[message /lfo1depth 1.0(     // Full global depth
+[message /lfo1depth 0.5(     // 50% global depth - halves all destinations
+[message /lfo1depth 0.0(     // Disable LFO1 entirely
 ```
 
 #### Routing Constraints
@@ -1356,7 +1356,7 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 [message /lfo1_to_pan map 0.5(
 
 // Set LFO1 global depth to 50% - affects ALL destinations
-[message /lfo1_depth 0.5(
+[message /lfo1depth 0.5(
 // Effective modulation:
 //   grainrate: 1.0 × 0.5 = 0.5
 //   filterfreq: 0.8 × 0.5 = 0.4
