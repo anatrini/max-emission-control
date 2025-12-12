@@ -59,16 +59,19 @@ Used for real-time performance control of synthesis parameters:
 - `scanrange` - Scan range
 - `scanspeed` - Scan speed
 
-**Spatial Allocation Parameters (9 messages):**
+**Spatial Allocation Parameters (14 messages):**
 - `fixedchan` - Fixed channel number (1-16)
 - `rrstep` - Round-robin step size
 - `randspread` - Random spread amount
 - `spatialcorr` - Spatial correlation
+- `weights` - Per-channel probability weights (Weighted mode)
 - `pitchmin` - Pitch-to-space minimum frequency
 - `pitchmax` - Pitch-to-space maximum frequency
-- `trajshape` - Trajectory shape
+- `trajshape` - Trajectory shape (0-5)
 - `trajrate` - Trajectory rate
 - `trajdepth` - Trajectory depth
+- `spiral_factor` - Spiral tightness (Trajectory mode)
+- `pendulum_decay` - Pendulum damping (Trajectory mode)
 
 **LFO Control (24 messages):**
 - `lfo1shape` through `lfo6shape` - LFO waveforms
@@ -583,21 +586,31 @@ Spatial correlation between successive grains. Real-time message for dynamic con
 
 Random distribution with per-channel probability weights.
 
-**Implementation Status:** The EC2 engine fully supports weighted random allocation. To implement UI control, the following messages would be needed (following best practices from Curtis Roads and professional granular synthesis systems):
-
-**Required Messages:**
-- `/weights <list>` - Array of weights per channel (e.g., `0.1 0.3 0.8 0.5` for 4 channels)
-- `/weight_normalize <0|1>` - Auto-normalize weights so they sum to 1.0 (default: 1)
-
-**Current Parameters:**
-- `randspread` (0.0-1.0) - Controls distribution uniformity (already available)
-- `spatialcorr` (0.0-1.0) - Spatial correlation/"stickiness" between adjacent channels (already available)
-
 **Use cases:**
 - Directional spatial focus (emphasize front over rear speakers)
 - "Hot spots" in multichannel array (concentrate energy in specific zones)
 - Asymmetric spatial fields (create weighted spatial probability maps)
 - Simulate acoustic environments with preferred reflection zones
+
+### Parameters
+
+#### weights (message, list of floats, default: uniform)
+Array of weights per channel. Weights are automatically normalized to sum to 1.0.
+
+**Example:**
+```
+// 4-channel setup: emphasize channels 0 and 1
+[message weights 0.5 0.3 0.1 0.1(  // 50%, 30%, 10%, 10% after normalization
+
+// 8-channel setup: create "hot spot" on channels 3-4
+[message weights 0.1 0.1 0.1 1.0 1.0 0.1 0.1 0.1(
+```
+
+#### randspread (message, float, 0.0-1.0, default: 1.0)
+Controls distribution uniformity. Lower values concentrate grains more strongly according to weights.
+
+#### spatialcorr (message, float, 0.0-1.0, default: 0.0)
+Spatial correlation/"stickiness" between adjacent channels. Higher values make consecutive grains more likely to stay in similar spatial regions.
 
 **Theory:** Allows concentration of grain probability on specific channels. Each channel has a weight determining its selection probability. This implements Roads's concept of "weighted spatial probability distributions" for creating focused or directional spatial textures.
 
@@ -662,12 +675,14 @@ Grains follow a time-based spatial trajectory across the channel array.
 
 ### Parameters
 
-#### trajshape (message, int, 0-3, default: 0)
+#### trajshape (message, int, 0-5, default: 0)
 Trajectory shape. Real-time message for dynamic control.
 - **0**: Sine - Sinusoidal back-and-forth motion
 - **1**: Saw - Linear sweep (sawtooth)
 - **2**: Triangle - Linear back-and-forth
 - **3**: Random walk - Constrained random movement
+- **4**: Spiral - Circular motion with expanding/contracting radius (use with `spiral_factor`)
+- **5**: Pendulum - Damped pendulum oscillation (use with `pendulum_decay`)
 
 #### trajrate (message, float, 0.001-100.0 Hz, default: 0.5)
 Speed of trajectory movement in Hertz. Real-time message for dynamic control.
@@ -677,6 +692,16 @@ Proportion of channel array covered by trajectory. Real-time message for dynamic
 - 1.0: Full array (all channels)
 - 0.5: Center half of channels
 - 0.25: Center quarter
+
+#### spiral_factor (message, float, 0.0-1.0, default: 0.0)
+Controls spiral tightness for trajshape=4 (Spiral). Real-time message for dynamic control.
+- 0.0: Pure circular motion
+- 1.0: Tight spiral motion
+
+#### pendulum_decay (message, float, 0.0-1.0, default: 0.1)
+Controls damping factor for trajshape=5 (Pendulum). Real-time message for dynamic control.
+- 0.0: No damping (continuous oscillation)
+- 1.0: Heavy damping (rapid decay)
 
 **Examples:**
 ```
@@ -696,6 +721,20 @@ Proportion of channel array covered by trajectory. Real-time message for dynamic
 [message allocmode 6(
 [message trajshape 3(
 [message trajrate 0.1(
+[message trajdepth 1.0(
+
+// Spiral motion with medium tightness
+[message allocmode 6(
+[message trajshape 4(
+[message trajrate 0.3(
+[message spiral_factor 0.5(
+[message trajdepth 1.0(
+
+// Damped pendulum oscillation
+[message allocmode 6(
+[message trajshape 5(
+[message trajrate 0.5(
+[message pendulum_decay 0.3(
 [message trajdepth 1.0(
 ```
 

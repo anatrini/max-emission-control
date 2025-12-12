@@ -14,8 +14,8 @@
 | **Deviazioni** | 14 | messages |
 | **LFO** | 24 | messages (6 LFOs × 4 params) |
 | **Modulation Routing** | 28 | messages (14 params × 2 controls) |
-| **Spatial Allocation** | 9 | messages |
-| **TOTALE** | **94** | |
+| **Spatial Allocation** | 14 | messages |
+| **TOTALE** | **99** | |
 
 ---
 
@@ -178,7 +178,7 @@ Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
 
 ---
 
-## 6. SPATIAL ALLOCATION PARAMETERS (9 total)
+## 6. SPATIAL ALLOCATION PARAMETERS (14 total)
 
 Parametri di allocazione spaziale per controllo real-time.
 Ogni modalità allocazione (@allocmode) usa parametri specifici.
@@ -189,22 +189,41 @@ Ogni modalità allocazione (@allocmode) usa parametri specifici.
 ### Round-Robin Mode (allocmode=1) - 1 param
 - `rrstep` (int, 1-16, default: 1) - Passo incremento round-robin
 
-### Random/Weighted Random Mode (allocmode=2,3) - 2 params
+### Random Mode (allocmode=2) - 2 params
 - `randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione casuale (1.0=uniforme)
-- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale (solo mode 3)
+- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale
+
+### Weighted Random Mode (allocmode=3) - 3 params
+- `randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione casuale
+- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale
+- `weights` (list of floats, default: uniform) - Pesi per canale (auto-normalizzati automaticamente)
+
+**Esempio Weighted Mode**:
+```
+[weights 0.5 0.3 0.1 0.1(    // 4 canali: 50%, 30%, 10%, 10%
+// Auto-normalizzazione automatica - somma sempre 1.0
+```
 
 ### Pitch-to-Space Mapping (allocmode=5) - 2 params
 - `pitchmin` (float, 20-20000 Hz, default: 20.0) - Pitch minimo mappato a canale 0
 - `pitchmax` (float, 20-20000 Hz, default: 20000.0) - Pitch massimo mappato a ultimo canale
 
-### Trajectory Mode (allocmode=6) - 3 params
-- `trajshape` (int, 0-3, default: 0) - Forma traiettoria (0=Linear, 1=Circular, 2=Random, 3=Bounce)
+### Trajectory Mode (allocmode=6) - 5 params
+- `trajshape` (int, 0-5, default: 0) - Forma traiettoria:
+  - **0**: Sine - Movimento sinusoidale avanti-indietro
+  - **1**: Saw - Sweep lineare (dente di sega)
+  - **2**: Triangle - Movimento triangolare avanti-indietro
+  - **3**: Random walk - Movimento casuale vincolato
+  - **4**: Spiral - Movimento spirale (richiede spiral_factor)
+  - **5**: Pendulum - Oscillazione pendolo smorzato (richiede pendulum_decay)
 - `trajrate` (float, 0.001-100 Hz, default: 1.0) - Velocità movimento traiettoria
 - `trajdepth` (float, 0.0-1.0, default: 1.0) - Profondità/ampiezza movimento spaziale
+- `spiral_factor` (float, 0.0-1.0, default: 0.0) - Strettezza spirale (0=cerchio puro, 1=spirale stretta)
+- `pendulum_decay` (float, 0.0-1.0, default: 0.1) - Fattore smorzamento pendolo (0=nessuno, 1=pesante)
 
 **Nota**: Questi parametri sono ora messaggi (non più attributi) per permettere:
 - Controllo real-time durante esecuzione
-- Modulazione futura via LFO (prossima implementazione)
+- Modulazione via LFO (implementata)
 - Automazione e controllo OSC bidirezionale
 
 ---

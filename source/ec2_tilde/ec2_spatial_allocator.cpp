@@ -483,6 +483,23 @@ float SpatialAllocator::evaluateTrajectory(float time) {
       break;
     }
 
+    case TrajectoryShape::SPIRAL: {
+      // Spiral trajectory: circular motion with expanding/contracting radius
+      // spiral_factor controls tightness (0=pure circle, 1=tight spiral)
+      float angle = phase * 2.0f * M_PI;
+      float radius = 0.5f + 0.5f * mParams.spiralFactor * std::sin(phase * 2.0f * M_PI);
+      pos = 0.5f + radius * std::sin(angle);
+      break;
+    }
+
+    case TrajectoryShape::PENDULUM: {
+      // Damped pendulum oscillation: exponentially decaying sinusoidal motion
+      // pendulum_decay controls damping (0=no damping, 1=heavy damping)
+      float decay = std::exp(-mParams.pendulumDecay * 10.0f * phase);
+      pos = 0.5f + 0.5f * decay * std::sin(phase * 2.0f * M_PI);
+      break;
+    }
+
     case TrajectoryShape::CUSTOM:
       // TODO: Allow user-defined trajectory function
       pos = phase;

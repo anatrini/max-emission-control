@@ -146,7 +146,7 @@ typedef struct _ec2 {
   int lfo1_polarity, lfo2_polarity, lfo3_polarity, lfo4_polarity, lfo5_polarity, lfo6_polarity;
   double lfo1_duty, lfo2_duty, lfo3_duty, lfo4_duty, lfo5_duty, lfo6_duty;
 
-  // Spatial allocation parameters (10 total)
+  // Spatial allocation parameters (10 total + weights)
   long alloc_mode;       // 0-6
   long fixed_channel;    // 1-16
   long rr_step;          // 1-16
@@ -154,9 +154,12 @@ typedef struct _ec2 {
   double spatial_corr;   // 0.0-1.0
   double pitch_min;      // 20-20000 Hz
   double pitch_max;      // 20-20000 Hz
-  long traj_shape;       // 0-3
+  long traj_shape;       // 0-5: 0=Sine, 1=Saw, 2=Triangle, 3=Random, 4=Spiral, 5=Pendulum
   double traj_rate;      // 0.001-100.0 Hz
   double traj_depth;     // 0.0-1.0
+  double spiral_factor;  // 0.0-1.0: transforms Circular into Spiral (0=pure circle, 1=tight spiral)
+  double pendulum_decay; // 0.0-1.0: damping factor for pendulum oscillation
+  std::vector<double>* channel_weights;  // Weighted mode: per-channel weights (auto-normalized)
 
   // Buffer management
   t_symbol* buffer_name;
@@ -277,6 +280,9 @@ void ec2_pitchmax(t_ec2* x, double v);
 void ec2_trajshape(t_ec2* x, long v);
 void ec2_trajrate(t_ec2* x, double v);
 void ec2_trajdepth(t_ec2* x, double v);
+void ec2_spiral_factor(t_ec2* x, double v);
+void ec2_pendulum_decay(t_ec2* x, double v);
+void ec2_weights(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
 
 // Buffer management
 void ec2_buffer(t_ec2* x, t_symbol* s);
@@ -373,6 +379,9 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_trajshape, "trajshape", A_LONG, 0);
   class_addmethod(c, (method)ec2_trajrate, "trajrate", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_trajdepth, "trajdepth", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_spiral_factor, "spiral_factor", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_pendulum_decay, "pendulum_decay", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_weights, "weights", A_GIMME, 0);
 
   // LFO parameters (24 total)
   class_addmethod(c, (method)ec2_lfo1shape, "lfo1shape", A_FLOAT, 0);
@@ -520,6 +529,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->traj_shape = 0;
   x->traj_rate = 0.5;
   x->traj_depth = 1.0;
+  x->spiral_factor = 0.0;     // Pure circular by default
+  x->pendulum_decay = 0.1;    // Light damping by default
+  x->channel_weights = new std::vector<double>();  // Empty by default
 
   x->buffer_name = gensym("");
   x->buffer_ref = nullptr;
@@ -595,6 +607,7 @@ void ec2_free(t_ec2* x) {
   if (x->signal_outlets) delete x->signal_outlets;
   if (x->osc_bundle_buffer) delete x->osc_bundle_buffer;
   if (x->input_buffer) delete x->input_buffer;
+  if (x->channel_weights) delete x->channel_weights;
 }
 
 void ec2_assist(t_ec2* x, void* b, long m, long a, char* s) {
@@ -1390,7 +1403,7 @@ void ec2_pitchmax(t_ec2* x, double v) {
 }
 
 void ec2_trajshape(t_ec2* x, long v) {
-  x->traj_shape = std::max(0L, std::min(3L, v));
+  x->traj_shape = std::max(0L, std::min(5L, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -1403,6 +1416,44 @@ void ec2_trajrate(t_ec2* x, double v) {
 
 void ec2_trajdepth(t_ec2* x, double v) {
   x->traj_depth = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_spiral_factor(t_ec2* x, double v) {
+  x->spiral_factor = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_pendulum_decay(t_ec2* x, double v) {
+  x->pendulum_decay = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+void ec2_weights(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
+  x->channel_weights->clear();
+
+  if (argc == 0) {
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+    return;
+  }
+
+  double sum = 0.0;
+  for (long i = 0; i < argc; i++) {
+    double weight = atom_getfloat(argv + i);
+    if (weight < 0.0) weight = 0.0;
+    x->channel_weights->push_back(weight);
+    sum += weight;
+  }
+
+  if (sum > 0.0) {
+    for (size_t i = 0; i < x->channel_weights->size(); i++) {
+      (*x->channel_weights)[i] /= sum;
+    }
+  }
+
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -1603,9 +1654,18 @@ void ec2_update_engine_params(t_ec2* x) {
   params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);
   params.spatial.pitchMin = x->pitch_min * (1.0 + pitchmin_mod);
   params.spatial.pitchMax = x->pitch_max * (1.0 + pitchmax_mod);
-  params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape + static_cast<int>(trajshape_mod * 4));
+  params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape + static_cast<int>(trajshape_mod * 6));
   params.spatial.trajRate = x->traj_rate * (1.0 + trajrate_mod);
   params.spatial.trajDepth = x->traj_depth * (1.0 + trajdepth_mod);
+  params.spatial.spiralFactor = x->spiral_factor;
+  params.spatial.pendulumDecay = x->pendulum_decay;
+
+  // Weighted mode: transfer channel weights if specified
+  if (!x->channel_weights->empty()) {
+    for (size_t i = 0; i < x->channel_weights->size() && i < params.spatial.weights.size(); i++) {
+      params.spatial.weights[i] = (*x->channel_weights)[i];
+    }
+  }
 
   // Modulation routing (14 parameters - using new LFO routing system)
   // Use temporary doubles for conversion from helper function, then assign to float members
@@ -1802,6 +1862,8 @@ void ec2_send_osc_bundle(t_ec2* x) {
   add_message(*x->osc_bundle_buffer, "trajshape", static_cast<float>(x->traj_shape));
   add_message(*x->osc_bundle_buffer, "trajrate", static_cast<float>(x->traj_rate));
   add_message(*x->osc_bundle_buffer, "trajdepth", static_cast<float>(x->traj_depth));
+  add_message(*x->osc_bundle_buffer, "spiral_factor", static_cast<float>(x->spiral_factor));
+  add_message(*x->osc_bundle_buffer, "pendulum_decay", static_cast<float>(x->pendulum_decay));
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];

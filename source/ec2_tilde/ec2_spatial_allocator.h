@@ -37,6 +37,8 @@ enum class TrajectoryShape {
   SAW,            // Sawtooth sweep
   TRIANGLE,       // Triangle wave
   RANDOMWALK,     // Random walk
+  SPIRAL,         // Spiral movement (requires spiral_factor parameter)
+  PENDULUM,       // Damped pendulum oscillation (requires pendulum_decay parameter)
   CUSTOM          // User-defined
 };
 
@@ -104,6 +106,8 @@ struct SpatialParameters {
   float trajRate = 0.5f;          // Hz
   float trajDepth = 1.0f;         // 0-1, proportion of array covered
   float trajOffset = 0.0f;        // Initial phase (0-1)
+  float spiralFactor = 0.0f;      // 0-1, controls spiral tightness (0=circle, 1=tight spiral)
+  float pendulumDecay = 0.1f;     // 0-1, damping factor for pendulum motion
 
   // Distance mode (optional)
   float distanceAttenuation = 2.0f;  // Distance exponent
