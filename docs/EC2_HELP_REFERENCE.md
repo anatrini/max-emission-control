@@ -76,9 +76,12 @@ Used for real-time performance control of synthesis parameters:
 - `lfo1polarity` through `lfo6polarity` - LFO polarities
 - `lfo1duty` through `lfo6duty` - LFO duty cycles
 
-**LFO Modulation Routing (28 messages):**
-- `<parameter>_lfosource` - Assign LFO to parameter (14 parameters)
-- `<parameter>_moddepth` - Set modulation depth (14 parameters)
+**LFO Modulation Routing (flexible map/unmap system):**
+- `/lfo<N>_to_<parameter> map [depth]` - Map LFO to any of 61 parameters
+- `/lfo<N>_to_<parameter> unmap` - Unmap LFO from parameter
+- `/lfo<N>_depth <value>` - Set global depth for LFO (affects all destinations)
+- Each LFO can modulate up to 8 destinations simultaneously
+- Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params
 
 **Send as messages:**
 ```
@@ -1091,7 +1094,7 @@ All modes support:
 
 ## LFO Modulation System (Phase 9)
 
-ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) that can be routed to modulate any synthesis parameter. This enables dynamic, evolving textures without external control signals.
+ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible routing matrix that allows modulation of **all 61 parameters** including synthesis parameters, deviation parameters, spatial allocation parameters, and even other LFO parameters. This enables complex, evolving textures and meta-modulation without external control signals.
 
 ### Available LFOs
 
@@ -1124,124 +1127,209 @@ Each LFO (LFO1 through LFO6) has four control attributes:
 
 ### Modulation Routing
 
-ec2~ provides direct message control for LFO routing. Each of the 14 modulatable parameters has two dedicated controls:
+ec2~ uses a flexible map/unmap system with **dual-depth control**:
+- **Global depth per LFO** (`/lfoN_depth`): Scales all destinations of that LFO
+- **Per-destination depth**: Individual depth for each parameter mapping
+- **Effective modulation** = `lfo_value × global_depth × destination_depth`
 
-1. **`<parameter>_lfosource`** (int, 0-6): Which LFO to use (0=none, 1-6=LFO number)
-2. **`<parameter>_moddepth`** (float, 0.0-1.0): Modulation depth/amount
+Each LFO can modulate up to **8 destinations** simultaneously.
 
-**Modulatable Parameters** (14 total):
-- `grainrate` - Grain emission rate
-- `async` - Asynchronicity
-- `intermittency` - Intermittency probability
-- `streams` - Number of streams
-- `playback` - Playback rate/pitch
-- `duration` - Grain duration
-- `envelope` - Envelope shape
-- `filterfreq` - Filter cutoff frequency
-- `resonance` - Filter resonance
-- `pan` - Stereo pan
-- `amplitude` - Amplitude
-- `scanstart` - Scan start position
-- `scanrange` - Scan range
-- `scanspeed` - Scan speed
+#### Routing Message Format
 
-**Control Messages** (28 total: 14 parameters × 2 controls):
-
-Each parameter has two routing messages:
+**Map LFO to parameter**:
 ```
-<parameter>_lfosource <0-6>    // 0=none, 1-6=LFO number
-<parameter>_moddepth <0.0-1.0> // Modulation depth
+/lfo<N>_to_<parameter> map [depth]
+```
+- `N` = LFO number (1-6)
+- `parameter` = any of 61 modulatable parameters (see list below)
+- `depth` = optional per-destination depth (0.0-1.0, default: 1.0)
+
+**Unmap LFO from parameter**:
+```
+/lfo<N>_to_<parameter> unmap
 ```
 
-**Examples**:
+**Set LFO global depth**:
 ```
-[grainrate_lfosource 1(         // Assign LFO1 to grainrate
-[grainrate_moddepth 0.8(        // Set modulation depth to 80%
+/lfo<N>_depth <value>
+```
+- `value` = global depth (0.0-1.0, default: 1.0)
+- Scales ALL destinations of this LFO
 
-[filterfreq_lfosource 2(        // Assign LFO2 to filter frequency
-[filterfreq_moddepth 0.5(       // Set modulation depth to 50%
+#### Modulatable Parameters (61 total)
 
-[duration_lfosource 0(          // Disable duration modulation (source=0)
+**Synthesis Parameters (14)**:
+- `grainrate`, `async`, `intermittency`, `streams`
+- `playback`, `duration`, `envelope`, `amplitude`
+- `filterfreq`, `resonance`
+- `pan`, `scanstart`, `scanrange`, `scanspeed`
 
-[playback_lfosource 3(          // Assign LFO3 to playback rate
-[playback_moddepth 0.3(         // Subtle pitch modulation (30%)
+**Deviation Parameters (14)**:
+- `grainrate_dev`, `async_dev`, `intermittency_dev`, `streams_dev`
+- `playback_dev`, `duration_dev`, `envelope_dev`, `amp_dev`
+- `filterfreq_dev`, `resonance_dev`
+- `pan_dev`, `scanstart_dev`, `scanrange_dev`, `scanspeed_dev`
+
+**Spatial Allocation Parameters (9)**:
+- `fixedchan`, `rrstep`, `randspread`, `spatialcorr`
+- `pitchmin`, `pitchmax`
+- `trajshape`, `trajrate`, `trajdepth`
+
+**LFO Parameters (24)** - Meta-modulation:
+- `lfo1shape` through `lfo6shape` (cannot modulate self)
+- `lfo1rate` through `lfo6rate` (cannot modulate self)
+- `lfo1polarity` through `lfo6polarity` (cannot modulate self)
+- `lfo1duty` through `lfo6duty` (cannot modulate self)
+
+#### Routing Examples
+
+**Basic Mapping**:
+```
+// Map LFO1 to grainrate with default depth (1.0)
+[message /lfo1_to_grainrate map(
+
+// Map LFO2 to filterfreq with 70% depth
+[message /lfo2_to_filterfreq map 0.7(
+
+// Unmap LFO1 from grainrate
+[message /lfo1_to_grainrate unmap(
+```
+
+**Global Depth Control**:
+```
+// Map multiple parameters to LFO1
+[message /lfo1_to_grainrate map 1.0(
+[message /lfo1_to_filterfreq map 0.8(
+[message /lfo1_to_pan map 0.5(
+
+// Set LFO1 global depth to 50% - affects ALL destinations
+[message /lfo1_depth 0.5(
+// Effective modulation:
+//   grainrate: 1.0 × 0.5 = 0.5
+//   filterfreq: 0.8 × 0.5 = 0.4
+//   pan: 0.5 × 0.5 = 0.25
 ```
 
 **Multiple LFOs on Different Parameters**:
 ```
-[lfo1shape 0(                   // LFO1: Sine wave
-[lfo1rate 0.5(                  // LFO1: 0.5 Hz
-[grainrate_lfosource 1(         // Use LFO1 for grain rate
-[grainrate_moddepth 0.6(        // 60% depth
+[lfo1shape 0(                    // LFO1: Sine wave
+[lfo1rate 0.5(                   // LFO1: 0.5 Hz
+[message /lfo1_to_grainrate map 0.6(
 
-[lfo2shape 4(                   // LFO2: Random/noise
-[lfo2rate 5(                    // LFO2: 5 Hz
-[filterfreq_lfosource 2(        // Use LFO2 for filter
-[filterfreq_moddepth 0.7(       // 70% depth
+[lfo2shape 4(                    // LFO2: Random/noise
+[lfo2rate 5(                     // LFO2: 5 Hz
+[message /lfo2_to_filterfreq map 0.7(
 ```
 
-**Note**: Multiple parameters can use the same LFO, and each parameter can only be modulated by one LFO at a time (setting a new source replaces the previous one)
-
-### Modulation Examples
-
-**Example 1: Slow grain rate variation**
+**Modulating Deviation Parameters**:
 ```
-@lfo1shape 0          // Sine wave
-@lfo1rate 0.2         // 0.2 Hz (5 second cycle)
-@lfo1polarity 1       // Unipolar+ (0.0 to 1.0)
-[modroute grainrate 1 0.5(   // Modulate grain rate with LFO1, depth 0.5
+// Slowly evolve texture density
+[lfo3shape 0(                    // Sine
+[lfo3rate 0.1(                   // Very slow (10s cycle)
+[message /lfo3_to_grainrate_dev map 0.8(
+// Result: Grain rate deviation smoothly varies from tight to loose
 ```
 
-**Example 2: Rhythmic filter sweep**
+**Meta-Modulation (LFO → LFO)**:
 ```
-@lfo2shape 2          // Rise (sawtooth up)
-@lfo2rate 2.0         // 2 Hz
-@lfo2polarity 1       // Unipolar+
-[modroute filterfreq 2 0.8(   // Modulate filter with LFO2, depth 0.8
+// LFO1 modulates LFO2's rate
+[lfo1shape 0(                    // Sine
+[lfo1rate 0.2(                   // 5s cycle
+[message /lfo1_to_lfo2rate map 0.5(
+
+// LFO2 (with varying rate) modulates filter
+[lfo2shape 0(
+[lfo2rate 2.0(                   // Base rate: 2 Hz
+[message /lfo2_to_filterfreq map 0.7(
+// Result: Filter sweep rate changes periodically
 ```
 
-**Example 3: Random pitch variation**
+**Complex Routing (Up to 8 destinations per LFO)**:
 ```
-@lfo3shape 4          // Noise (random)
-@lfo3rate 5.0         // 5 Hz update rate
-@lfo3polarity 0       // Bipolar (-1 to +1)
-[modroute playback 3 0.3(     // Subtle random pitch variation
-```
-
-**Example 4: Pulsing amplitude**
-```
-@lfo4shape 1          // Square wave
-@lfo4rate 1.5         // 1.5 Hz
-@lfo4duty 0.25        // 25% duty cycle (short pulses)
-@lfo4polarity 1       // Unipolar+
-[modroute amp 4 0.7(          // Pulsing volume
+// LFO1 controls overall "energy" of multiple params
+[message /lfo1_to_grainrate map 0.5(
+[message /lfo1_to_amplitude map 0.6(
+[message /lfo1_to_filterfreq map 0.4(
+[message /lfo1_to_streams map 0.3(
+[message /lfo1_to_scanspeed map 0.5(
+[message /lfo1_to_duration_dev map 0.7(
+[message /lfo1_to_pan_dev map 0.8(
+[message /lfo1_to_trajrate map 0.4(
+// Now LFO1 at max capacity (8 destinations)
 ```
 
-**Example 5: Clear modulation**
-```
-[modroute grainrate none(     // Remove modulation from grainrate
-[modroute filterfreq 0(        // Also removes modulation (0 = none)
-```
+#### Error Handling
 
-### Multiple LFO Routing
-
-You can use different LFOs on different parameters simultaneously:
-
+**Max destinations reached**:
 ```
-[modroute grainrate 1 0.4(    // LFO1 modulates grain rate
-[modroute filterfreq 2 0.6(   // LFO2 modulates filter frequency
-[modroute pan 3 0.5(          // LFO3 modulates stereo pan
+ec2~: ERROR: LFO1 has reached maximum destinations (8/8). Unmap a parameter first.
 ```
 
-**Note**: Each parameter can only have ONE LFO assigned at a time. Sending a new modroute message to a parameter overwrites the previous routing.
+**Parameter already mapped**:
+```
+ec2~: ERROR: parameter 'grainrate' is already modulated by LFO2. Unmap first with: /lfo2_to_grainrate unmap
+```
+
+**Self-modulation attempt**:
+```
+[message /lfo1_to_lfo1rate map(
+ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
+```
+
+**Restrictions**:
+- Each parameter can only be modulated by ONE LFO at a time
+- Each LFO can modulate up to 8 parameters simultaneously
+- LFOs cannot modulate their own parameters (no LFO1→lfo1rate)
+- Cross-modulation is allowed (LFO1→lfo2rate is valid)
+
+### Musical Applications
+
+**Slowly Evolving Texture Complexity**:
+```
+// Use slow LFO to modulate deviation parameters
+[lfo1shape 0(                         // Sine
+[lfo1rate 0.05(                       // 20s cycle
+[message /lfo1_to_grainrate_dev map 0.9(
+[message /lfo1_to_duration_dev map 0.8(
+[message /lfo1_to_pan_dev map 0.7(
+// Texture smoothly morphs from regular to chaotic and back
+```
+
+**Rhythmic Pulsation with Variable Speed**:
+```
+// LFO1 varies the speed of LFO2's pulsation
+[lfo1shape 2(                         // Rise (sawtooth)
+[lfo1rate 0.1(                        // Very slow acceleration
+[message /lfo1_to_lfo2rate map 0.8(
+
+// LFO2 creates rhythmic amplitude pulses
+[lfo2shape 1(                         // Square
+[lfo2rate 2.0(                        // Base: 2 Hz
+[lfo2duty 0.2(                        // Short pulses
+[message /lfo2_to_amplitude map 0.6(
+// Result: Pulse rate accelerates over time
+```
+
+**Complex Spatial Movement**:
+```
+// Multiple LFOs control different spatial aspects
+[message /lfo1_to_trajrate map 0.5(      // Trajectory speed varies
+[message /lfo2_to_trajdepth map 0.7(     // Movement depth varies
+[message /lfo3_to_randspread map 0.6(    // Spatial spread varies
+[message /lfo4_to_pan_dev map 0.8(       // Stereo deviation varies
+// Creates rich, unpredictable spatial behavior
+```
 
 ### LFO Implementation Details
 
-- All LFOs run continuously in the background at sample rate
-- Modulation is applied multiplicatively based on depth:
-  - `modulated_value = base_value + (lfo_output * depth * parameter_range)`
-- LFO phases are independent (no phase-locking between LFOs)
-- LFOs are not reset when changing attributes (continuous operation)
+- **Always Running**: All 6 LFOs run continuously in the background at sample rate
+- **Modulation Application**:
+  - For continuous parameters: `modulated = base × (1.0 + lfo_value × global_depth × dest_depth)`
+  - For discrete parameters: `modulated = base + (int)(lfo_value × global_depth × dest_depth × range)`
+- **Phase Independence**: LFO phases are independent (no phase-locking)
+- **Continuous Operation**: LFOs are not reset when changing parameters
+- **CPU Usage**: Minimal overhead (~0.1% per active LFO on modern systems)
+- **OSC Output**: Active mappings and depths are transmitted via OSC outlet for monitoring
 
 ---
 

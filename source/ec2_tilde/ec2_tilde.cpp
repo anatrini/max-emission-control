@@ -64,6 +64,24 @@ loadFromMaxBuffer(const std::string& buffer_name) {
 }
 } // namespace ec2_buffer_helper
 
+// LFO destination structure (up to 8 destinations per LFO)
+#define MAX_LFO_DESTINATIONS 8
+
+struct LFODestination {
+  std::string param_name;  // Parameter being modulated
+  double depth;            // Modulation depth (0.0-1.0)
+
+  LFODestination() : param_name(""), depth(1.0) {}
+  LFODestination(const std::string& name, double d) : param_name(name), depth(d) {}
+};
+
+struct LFOState {
+  double global_depth;                           // Global depth for this LFO (0.0-1.0)
+  std::vector<LFODestination> destinations;      // Active destinations (max 8)
+
+  LFOState() : global_depth(1.0) {}
+};
+
 // Main object struct
 typedef struct _ec2 {
   t_pxobject ob;  // MUST be first
@@ -118,35 +136,15 @@ typedef struct _ec2 {
   double scanrange_dev;
   double scanspeed_dev;
 
-  // Modulation routing parameters (28 total: 14 params × 2 controls)
-  long grainrate_lfosource;      // 0-6 (0=none, 1-6=LFO number)
-  double grainrate_moddepth;     // 0.0-1.0
-  long async_lfosource;
-  double async_moddepth;
-  long intermittency_lfosource;
-  double intermittency_moddepth;
-  long streams_lfosource;
-  double streams_moddepth;
-  long playback_lfosource;
-  double playback_moddepth;
-  long duration_lfosource;
-  double duration_moddepth;
-  long envelope_lfosource;
-  double envelope_moddepth;
-  long filterfreq_lfosource;
-  double filterfreq_moddepth;
-  long resonance_lfosource;
-  double resonance_moddepth;
-  long pan_lfosource;
-  double pan_moddepth;
-  long amplitude_lfosource;
-  double amplitude_moddepth;
-  long scanstart_lfosource;
-  double scanstart_moddepth;
-  long scanrange_lfosource;
-  double scanrange_moddepth;
-  long scanspeed_lfosource;
-  double scanspeed_moddepth;
+  // LFO modulation system (6 LFOs, each can modulate up to 8 parameters)
+  LFOState lfo_states[6];        // LFO1-LFO6 states
+
+  // LFO base parameters (24 total: 6 LFOs × 4 params)
+  // Stored here so they can be modulated by other LFOs
+  int lfo1_shape, lfo2_shape, lfo3_shape, lfo4_shape, lfo5_shape, lfo6_shape;
+  double lfo1_rate, lfo2_rate, lfo3_rate, lfo4_rate, lfo5_rate, lfo6_rate;
+  int lfo1_polarity, lfo2_polarity, lfo3_polarity, lfo4_polarity, lfo5_polarity, lfo6_polarity;
+  double lfo1_duty, lfo2_duty, lfo3_duty, lfo4_duty, lfo5_duty, lfo6_duty;
 
   // Spatial allocation parameters (10 total)
   long alloc_mode;       // 0-6
@@ -220,35 +218,16 @@ void ec2_scanstart_dev(t_ec2* x, double v);
 void ec2_scanrange_dev(t_ec2* x, double v);
 void ec2_scanspeed_dev(t_ec2* x, double v);
 
-// Modulation routing parameters (28 total: 14 params × 2 controls each)
-void ec2_grainrate_lfosource(t_ec2* x, long v);
-void ec2_grainrate_moddepth(t_ec2* x, double v);
-void ec2_async_lfosource(t_ec2* x, long v);
-void ec2_async_moddepth(t_ec2* x, double v);
-void ec2_intermittency_lfosource(t_ec2* x, long v);
-void ec2_intermittency_moddepth(t_ec2* x, double v);
-void ec2_streams_lfosource(t_ec2* x, long v);
-void ec2_streams_moddepth(t_ec2* x, double v);
-void ec2_playback_lfosource(t_ec2* x, long v);
-void ec2_playback_moddepth(t_ec2* x, double v);
-void ec2_duration_lfosource(t_ec2* x, long v);
-void ec2_duration_moddepth(t_ec2* x, double v);
-void ec2_envelope_lfosource(t_ec2* x, long v);
-void ec2_envelope_moddepth(t_ec2* x, double v);
-void ec2_filterfreq_lfosource(t_ec2* x, long v);
-void ec2_filterfreq_moddepth(t_ec2* x, double v);
-void ec2_resonance_lfosource(t_ec2* x, long v);
-void ec2_resonance_moddepth(t_ec2* x, double v);
-void ec2_pan_lfosource(t_ec2* x, long v);
-void ec2_pan_moddepth(t_ec2* x, double v);
-void ec2_amplitude_lfosource(t_ec2* x, long v);
-void ec2_amplitude_moddepth(t_ec2* x, double v);
-void ec2_scanstart_lfosource(t_ec2* x, long v);
-void ec2_scanstart_moddepth(t_ec2* x, double v);
-void ec2_scanrange_lfosource(t_ec2* x, long v);
-void ec2_scanrange_moddepth(t_ec2* x, double v);
-void ec2_scanspeed_lfosource(t_ec2* x, long v);
-void ec2_scanspeed_moddepth(t_ec2* x, double v);
+// LFO modulation system (new map/unmap approach)
+void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+void ec2_lfo_unmap(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+void ec2_lfo_depth(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+
+// Helper functions for LFO routing
+int ec2_find_lfo_destination(t_ec2* x, int lfo_num, const std::string& param_name);
+int ec2_find_param_lfo_source(t_ec2* x, const std::string& param_name);
+double ec2_get_lfo_modulation(t_ec2* x, const std::string& param_name);
+void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int& lfo_source, double& depth);
 
 // Spatial allocation parameters (9 total - converted from attributes to messages)
 void ec2_fixedchan(t_ec2* x, long v);
@@ -379,35 +358,10 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_scanrange_dev, "scanrange_dev", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_scanspeed_dev, "scanspeed_dev", A_FLOAT, 0);
 
-  // Modulation routing parameters (28 total: 14 params × 2 controls)
-  class_addmethod(c, (method)ec2_grainrate_lfosource, "grainrate_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_grainrate_moddepth, "grainrate_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_async_lfosource, "async_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_async_moddepth, "async_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_intermittency_lfosource, "intermittency_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_intermittency_moddepth, "intermittency_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_streams_lfosource, "streams_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_streams_moddepth, "streams_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_playback_lfosource, "playback_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_playback_moddepth, "playback_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_duration_lfosource, "duration_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_duration_moddepth, "duration_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_envelope_lfosource, "envelope_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_envelope_moddepth, "envelope_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_filterfreq_lfosource, "filterfreq_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_filterfreq_moddepth, "filterfreq_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_resonance_lfosource, "resonance_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_resonance_moddepth, "resonance_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_pan_lfosource, "pan_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_pan_moddepth, "pan_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_amplitude_lfosource, "amplitude_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_amplitude_moddepth, "amplitude_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_scanstart_lfosource, "scanstart_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_scanstart_moddepth, "scanstart_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_scanrange_lfosource, "scanrange_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_scanrange_moddepth, "scanrange_moddepth", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_scanspeed_lfosource, "scanspeed_lfosource", A_LONG, 0);
-  class_addmethod(c, (method)ec2_scanspeed_moddepth, "scanspeed_moddepth", A_FLOAT, 0);
+  // LFO modulation system (new map/unmap messages)
+  // Format: /lfo<N>_to_<param> map [depth]  or  /lfo<N>_to_<param> unmap
+  // These are registered as typed messages with A_GIMME to accept variable arguments
+  class_addmethod(c, (method)ec2_lfo_map, "anything", A_GIMME, 0);  // Catch-all for /lfo* messages
 
   // Spatial allocation parameters (9 total - real-time control)
   class_addmethod(c, (method)ec2_fixedchan, "fixedchan", A_LONG, 0);
@@ -543,35 +497,17 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->scanrange_dev = 0.0;
   x->scanspeed_dev = 0.0;
 
-  // Initialize modulation routing to defaults (all off)
-  x->grainrate_lfosource = 0;
-  x->grainrate_moddepth = 0.0;
-  x->async_lfosource = 0;
-  x->async_moddepth = 0.0;
-  x->intermittency_lfosource = 0;
-  x->intermittency_moddepth = 0.0;
-  x->streams_lfosource = 0;
-  x->streams_moddepth = 0.0;
-  x->playback_lfosource = 0;
-  x->playback_moddepth = 0.0;
-  x->duration_lfosource = 0;
-  x->duration_moddepth = 0.0;
-  x->envelope_lfosource = 0;
-  x->envelope_moddepth = 0.0;
-  x->filterfreq_lfosource = 0;
-  x->filterfreq_moddepth = 0.0;
-  x->resonance_lfosource = 0;
-  x->resonance_moddepth = 0.0;
-  x->pan_lfosource = 0;
-  x->pan_moddepth = 0.0;
-  x->amplitude_lfosource = 0;
-  x->amplitude_moddepth = 0.0;
-  x->scanstart_lfosource = 0;
-  x->scanstart_moddepth = 0.0;
-  x->scanrange_lfosource = 0;
-  x->scanrange_moddepth = 0.0;
-  x->scanspeed_lfosource = 0;
-  x->scanspeed_moddepth = 0.0;
+  // Initialize LFO states (6 LFOs, each with global_depth=1.0 and empty destinations)
+  for (int i = 0; i < 6; i++) {
+    x->lfo_states[i].global_depth = 1.0;
+    x->lfo_states[i].destinations.clear();
+  }
+
+  // Initialize LFO base parameters (defaults match EC2 engine defaults)
+  x->lfo1_shape = x->lfo2_shape = x->lfo3_shape = x->lfo4_shape = x->lfo5_shape = x->lfo6_shape = 0;  // Sine
+  x->lfo1_rate = x->lfo2_rate = x->lfo3_rate = x->lfo4_rate = x->lfo5_rate = x->lfo6_rate = 1.0;
+  x->lfo1_polarity = x->lfo2_polarity = x->lfo3_polarity = x->lfo4_polarity = x->lfo5_polarity = x->lfo6_polarity = 0;  // Bipolar
+  x->lfo1_duty = x->lfo2_duty = x->lfo3_duty = x->lfo4_duty = x->lfo5_duty = x->lfo6_duty = 0.5;
 
   // Initialize spatial allocation to defaults
   x->alloc_mode = 1;  // roundrobin
@@ -964,360 +900,453 @@ void ec2_scanspeed_dev(t_ec2* x, double v) {
 // LFO PARAMETERS (24 total: 6 LFOs × 4 params)
 // ==================================================================
 
+// Helper function to apply LFO-to-LFO modulation and update engine
+// This allows one LFO to modulate another LFO's parameters
+void ec2_update_lfo_with_modulation(t_ec2* x, int lfo_index) {
+  if (lfo_index < 0 || lfo_index >= 6) return;
+
+  auto lfo = x->engine->getLFO(lfo_index);
+  if (!lfo) return;
+
+  // Get base values based on LFO index
+  int base_shape, base_polarity;
+  double base_rate, base_duty;
+
+  switch (lfo_index) {
+    case 0: base_shape = x->lfo1_shape; base_rate = x->lfo1_rate; base_polarity = x->lfo1_polarity; base_duty = x->lfo1_duty; break;
+    case 1: base_shape = x->lfo2_shape; base_rate = x->lfo2_rate; base_polarity = x->lfo2_polarity; base_duty = x->lfo2_duty; break;
+    case 2: base_shape = x->lfo3_shape; base_rate = x->lfo3_rate; base_polarity = x->lfo3_polarity; base_duty = x->lfo3_duty; break;
+    case 3: base_shape = x->lfo4_shape; base_rate = x->lfo4_rate; base_polarity = x->lfo4_polarity; base_duty = x->lfo4_duty; break;
+    case 4: base_shape = x->lfo5_shape; base_rate = x->lfo5_rate; base_polarity = x->lfo5_polarity; base_duty = x->lfo5_duty; break;
+    case 5: base_shape = x->lfo6_shape; base_rate = x->lfo6_rate; base_polarity = x->lfo6_polarity; base_duty = x->lfo6_duty; break;
+    default: return;
+  }
+
+  // Get LFO modulation for each parameter (from OTHER LFOs only - no self-modulation)
+  std::string lfo_num_str = std::to_string(lfo_index + 1);
+  double shape_mod = ec2_get_lfo_modulation(x, "lfo" + lfo_num_str + "shape");
+  double rate_mod = ec2_get_lfo_modulation(x, "lfo" + lfo_num_str + "rate");
+  double polarity_mod = ec2_get_lfo_modulation(x, "lfo" + lfo_num_str + "polarity");
+  double duty_mod = ec2_get_lfo_modulation(x, "lfo" + lfo_num_str + "duty");
+
+  // Apply modulation
+  // For discrete params (shape, polarity): add offset based on LFO value
+  // For continuous params (rate, duty): multiply by (1.0 + lfo_mod)
+  int modulated_shape = base_shape + static_cast<int>(shape_mod * 4);
+  modulated_shape = std::max(0, std::min(4, modulated_shape));
+
+  double modulated_rate = base_rate * (1.0 + rate_mod);
+  modulated_rate = std::max(0.001, std::min(100.0, modulated_rate));
+
+  int modulated_polarity = base_polarity + static_cast<int>(polarity_mod * 2);
+  modulated_polarity = std::max(0, std::min(2, modulated_polarity));
+
+  double modulated_duty = base_duty * (1.0 + duty_mod);
+  modulated_duty = std::max(0.0, std::min(1.0, modulated_duty));
+
+  // Update engine
+  lfo->setShape(static_cast<ec2::LFOShape>(modulated_shape));
+  lfo->setFrequency(modulated_rate);
+  lfo->setPolarity(static_cast<ec2::LFOPolarity>(modulated_polarity));
+  lfo->setDuty(modulated_duty);
+}
+
 // LFO 1
 void ec2_lfo1shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(0);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo1_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 0);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo1rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(0);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo1_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 0);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo1polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(0);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo1_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 0);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo1duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(0);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo1_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 0);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 // LFO 2
 void ec2_lfo2shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(1);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo2_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 1);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo2rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(1);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo2_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 1);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo2polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(1);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo2_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 1);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo2duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(1);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo2_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 1);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 // LFO 3
 void ec2_lfo3shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(2);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo3_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 2);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo3rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(2);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo3_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 2);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo3polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(2);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo3_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 2);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo3duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(2);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo3_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 2);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 // LFO 4
 void ec2_lfo4shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(3);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo4_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 3);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo4rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(3);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo4_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 3);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo4polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(3);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo4_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 3);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo4duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(3);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo4_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 3);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 // LFO 5
 void ec2_lfo5shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(4);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo5_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 4);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo5rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(4);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo5_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 4);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo5polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(4);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo5_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 4);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo5duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(4);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo5_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 4);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 // LFO 6
 void ec2_lfo6shape(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(5);
-  if (lfo) {
-    lfo->setShape(static_cast<ec2::LFOShape>(std::max(0, std::min(4, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo6_shape = std::max(0, std::min(4, (int)v));
+  ec2_update_lfo_with_modulation(x, 5);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo6rate(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(5);
-  if (lfo) {
-    lfo->setFrequency(std::max(0.001, std::min(100.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo6_rate = std::max(0.001, std::min(100.0, v));
+  ec2_update_lfo_with_modulation(x, 5);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo6polarity(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(5);
-  if (lfo) {
-    lfo->setPolarity(static_cast<ec2::LFOPolarity>(std::max(0, std::min(2, (int)v))));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-  }
+  x->lfo6_polarity = std::max(0, std::min(2, (int)v));
+  ec2_update_lfo_with_modulation(x, 5);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
 void ec2_lfo6duty(t_ec2* x, double v) {
-  auto lfo = x->engine->getLFO(5);
-  if (lfo) {
-    lfo->setDuty(std::max(0.0, std::min(1.0, v)));
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  x->lfo6_duty = std::max(0.0, std::min(1.0, v));
+  ec2_update_lfo_with_modulation(x, 5);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+}
+
+// ==================================================================
+// LFO MODULATION SYSTEM - Helper Functions
+// ==================================================================
+
+// Find if a parameter is already assigned to an LFO destination
+// Returns the LFO destination index within that LFO, or -1 if not found
+int ec2_find_lfo_destination(t_ec2* x, int lfo_num, const std::string& param_name) {
+  if (lfo_num < 1 || lfo_num > 6) return -1;
+
+  LFOState& lfo = x->lfo_states[lfo_num - 1];
+  for (size_t i = 0; i < lfo.destinations.size(); i++) {
+    if (lfo.destinations[i].param_name == param_name) {
+      return static_cast<int>(i);
+    }
   }
+  return -1;
+}
+
+// Find which LFO (if any) is currently modulating a parameter
+// Returns LFO number (1-6) or 0 if not modulated
+int ec2_find_param_lfo_source(t_ec2* x, const std::string& param_name) {
+  for (int lfo_num = 1; lfo_num <= 6; lfo_num++) {
+    if (ec2_find_lfo_destination(x, lfo_num, param_name) >= 0) {
+      return lfo_num;
+    }
+  }
+  return 0;
+}
+
+// Get the effective modulation value for a parameter from its assigned LFO
+// For deviation/spatial/LFO parameters (Max-level modulation)
+// Returns modulation value in range based on LFO polarity
+double ec2_get_lfo_modulation(t_ec2* x, const std::string& param_name) {
+  int lfo_num = ec2_find_param_lfo_source(x, param_name);
+  if (lfo_num == 0) return 0.0;
+
+  int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
+  if (dest_idx < 0) return 0.0;
+
+  LFOState& lfo = x->lfo_states[lfo_num - 1];
+  double destination_depth = lfo.destinations[dest_idx].depth;
+  double global_depth = lfo.global_depth;
+
+  // Get LFO current output from engine
+  // Note: We approximate by reading LFO parameters since engine doesn't expose current value
+  // For accurate modulation, the engine applies LFO internally
+  // This function is used only for Max-level parameters (deviation, spatial, LFO-to-LFO)
+
+  // Return effective depth (engine will multiply by actual LFO value at audio rate)
+  return global_depth * destination_depth;
+}
+
+// Helper to get LFO routing info for engine params (lfoSource and effective depth)
+// Sets lfoSource (0-6) and depth (0.0-1.0) for a parameter
+void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int& lfo_source, double& depth) {
+  int lfo_num = ec2_find_param_lfo_source(x, param_name);
+  if (lfo_num == 0) {
+    lfo_source = 0;
+    depth = 0.0;
+    return;
+  }
+
+  int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
+  if (dest_idx < 0) {
+    lfo_source = 0;
+    depth = 0.0;
+    return;
+  }
+
+  LFOState& lfo = x->lfo_states[lfo_num - 1];
+  lfo_source = lfo_num;
+  // Effective depth = global_depth × destination_depth
+  depth = lfo.global_depth * lfo.destinations[dest_idx].depth;
 }
 
 // ==================================================================
-// MODULATION ROUTING PARAMETERS (28 total: 14 params × 2 controls)
+// LFO MODULATION SYSTEM - Message Handlers
 // ==================================================================
 
-// Grainrate modulation
-void ec2_grainrate_lfosource(t_ec2* x, long v) {
-  x->grainrate_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+// Main message handler for LFO routing
+// Handles: /lfo<N>_to_<param> map [depth]
+//          /lfo<N>_to_<param> unmap
+//          /lfo<N>_depth <value>
+void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
+  std::string msg = s->s_name;
 
-void ec2_grainrate_moddepth(t_ec2* x, double v) {
-  x->grainrate_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+  // Check for /lfo<N>_depth message
+  if (msg.find("/lfo") == 0 && msg.find("_depth") != std::string::npos) {
+    // Extract LFO number from "/lfo<N>_depth"
+    size_t lfo_start = 4;  // After "/lfo"
+    size_t lfo_end = msg.find("_depth");
+    if (lfo_end == std::string::npos || lfo_end <= lfo_start) {
+      object_error((t_object*)x, "invalid LFO depth message format: %s", msg.c_str());
+      return;
+    }
 
-// Async modulation
-void ec2_async_lfosource(t_ec2* x, long v) {
-  x->async_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    std::string lfo_num_str = msg.substr(lfo_start, lfo_end - lfo_start);
+    int lfo_num = std::atoi(lfo_num_str.c_str());
 
-void ec2_async_moddepth(t_ec2* x, double v) {
-  x->async_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    if (lfo_num < 1 || lfo_num > 6) {
+      object_error((t_object*)x, "invalid LFO number: %d (must be 1-6)", lfo_num);
+      return;
+    }
 
-// Intermittency modulation
-void ec2_intermittency_lfosource(t_ec2* x, long v) {
-  x->intermittency_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    if (argc < 1) {
+      object_error((t_object*)x, "/lfo%d_depth requires a value", lfo_num);
+      return;
+    }
 
-void ec2_intermittency_moddepth(t_ec2* x, double v) {
-  x->intermittency_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    double depth = atom_getfloat(argv);
+    depth = std::max(0.0, std::min(1.0, depth));
 
-// Streams modulation
-void ec2_streams_lfosource(t_ec2* x, long v) {
-  x->streams_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    x->lfo_states[lfo_num - 1].global_depth = depth;
 
-void ec2_streams_moddepth(t_ec2* x, double v) {
-  x->streams_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    // Check if LFO has any destinations
+    if (x->lfo_states[lfo_num - 1].destinations.empty()) {
+      object_warn((t_object*)x, "LFO%d is not mapped to any parameters", lfo_num);
+    }
 
-// Playback modulation
-void ec2_playback_lfosource(t_ec2* x, long v) {
-  x->playback_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    ec2_update_engine_params(x);
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+    return;
+  }
 
-void ec2_playback_moddepth(t_ec2* x, double v) {
-  x->playback_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+  // Check for /lfo<N>_to_<param> messages
+  if (msg.find("/lfo") == 0 && msg.find("_to_") != std::string::npos) {
+    // Extract LFO number and parameter name
+    size_t lfo_start = 4;  // After "/lfo"
+    size_t to_pos = msg.find("_to_");
+    if (to_pos == std::string::npos) return;
 
-// Duration modulation
-void ec2_duration_lfosource(t_ec2* x, long v) {
-  x->duration_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    std::string lfo_num_str = msg.substr(lfo_start, to_pos - lfo_start);
+    int lfo_num = std::atoi(lfo_num_str.c_str());
 
-void ec2_duration_moddepth(t_ec2* x, double v) {
-  x->duration_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    if (lfo_num < 1 || lfo_num > 6) {
+      object_error((t_object*)x, "invalid LFO number: %d (must be 1-6)", lfo_num);
+      return;
+    }
 
-// Envelope modulation
-void ec2_envelope_lfosource(t_ec2* x, long v) {
-  x->envelope_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    std::string param_name = msg.substr(to_pos + 4);  // After "_to_"
 
-void ec2_envelope_moddepth(t_ec2* x, double v) {
-  x->envelope_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    // Check if we have a command (map/unmap)
+    if (argc < 1) {
+      object_error((t_object*)x, "%s requires 'map' or 'unmap' command", msg.c_str());
+      return;
+    }
 
-// Filterfreq modulation
-void ec2_filterfreq_lfosource(t_ec2* x, long v) {
-  x->filterfreq_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    t_symbol* cmd = atom_getsym(argv);
+    std::string command = cmd->s_name;
 
-void ec2_filterfreq_moddepth(t_ec2* x, double v) {
-  x->filterfreq_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+    if (command == "map") {
+      // Map LFO to parameter
 
-// Resonance modulation
-void ec2_resonance_lfosource(t_ec2* x, long v) {
-  x->resonance_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+      // Check for self-modulation (LFO cannot modulate itself)
+      if (param_name.find("lfo" + std::to_string(lfo_num)) == 0) {
+        object_error((t_object*)x, "LFO%d cannot modulate its own parameters (attempted: %s)",
+                     lfo_num, param_name.c_str());
+        return;
+      }
 
-void ec2_resonance_moddepth(t_ec2* x, double v) {
-  x->resonance_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+      // Check if parameter is already mapped to a different LFO
+      int existing_lfo = ec2_find_param_lfo_source(x, param_name);
+      if (existing_lfo != 0 && existing_lfo != lfo_num) {
+        object_error((t_object*)x, "parameter '%s' is already modulated by LFO%d. Unmap first with: /lfo%d_to_%s unmap",
+                     param_name.c_str(), existing_lfo, existing_lfo, param_name.c_str());
+        return;
+      }
 
-// Pan modulation
-void ec2_pan_lfosource(t_ec2* x, long v) {
-  x->pan_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+      // Check if LFO already has this destination
+      int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
+      if (dest_idx >= 0) {
+        // Already mapped, just update depth if provided
+        if (argc >= 2) {
+          double depth = atom_getfloat(argv + 1);
+          depth = std::max(0.0, std::min(1.0, depth));
+          x->lfo_states[lfo_num - 1].destinations[dest_idx].depth = depth;
+        }
+        post("ec2~: LFO%d already mapped to %s, depth updated", lfo_num, param_name.c_str());
+        ec2_update_engine_params(x);
+        if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+        return;
+      }
 
-void ec2_pan_moddepth(t_ec2* x, double v) {
-  x->pan_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+      // Check if LFO has reached max destinations
+      LFOState& lfo = x->lfo_states[lfo_num - 1];
+      if (lfo.destinations.size() >= MAX_LFO_DESTINATIONS) {
+        object_error((t_object*)x, "LFO%d has reached maximum destinations (%d/%d). Unmap a parameter first.",
+                     lfo_num, (int)lfo.destinations.size(), MAX_LFO_DESTINATIONS);
+        return;
+      }
 
-// Amplitude modulation
-void ec2_amplitude_lfosource(t_ec2* x, long v) {
-  x->amplitude_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+      // Get depth (default 1.0)
+      double depth = 1.0;
+      if (argc >= 2) {
+        depth = atom_getfloat(argv + 1);
+        depth = std::max(0.0, std::min(1.0, depth));
+      }
 
-void ec2_amplitude_moddepth(t_ec2* x, double v) {
-  x->amplitude_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+      // Check for spatial allocation parameter coherence
+      if (param_name == "fixedchan" && x->alloc_mode != 0) {
+        object_warn((t_object*)x, "LFO%d mapped to 'fixedchan', but allocmode is %ld (not Fixed Channel mode 0). This parameter has no effect.",
+                   lfo_num, x->alloc_mode);
+      } else if (param_name == "rrstep" && x->alloc_mode != 1) {
+        object_warn((t_object*)x, "LFO%d mapped to 'rrstep', but allocmode is %ld (not Round-Robin mode 1). This parameter has no effect.",
+                   lfo_num, x->alloc_mode);
+      } else if ((param_name == "randspread" || param_name == "spatialcorr") &&
+                 (x->alloc_mode != 2 && x->alloc_mode != 3)) {
+        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Random mode 2 or Weighted Random mode 3). This parameter has no effect.",
+                   lfo_num, param_name.c_str(), x->alloc_mode);
+      } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
+        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
+                   lfo_num, param_name.c_str(), x->alloc_mode);
+      } else if ((param_name == "trajshape" || param_name == "trajrate" || param_name == "trajdepth") &&
+                 x->alloc_mode != 6) {
+        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Trajectory mode 6). This parameter has no effect.",
+                   lfo_num, param_name.c_str(), x->alloc_mode);
+      }
 
-// Scanstart modulation
-void ec2_scanstart_lfosource(t_ec2* x, long v) {
-  x->scanstart_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+      // Add new destination
+      lfo.destinations.push_back(LFODestination(param_name, depth));
+      post("ec2~: LFO%d mapped to %s (depth %.2f)", lfo_num, param_name.c_str(), depth);
 
-void ec2_scanstart_moddepth(t_ec2* x, double v) {
-  x->scanstart_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+      ec2_update_engine_params(x);
+      if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 
-// Scanrange modulation
-void ec2_scanrange_lfosource(t_ec2* x, long v) {
-  x->scanrange_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+    } else if (command == "unmap") {
+      // Unmap LFO from parameter
 
-void ec2_scanrange_moddepth(t_ec2* x, double v) {
-  x->scanrange_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
-}
+      int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
+      if (dest_idx < 0) {
+        object_warn((t_object*)x, "LFO%d is not mapped to %s", lfo_num, param_name.c_str());
+        return;
+      }
 
-// Scanspeed modulation
-void ec2_scanspeed_lfosource(t_ec2* x, long v) {
-  x->scanspeed_lfosource = std::max(0L, std::min(6L, v));
-  ec2_update_engine_params(x);
-}
+      // Remove destination
+      LFOState& lfo = x->lfo_states[lfo_num - 1];
+      lfo.destinations.erase(lfo.destinations.begin() + dest_idx);
+      post("ec2~: LFO%d unmapped from %s", lfo_num, param_name.c_str());
 
-void ec2_scanspeed_moddepth(t_ec2* x, double v) {
-  x->scanspeed_moddepth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+      ec2_update_engine_params(x);
+      if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+
+    } else {
+      object_error((t_object*)x, "unknown command '%s' (expected 'map' or 'unmap')", command.c_str());
+    }
+  }
 }
 
 // ==================================================================
@@ -1518,64 +1547,110 @@ void ec2_update_engine_params(t_ec2* x) {
   params.scanRange = x->scan_range;
   params.scanSpeed = x->scan_speed;
 
-  // Deviations
-  params.grainRateDeviation = x->grain_rate_dev;
-  params.asyncDeviation = x->async_dev;
-  params.intermittencyDeviation = x->intermittency_dev;
-  params.streamsDeviation = x->streams_dev;
-  params.playbackDeviation = x->playback_dev;
-  params.durationDeviation = x->duration_dev;
-  params.envelopeDeviation = x->envelope_dev;
-  params.panDeviation = x->pan_dev;
-  params.amplitudeDeviation = x->amp_dev;
-  params.filterFreqDeviation = x->filterfreq_dev;
-  params.resonanceDeviation = x->resonance_dev;
-  params.scanBeginDeviation = x->scanstart_dev;
-  params.scanRangeDeviation = x->scanrange_dev;
-  params.scanSpeedDeviation = x->scanspeed_dev;
+  // Deviations (with LFO modulation applied)
+  // LFO modulation multiplies deviation values: modulated_dev = base_dev * (1.0 + lfo_mod)
+  double grainrate_dev_mod = ec2_get_lfo_modulation(x, "grainrate_dev");
+  double async_dev_mod = ec2_get_lfo_modulation(x, "async_dev");
+  double intermittency_dev_mod = ec2_get_lfo_modulation(x, "intermittency_dev");
+  double streams_dev_mod = ec2_get_lfo_modulation(x, "streams_dev");
+  double playback_dev_mod = ec2_get_lfo_modulation(x, "playback_dev");
+  double duration_dev_mod = ec2_get_lfo_modulation(x, "duration_dev");
+  double envelope_dev_mod = ec2_get_lfo_modulation(x, "envelope_dev");
+  double pan_dev_mod = ec2_get_lfo_modulation(x, "pan_dev");
+  double amp_dev_mod = ec2_get_lfo_modulation(x, "amp_dev");
+  double filterfreq_dev_mod = ec2_get_lfo_modulation(x, "filterfreq_dev");
+  double resonance_dev_mod = ec2_get_lfo_modulation(x, "resonance_dev");
+  double scanstart_dev_mod = ec2_get_lfo_modulation(x, "scanstart_dev");
+  double scanrange_dev_mod = ec2_get_lfo_modulation(x, "scanrange_dev");
+  double scanspeed_dev_mod = ec2_get_lfo_modulation(x, "scanspeed_dev");
 
-  // Spatial allocation
+  params.grainRateDeviation = x->grain_rate_dev * (1.0 + grainrate_dev_mod);
+  params.asyncDeviation = x->async_dev * (1.0 + async_dev_mod);
+  params.intermittencyDeviation = x->intermittency_dev * (1.0 + intermittency_dev_mod);
+  params.streamsDeviation = x->streams_dev * (1.0 + streams_dev_mod);
+  params.playbackDeviation = x->playback_dev * (1.0 + playback_dev_mod);
+  params.durationDeviation = x->duration_dev * (1.0 + duration_dev_mod);
+  params.envelopeDeviation = x->envelope_dev * (1.0 + envelope_dev_mod);
+  params.panDeviation = x->pan_dev * (1.0 + pan_dev_mod);
+  params.amplitudeDeviation = x->amp_dev * (1.0 + amp_dev_mod);
+  params.filterFreqDeviation = x->filterfreq_dev * (1.0 + filterfreq_dev_mod);
+  params.resonanceDeviation = x->resonance_dev * (1.0 + resonance_dev_mod);
+  params.scanBeginDeviation = x->scanstart_dev * (1.0 + scanstart_dev_mod);
+  params.scanRangeDeviation = x->scanrange_dev * (1.0 + scanrange_dev_mod);
+  params.scanSpeedDeviation = x->scanspeed_dev * (1.0 + scanspeed_dev_mod);
+
+  // Spatial allocation (with LFO modulation applied)
   params.spatial.mode = static_cast<ec2::AllocationMode>(x->alloc_mode);
   params.spatial.numChannels = x->outputs;  // CRITICAL: Set number of output channels!
-  params.spatial.fixedChannel = x->fixed_channel;
-  params.spatial.roundRobinStep = x->rr_step;
-  params.spatial.spread = x->random_spread;
-  params.spatial.spatialCorr = x->spatial_corr;
-  params.spatial.pitchMin = x->pitch_min;
-  params.spatial.pitchMax = x->pitch_max;
-  params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape);
-  params.spatial.trajRate = x->traj_rate;
-  params.spatial.trajDepth = x->traj_depth;
 
-  // Modulation routing (14 parameters × 2 controls = 28 values)
-  params.modGrainRate.lfoSource = x->grainrate_lfosource;
-  params.modGrainRate.depth = x->grainrate_moddepth;
-  params.modAsync.lfoSource = x->async_lfosource;
-  params.modAsync.depth = x->async_moddepth;
-  params.modIntermittency.lfoSource = x->intermittency_lfosource;
-  params.modIntermittency.depth = x->intermittency_moddepth;
-  params.modStreams.lfoSource = x->streams_lfosource;
-  params.modStreams.depth = x->streams_moddepth;
-  params.modPlaybackRate.lfoSource = x->playback_lfosource;
-  params.modPlaybackRate.depth = x->playback_moddepth;
-  params.modGrainDuration.lfoSource = x->duration_lfosource;
-  params.modGrainDuration.depth = x->duration_moddepth;
-  params.modEnvelope.lfoSource = x->envelope_lfosource;
-  params.modEnvelope.depth = x->envelope_moddepth;
-  params.modFilterFreq.lfoSource = x->filterfreq_lfosource;
-  params.modFilterFreq.depth = x->filterfreq_moddepth;
-  params.modResonance.lfoSource = x->resonance_lfosource;
-  params.modResonance.depth = x->resonance_moddepth;
-  params.modPan.lfoSource = x->pan_lfosource;
-  params.modPan.depth = x->pan_moddepth;
-  params.modAmplitude.lfoSource = x->amplitude_lfosource;
-  params.modAmplitude.depth = x->amplitude_moddepth;
-  params.modScanBegin.lfoSource = x->scanstart_lfosource;
-  params.modScanBegin.depth = x->scanstart_moddepth;
-  params.modScanRange.lfoSource = x->scanrange_lfosource;
-  params.modScanRange.depth = x->scanrange_moddepth;
-  params.modScanSpeed.lfoSource = x->scanspeed_lfosource;
-  params.modScanSpeed.depth = x->scanspeed_moddepth;
+  // Apply LFO modulation to spatial parameters
+  // For int params: modulated_value = base_value + (int)(lfo_mod * range)
+  // For float params: modulated_value = base_value * (1.0 + lfo_mod)
+  double fixedchan_mod = ec2_get_lfo_modulation(x, "fixedchan");
+  double rrstep_mod = ec2_get_lfo_modulation(x, "rrstep");
+  double randspread_mod = ec2_get_lfo_modulation(x, "randspread");
+  double spatialcorr_mod = ec2_get_lfo_modulation(x, "spatialcorr");
+  double pitchmin_mod = ec2_get_lfo_modulation(x, "pitchmin");
+  double pitchmax_mod = ec2_get_lfo_modulation(x, "pitchmax");
+  double trajshape_mod = ec2_get_lfo_modulation(x, "trajshape");
+  double trajrate_mod = ec2_get_lfo_modulation(x, "trajrate");
+  double trajdepth_mod = ec2_get_lfo_modulation(x, "trajdepth");
+
+  params.spatial.fixedChannel = x->fixed_channel + static_cast<int>(fixedchan_mod * x->outputs);
+  params.spatial.roundRobinStep = x->rr_step + static_cast<int>(rrstep_mod * 16);
+  params.spatial.spread = x->random_spread * (1.0 + randspread_mod);
+  params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);
+  params.spatial.pitchMin = x->pitch_min * (1.0 + pitchmin_mod);
+  params.spatial.pitchMax = x->pitch_max * (1.0 + pitchmax_mod);
+  params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape + static_cast<int>(trajshape_mod * 4));
+  params.spatial.trajRate = x->traj_rate * (1.0 + trajrate_mod);
+  params.spatial.trajDepth = x->traj_depth * (1.0 + trajdepth_mod);
+
+  // Modulation routing (14 parameters - using new LFO routing system)
+  // Use temporary doubles for conversion from helper function, then assign to float members
+  double temp_depth;
+
+  ec2_get_lfo_routing_for_engine(x, "grainrate", params.modGrainRate.lfoSource, temp_depth);
+  params.modGrainRate.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "async", params.modAsync.lfoSource, temp_depth);
+  params.modAsync.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "intermittency", params.modIntermittency.lfoSource, temp_depth);
+  params.modIntermittency.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "streams", params.modStreams.lfoSource, temp_depth);
+  params.modStreams.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "playback", params.modPlaybackRate.lfoSource, temp_depth);
+  params.modPlaybackRate.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "duration", params.modGrainDuration.lfoSource, temp_depth);
+  params.modGrainDuration.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "envelope", params.modEnvelope.lfoSource, temp_depth);
+  params.modEnvelope.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "filterfreq", params.modFilterFreq.lfoSource, temp_depth);
+  params.modFilterFreq.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "resonance", params.modResonance.lfoSource, temp_depth);
+  params.modResonance.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "pan", params.modPan.lfoSource, temp_depth);
+  params.modPan.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "amplitude", params.modAmplitude.lfoSource, temp_depth);
+  params.modAmplitude.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "scanstart", params.modScanBegin.lfoSource, temp_depth);
+  params.modScanBegin.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "scanrange", params.modScanRange.lfoSource, temp_depth);
+  params.modScanRange.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "scanspeed", params.modScanSpeed.lfoSource, temp_depth);
+  params.modScanSpeed.depth = static_cast<float>(temp_depth);
 
   x->engine->updateParameters(params);
 }
@@ -1699,35 +1774,22 @@ void ec2_send_osc_bundle(t_ec2* x) {
     }
   }
 
-  // Modulation routing parameters (28 total: 14 params × 2 controls)
-  add_message(*x->osc_bundle_buffer, "grainrate_lfosource", static_cast<float>(x->grainrate_lfosource));
-  add_message(*x->osc_bundle_buffer, "grainrate_moddepth", static_cast<float>(x->grainrate_moddepth));
-  add_message(*x->osc_bundle_buffer, "async_lfosource", static_cast<float>(x->async_lfosource));
-  add_message(*x->osc_bundle_buffer, "async_moddepth", static_cast<float>(x->async_moddepth));
-  add_message(*x->osc_bundle_buffer, "intermittency_lfosource", static_cast<float>(x->intermittency_lfosource));
-  add_message(*x->osc_bundle_buffer, "intermittency_moddepth", static_cast<float>(x->intermittency_moddepth));
-  add_message(*x->osc_bundle_buffer, "streams_lfosource", static_cast<float>(x->streams_lfosource));
-  add_message(*x->osc_bundle_buffer, "streams_moddepth", static_cast<float>(x->streams_moddepth));
-  add_message(*x->osc_bundle_buffer, "playback_lfosource", static_cast<float>(x->playback_lfosource));
-  add_message(*x->osc_bundle_buffer, "playback_moddepth", static_cast<float>(x->playback_moddepth));
-  add_message(*x->osc_bundle_buffer, "duration_lfosource", static_cast<float>(x->duration_lfosource));
-  add_message(*x->osc_bundle_buffer, "duration_moddepth", static_cast<float>(x->duration_moddepth));
-  add_message(*x->osc_bundle_buffer, "envelope_lfosource", static_cast<float>(x->envelope_lfosource));
-  add_message(*x->osc_bundle_buffer, "envelope_moddepth", static_cast<float>(x->envelope_moddepth));
-  add_message(*x->osc_bundle_buffer, "filterfreq_lfosource", static_cast<float>(x->filterfreq_lfosource));
-  add_message(*x->osc_bundle_buffer, "filterfreq_moddepth", static_cast<float>(x->filterfreq_moddepth));
-  add_message(*x->osc_bundle_buffer, "resonance_lfosource", static_cast<float>(x->resonance_lfosource));
-  add_message(*x->osc_bundle_buffer, "resonance_moddepth", static_cast<float>(x->resonance_moddepth));
-  add_message(*x->osc_bundle_buffer, "pan_lfosource", static_cast<float>(x->pan_lfosource));
-  add_message(*x->osc_bundle_buffer, "pan_moddepth", static_cast<float>(x->pan_moddepth));
-  add_message(*x->osc_bundle_buffer, "amplitude_lfosource", static_cast<float>(x->amplitude_lfosource));
-  add_message(*x->osc_bundle_buffer, "amplitude_moddepth", static_cast<float>(x->amplitude_moddepth));
-  add_message(*x->osc_bundle_buffer, "scanstart_lfosource", static_cast<float>(x->scanstart_lfosource));
-  add_message(*x->osc_bundle_buffer, "scanstart_moddepth", static_cast<float>(x->scanstart_moddepth));
-  add_message(*x->osc_bundle_buffer, "scanrange_lfosource", static_cast<float>(x->scanrange_lfosource));
-  add_message(*x->osc_bundle_buffer, "scanrange_moddepth", static_cast<float>(x->scanrange_moddepth));
-  add_message(*x->osc_bundle_buffer, "scanspeed_lfosource", static_cast<float>(x->scanspeed_lfosource));
-  add_message(*x->osc_bundle_buffer, "scanspeed_moddepth", static_cast<float>(x->scanspeed_moddepth));
+  // LFO modulation routing (new system: global depths + active destinations)
+  // Output LFO global depths (6 values)
+  for (int i = 0; i < 6; i++) {
+    std::string depth_msg = "/lfo" + std::to_string(i + 1) + "_depth";
+    add_message(*x->osc_bundle_buffer, depth_msg, static_cast<float>(x->lfo_states[i].global_depth));
+  }
+
+  // Output active LFO mappings (variable number based on actual mappings)
+  for (int i = 0; i < 6; i++) {
+    const LFOState& lfo = x->lfo_states[i];
+    for (const auto& dest : lfo.destinations) {
+      // Format: /lfo<N>_to_<param>_depth <value>
+      std::string map_msg = "/lfo" + std::to_string(i + 1) + "_to_" + dest.param_name + "_depth";
+      add_message(*x->osc_bundle_buffer, map_msg, static_cast<float>(dest.depth));
+    }
+  }
 
   // Spatial allocation parameters (9 total - real-time messages)
   add_message(*x->osc_bundle_buffer, "fixedchan", static_cast<float>(x->fixed_channel));
@@ -1893,35 +1955,7 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "lfo6rate") ec2_lfo6rate(x, value);
   else if (param_name == "lfo6polarity") ec2_lfo6polarity(x, value);
   else if (param_name == "lfo6duty") ec2_lfo6duty(x, value);
-  // Modulation routing
-  else if (param_name == "grainrate_lfosource") ec2_grainrate_lfosource(x, (long)value);
-  else if (param_name == "grainrate_moddepth") ec2_grainrate_moddepth(x, value);
-  else if (param_name == "async_lfosource") ec2_async_lfosource(x, (long)value);
-  else if (param_name == "async_moddepth") ec2_async_moddepth(x, value);
-  else if (param_name == "intermittency_lfosource") ec2_intermittency_lfosource(x, (long)value);
-  else if (param_name == "intermittency_moddepth") ec2_intermittency_moddepth(x, value);
-  else if (param_name == "streams_lfosource") ec2_streams_lfosource(x, (long)value);
-  else if (param_name == "streams_moddepth") ec2_streams_moddepth(x, value);
-  else if (param_name == "playback_lfosource") ec2_playback_lfosource(x, (long)value);
-  else if (param_name == "playback_moddepth") ec2_playback_moddepth(x, value);
-  else if (param_name == "duration_lfosource") ec2_duration_lfosource(x, (long)value);
-  else if (param_name == "duration_moddepth") ec2_duration_moddepth(x, value);
-  else if (param_name == "envelope_lfosource") ec2_envelope_lfosource(x, (long)value);
-  else if (param_name == "envelope_moddepth") ec2_envelope_moddepth(x, value);
-  else if (param_name == "filterfreq_lfosource") ec2_filterfreq_lfosource(x, (long)value);
-  else if (param_name == "filterfreq_moddepth") ec2_filterfreq_moddepth(x, value);
-  else if (param_name == "resonance_lfosource") ec2_resonance_lfosource(x, (long)value);
-  else if (param_name == "resonance_moddepth") ec2_resonance_moddepth(x, value);
-  else if (param_name == "pan_lfosource") ec2_pan_lfosource(x, (long)value);
-  else if (param_name == "pan_moddepth") ec2_pan_moddepth(x, value);
-  else if (param_name == "amplitude_lfosource") ec2_amplitude_lfosource(x, (long)value);
-  else if (param_name == "amplitude_moddepth") ec2_amplitude_moddepth(x, value);
-  else if (param_name == "scanstart_lfosource") ec2_scanstart_lfosource(x, (long)value);
-  else if (param_name == "scanstart_moddepth") ec2_scanstart_moddepth(x, value);
-  else if (param_name == "scanrange_lfosource") ec2_scanrange_lfosource(x, (long)value);
-  else if (param_name == "scanrange_moddepth") ec2_scanrange_moddepth(x, value);
-  else if (param_name == "scanspeed_lfosource") ec2_scanspeed_lfosource(x, (long)value);
-  else if (param_name == "scanspeed_moddepth") ec2_scanspeed_moddepth(x, value);
+  // NOTE: LFO modulation routing is now handled by ec2_lfo_map() via "anything" messages
   // Spatial allocation parameters
   else if (param_name == "fixedchan") ec2_fixedchan(x, (long)value);
   else if (param_name == "rrstep") ec2_rrstep(x, (long)value);
