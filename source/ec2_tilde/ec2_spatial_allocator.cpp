@@ -414,7 +414,6 @@ void SpatialAllocator::panBetweenChannels(PanningVector& pv, int chL, int chR, f
   // Constant-power panning
   alpha = std::clamp(alpha, 0.0f, 1.0f);
 
-  float angleL = (1.0f - alpha) * M_PI * 0.5f;
   float angleR = alpha * M_PI * 0.5f;
 
   pv.gains[chL] = std::cos(angleR);

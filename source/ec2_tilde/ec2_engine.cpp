@@ -113,8 +113,6 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
 
   // Apply modulation to scan parameters (Phase 9)
   float modulatedScanBegin = applyModulation(mParams.scanBegin, mParams.modScanBegin, 0.0f, 1.0f);
-  float modulatedScanRange = applyModulation(mParams.scanRange, mParams.modScanRange, 0.0f, 1.0f);
-  float modulatedScanSpeed = applyModulation(mParams.scanSpeed, mParams.modScanSpeed, -32.0f, 32.0f);
 
   // Initialize scan index with modulated parameters if no signal input
   if (!scanSignal) {
