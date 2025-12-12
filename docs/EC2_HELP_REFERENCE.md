@@ -60,7 +60,7 @@ Used for real-time performance control of synthesis parameters:
 - `scanspeed` - Scan speed
 
 **Spatial Allocation Parameters (9 messages):**
-- `fixedchan` - Fixed channel index
+- `fixedchan` - Fixed channel number (1-16)
 - `rrstep` - Round-robin step size
 - `randspread` - Random spread amount
 - `spatialcorr` - Spatial correlation
@@ -497,8 +497,8 @@ Routes all grains to a single fixed channel or channel pair.
 
 ### Parameters
 
-#### fixedchan (message, int, 0-15, default: 0)
-Target output channel index. Real-time message for dynamic control.
+#### fixedchan (message, int, 1-16, default: 1)
+Target output channel number (user-facing 1-16, internally converted to 0-based indexing). Real-time message for dynamic control.
 
 **Example:**
 ```
@@ -581,14 +581,25 @@ Spatial correlation between successive grains. Real-time message for dynamic con
 
 ## Mode 3: Weighted
 
-Random distribution with per-channel probability weights (not yet implemented in UI - requires list/array message).
+Random distribution with per-channel probability weights.
+
+**Implementation Status:** The EC2 engine fully supports weighted random allocation. To implement UI control, the following messages would be needed (following best practices from Curtis Roads and professional granular synthesis systems):
+
+**Required Messages:**
+- `/weights <list>` - Array of weights per channel (e.g., `0.1 0.3 0.8 0.5` for 4 channels)
+- `/weight_normalize <0|1>` - Auto-normalize weights so they sum to 1.0 (default: 1)
+
+**Current Parameters:**
+- `randspread` (0.0-1.0) - Controls distribution uniformity (already available)
+- `spatialcorr` (0.0-1.0) - Spatial correlation/"stickiness" between adjacent channels (already available)
 
 **Use cases:**
-- Directional spatial focus
-- "Hot spots" in multichannel array
-- Asymmetric spatial fields
+- Directional spatial focus (emphasize front over rear speakers)
+- "Hot spots" in multichannel array (concentrate energy in specific zones)
+- Asymmetric spatial fields (create weighted spatial probability maps)
+- Simulate acoustic environments with preferred reflection zones
 
-**Theory:** Allows concentration of grain probability on specific channels (e.g., emphasize front channels over rear, create spatial "focus points").
+**Theory:** Allows concentration of grain probability on specific channels. Each channel has a weight determining its selection probability. This implements Roads's concept of "weighted spatial probability distributions" for creating focused or directional spatial textures.
 
 ---
 
@@ -1378,7 +1389,7 @@ All attribute names can be used as OSC messages by adding a `/` prefix and using
 - `/allocmode` - Spatial allocation mode (0-6)
 
 **Spatial Allocation Parameters (real-time messages)**:
-- `/fixedchan` - Fixed channel index (mode 0)
+- `/fixedchan` - Fixed channel number 1-16 (mode 0)
 - `/rrstep` - Round-robin step (mode 1)
 - `/randspread` - Random spread amount (mode 2,3)
 - `/spatialcorr` - Spatial correlation (mode 3)

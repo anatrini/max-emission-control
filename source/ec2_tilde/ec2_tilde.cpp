@@ -148,7 +148,7 @@ typedef struct _ec2 {
 
   // Spatial allocation parameters (10 total)
   long alloc_mode;       // 0-6
-  long fixed_channel;    // 0-15
+  long fixed_channel;    // 1-16
   long rr_step;          // 1-16
   double random_spread;  // 0.0-1.0
   double spatial_corr;   // 0.0-1.0
@@ -511,7 +511,7 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
 
   // Initialize spatial allocation to defaults
   x->alloc_mode = 1;  // roundrobin
-  x->fixed_channel = 0;
+  x->fixed_channel = 1;  // 1-16 (user-facing channel numbers)
   x->rr_step = 1;
   x->random_spread = 0.0;
   x->spatial_corr = 0.0;
@@ -1354,7 +1354,7 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 // ==================================================================
 
 void ec2_fixedchan(t_ec2* x, long v) {
-  x->fixed_channel = std::max(0L, std::min(15L, v));
+  x->fixed_channel = std::max(1L, std::min(16L, v));  // User-facing: 1-16
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -1596,7 +1596,8 @@ void ec2_update_engine_params(t_ec2* x) {
   double trajrate_mod = ec2_get_lfo_modulation(x, "trajrate");
   double trajdepth_mod = ec2_get_lfo_modulation(x, "trajdepth");
 
-  params.spatial.fixedChannel = x->fixed_channel + static_cast<int>(fixedchan_mod * x->outputs);
+  // Convert from 1-based (user-facing) to 0-based (engine internal)
+  params.spatial.fixedChannel = (x->fixed_channel - 1) + static_cast<int>(fixedchan_mod * x->outputs);
   params.spatial.roundRobinStep = x->rr_step + static_cast<int>(rrstep_mod * 16);
   params.spatial.spread = x->random_spread * (1.0 + randspread_mod);
   params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);

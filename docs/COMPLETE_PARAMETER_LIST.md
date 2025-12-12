@@ -184,7 +184,7 @@ Parametri di allocazione spaziale per controllo real-time.
 Ogni modalità allocazione (@allocmode) usa parametri specifici.
 
 ### Fixed Channel Mode (allocmode=0) - 1 param
-- `fixedchan` (int, 0-15, default: 0) - Canale fisso output
+- `fixedchan` (int, 1-16, default: 1) - Numero canale fisso output (user-facing, convertito a 0-based internamente)
 
 ### Round-Robin Mode (allocmode=1) - 1 param
 - `rrstep` (int, 1-16, default: 1) - Passo incremento round-robin
