@@ -59,7 +59,7 @@ Used for real-time performance control of synthesis parameters:
 - `scanrange` - Scan range
 - `scanspeed` - Scan speed
 
-**Spatial Allocation Parameters (14 messages):**
+**Spatial Allocation Parameters (12 messages):**
 - `fixedchan` - Fixed channel number (1-16)
 - `rrstep` - Round-robin step size
 - `randspread` - Random spread amount
@@ -584,7 +584,7 @@ Spatial correlation between successive grains. Real-time message for dynamic con
 
 ## Mode 3: Weighted
 
-Random distribution with per-channel probability weights.
+Weighted random distribution with per-channel probability weights. Extends Mode 2 (Random) by adding per-channel weights while preserving randspread and spatialcorr behavior.
 
 **Use cases:**
 - Directional spatial focus (emphasize front over rear speakers)
@@ -594,18 +594,7 @@ Random distribution with per-channel probability weights.
 
 ### Parameters
 
-**IMPORTANT - Attributes vs Parameters**:
-
-**ATTRIBUTES** (5 total: `@outputs`, `@mc`, `@buffer`, `@allocmode`, `@soundfile`):
-- Set in 3 ways:
-  a) At creation: `[ec2~ @outputs 8 @buffer mysound]`
-  b) With attrui (Max inspector)
-  c) As simple messages (some attributes)
-
-**PARAMETERS** (all other 94: grainrate, async, randspread, weights, etc.):
-- Sent in 2 ways:
-  1. **OSC-style messages**: `/randspread 0.8`, `/weights 0.5 0.3 0.1 0.1`
-  2. **FullPacket bundles** (odot-compatible): bidirectional OSC via rightmost outlet
+**Note:** Mode 3 shares `randspread` and `spatialcorr` parameters with Mode 2, and adds the `weights` parameter for per-channel probability control.
 
 #### weights (message, list of floats, default: uniform)
 **Message format:** `/weights <value1> <value2> ... <valueN>`
@@ -628,27 +617,15 @@ Array of per-channel probability weights. Each value corresponds to one channel 
 
 // Reset to uniform distribution (clear weights):
 [message /weights(                     // Empty = uniform across all channels
+
+// Combine with randspread and spatialcorr (shared with Mode 2):
+[message allocmode 3(
+[message /weights 0.5 0.3 0.1 0.1(     // Weight channels
+[message /randspread 0.5(              // Add panning between adjacent channels
+[message /spatialcorr 0.2(             // Add spatial correlation
 ```
 
-#### randspread (message, float, 0.0-1.0, default: 1.0)
-**Message format:** `/randspread <value>`
-
-Controls distribution uniformity. Lower values concentrate grains more strongly according to weights.
-
-**Example:**
-```
-[message /randspread 0.8(
-```
-
-#### spatialcorr (message, float, 0.0-1.0, default: 0.0)
-**Message format:** `/spatialcorr <value>`
-
-Spatial correlation/"stickiness" between adjacent channels. Higher values make consecutive grains more likely to stay in similar spatial regions.
-
-**Example:**
-```
-[message /spatialcorr 0.3(
-```
+**Note:** `randspread` and `spatialcorr` parameters (documented in Mode 2) apply equally to Mode 3, controlling panning and spatial correlation with weighted probabilities.
 
 **Theory:** Allows concentration of grain probability on specific channels. Each channel has a weight determining its selection probability. This implements Roads's concept of "weighted spatial probability distributions" for creating focused or directional spatial textures.
 

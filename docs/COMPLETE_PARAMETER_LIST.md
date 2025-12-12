@@ -14,8 +14,8 @@
 | **Deviazioni** | 14 | messages |
 | **LFO** | 24 | messages (6 LFOs × 4 params) |
 | **Modulation Routing** | 28 | messages (14 params × 2 controls) |
-| **Spatial Allocation** | 14 | messages |
-| **TOTALE** | **99** | |
+| **Spatial Allocation** | 12 | messages |
+| **TOTALE** | **97** | |
 
 ---
 
@@ -178,25 +178,7 @@ Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
 
 ---
 
-## 6. SPATIAL ALLOCATION PARAMETERS (14 total)
-
-Parametri di allocazione spaziale per controllo real-time.
-Ogni modalità allocazione (@allocmode) usa parametri specifici.
-
-### Fixed Channel Mode (allocmode=0) - 1 param
-- `fixedchan` (int, 1-16, default: 1) - Numero canale fisso output (user-facing, convertito a 0-based internamente)
-
-### Round-Robin Mode (allocmode=1) - 1 param
-- `rrstep` (int, 1-16, default: 1) - Passo incremento round-robin
-
-### Random Mode (allocmode=2) - 2 params
-- `randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione casuale (1.0=uniforme)
-- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale
-
-### Weighted Random Mode (allocmode=3) - 3 params
-- `randspread` (float, 0.0-1.0, default: 1.0) - Distribuzione casuale
-- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale
-- `weights` (list of floats, default: uniform) - Pesi per canale (auto-normalizzati automaticamente)
+## 6. SPATIAL ALLOCATION PARAMETERS (12 total)
 
 **IMPORTANTE - Differenza tra ATTRIBUTI e PARAMETRI**:
 
@@ -210,6 +192,26 @@ Ogni modalità allocazione (@allocmode) usa parametri specifici.
 - Inviabili in 2 modi:
   1. **Messaggi OSC-style**: `/randspread 0.8`, `/weights 0.5 0.3 0.1 0.1`
   2. **FullPacket bundle** (odot): comunicazione OSC bidirezionale via outlet destro
+
+---
+
+Parametri di allocazione spaziale per controllo real-time.
+Ogni modalità allocazione (@allocmode) usa parametri specifici.
+
+### Fixed Channel Mode (allocmode=0) - 1 param
+- `fixedchan` (int, 1-16, default: 1) - Numero canale fisso output (user-facing, convertito a 0-based internamente)
+
+### Round-Robin Mode (allocmode=1) - 1 param
+- `rrstep` (int, 1-16, default: 1) - Passo incremento round-robin
+
+### Random Mode (allocmode=2) - 2 params
+- `randspread` (float, 0.0-1.0, default: 0.0) - Panning tra canali adiacenti (0=hard, 1=full panning)
+- `spatialcorr` (float, 0.0-1.0, default: 0.0) - Correlazione spaziale tra grani successivi
+
+### Weighted Random Mode (allocmode=3) - 1 param (+ 2 shared)
+- `weights` (list of floats, default: uniform) - Pesi probabilità per canale (auto-normalizzati)
+
+**Nota:** Mode 3 condivide i parametri `randspread` e `spatialcorr` con Mode 2 (vedi sopra)
 
 **Formato messaggio weights**:
 - OSC-style: `/weights <valore1> <valore2> ... <valoreN>`
