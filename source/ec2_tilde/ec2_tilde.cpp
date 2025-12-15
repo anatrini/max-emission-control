@@ -1200,8 +1200,13 @@ void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int
 void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
   std::string msg = s->s_name;
 
+  // Ignore messages that don't start with "/lfo" (avoid catching unrelated "anything" messages)
+  if (msg.find("/lfo") != 0) {
+    return;  // Silently ignore - not an LFO message
+  }
+
   // Check for /lfo<N>depth message (consistent with lfo<N>rate, lfo<N>shape, etc.)
-  if (msg.find("/lfo") == 0 && msg.find("depth") != std::string::npos && msg.find("_to_") == std::string::npos) {
+  if (msg.find("depth") != std::string::npos && msg.find("_to_") == std::string::npos) {
     // Extract LFO number from "/lfo<N>depth"
     size_t lfo_start = 4;  // After "/lfo"
     size_t lfo_end = msg.find("depth");
@@ -1305,12 +1310,15 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
         return;
       }
 
-      // Get depth (default 1.0)
-      double depth = 1.0;
-      if (argc >= 2) {
-        depth = atom_getfloat(argv + 1);
-        depth = std::max(0.0, std::min(1.0, depth));
+      // Get depth - ALWAYS required, no optional parameter
+      if (argc < 2) {
+        object_error((t_object*)x, "/lfo%d_to_%s map requires depth value (0.0-1.0)",
+                     lfo_num, param_name.c_str());
+        return;
       }
+
+      double depth = atom_getfloat(argv + 1);
+      depth = std::max(0.0, std::min(1.0, depth));
 
       // Check for spatial allocation parameter coherence
       if (param_name == "fixedchan" && x->alloc_mode != 0) {

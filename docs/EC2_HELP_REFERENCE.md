@@ -84,7 +84,7 @@ Used for real-time performance control. Sent in 2 ways:
 - `lfo1depth` through `lfo6depth` - LFO global modulation depth (0.0-1.0)
 
 **LFO Modulation Routing (special command messages):**
-- `/lfo<N>_to_<parameter> map [destination_depth]` - Map LFO to any of 61 parameters
+- `/lfo<N>_to_<parameter> map <depth>` - Map LFO to any of 61 parameters (depth REQUIRED)
 - `/lfo<N>_to_<parameter> unmap` - Unmap LFO from parameter
 - Each LFO can modulate up to 8 destinations simultaneously
 - Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params (61 total)
@@ -1264,15 +1264,15 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 
 **1. Map an LFO to a parameter:**
 ```
-/lfo<N>_to_<parameter> map [destination_depth]
+/lfo<N>_to_<parameter> map <destination_depth>
 ```
 - `N` = LFO number (1-6)
 - `parameter` = any of 61 modulatable parameters (see list below)
-- `destination_depth` = optional per-destination depth (0.0-1.0, default: 1.0)
+- `destination_depth` = per-destination depth (0.0-1.0, REQUIRED)
 
 **Examples:**
 ```
-[message /lfo1_to_grainrate map(          // Map with default depth (1.0)
+[message /lfo1_to_grainrate map 1.0(      // Map with full depth (100%)
 [message /lfo1_to_filterfreq map 0.7(     // Map with 70% destination depth
 [message /lfo2_to_amplitude map 0.5(      // Map with 50% destination depth
 ```
@@ -1338,8 +1338,8 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 
 **Basic Mapping**:
 ```
-// Map LFO1 to grainrate with default depth (1.0)
-[message /lfo1_to_grainrate map(
+// Map LFO1 to grainrate with full depth
+[message /lfo1_to_grainrate map 1.0(
 
 // Map LFO2 to filterfreq with 70% depth
 [message /lfo2_to_filterfreq map 0.7(
@@ -1425,7 +1425,7 @@ ec2~: ERROR: parameter 'grainrate' is already modulated by LFO2. Unmap first wit
 
 **Self-modulation attempt**:
 ```
-[message /lfo1_to_lfo1rate map(
+[message /lfo1_to_lfo1rate map 1.0(
 ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 ```
 
