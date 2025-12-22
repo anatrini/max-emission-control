@@ -182,11 +182,13 @@ Number of independent grain streams (polyphonic grain layers).
 
 ## Grain Characteristics
 
-### duration (float, 1.0-1000.0 ms, default: 100.0)
+### duration (float, 0.046-10000.0 ms, default: 100.0)
 Grain duration in milliseconds.
+- Ultra-short (0.046-1 ms): Extreme spectral/glitch effects
 - Short (1-20 ms): Granular, spectral effects
 - Medium (20-200 ms): Classic granular textures
 - Long (200-1000 ms): Overlapping layers, ambient clouds
+- Very long (1000-10000 ms): Sustained textures, drone clouds
 
 ### playback (float, -32.0-32.0, default: 1.0)
 Playback rate / transposition.
@@ -195,8 +197,14 @@ Playback rate / transposition.
 - 0.5: One octave down
 - Negative values: Reverse playback
 
-### amp (float, 0.0-1.0, default: 0.5)
-Overall amplitude.
+### amp (float, -180.0 to 48.0 dB, default: -6.0)
+Overall amplitude in decibels (dBFS).
+- -6 dB: Default level
+- 0 dB: Unity gain
+- -12 dB: Half amplitude
+- -∞ to -60 dB: Very quiet
+- Above 0 dB: Amplification (use with caution)
+
 Note: Automatic voice count compensation is applied to prevent volume increase with overlapping grains.
 
 ### envelope (float, 0.0-1.0, default: 0.5)
@@ -214,11 +222,11 @@ The envelope shape significantly affects grain character:
 
 ## Filtering Parameters
 
-### filterfreq (float, 20.0-22000.0 Hz, default: 22000.0)
-Filter cutoff frequency in Hertz.
-- **22000 Hz**: No filtering (bypassed)
-- **< 22000 Hz**: Lowpass filter applied to each grain
-- The filter is a 3-stage biquad cascade for steep rolloff
+### filterfreq (float, 20.0-24000.0 Hz, default: 1000.0)
+Filter center frequency in Hertz.
+- **20-24000 Hz**: Bandpass filter applied to each grain
+- The filter is a 3-stage biquad cascade with custom resonance curve
+- Use with `resonance` parameter to control filter character
 
 Use filtering to:
 - Shape spectral content of grains
@@ -264,8 +272,11 @@ Starting position in the source buffer.
 - 0.0: Beginning of buffer
 - 1.0: End of buffer
 
-### scanrange (float, 0.0-1.0, default: 1.0)
+### scanrange (float, -1.0 to 1.0, default: 0.5)
 Range of buffer to scan from start position.
+- **Positive values (0 to 1)**: Scan forward through buffer
+- **Negative values (-1 to 0)**: Scan backward through buffer
+- Combined with `scanspeed`, enables complex scanning patterns including reverse motion
 
 ---
 
@@ -330,11 +341,12 @@ playback 1.0
 playback_dev 0.2       # Actual: 0.8-1.2 (wider pitch spread)
 ```
 
-### duration_dev (float, 0-500 ms, default: 0.0)
+### duration_dev (float, 0-5000 ms, default: 0.0)
 Random deviation for grain duration.
 - **Curtis Roads**: "Grain length variation prevents timbral homogeneity"
 - Creates dynamic envelope complexity
 - **Use**: More organic attack/release characteristics
+- **Range**: Can vary up to ±5000ms to match full duration range
 
 **Example**:
 ```
@@ -360,19 +372,19 @@ pan 0.0                # Base: center
 pan_dev 0.3            # Actual: -0.3 to +0.3 (spread around center)
 ```
 
-### amp_dev (float, 0.0-0.5, default: 0.0)
-Random deviation for amplitude.
+### amp_dev (float, 0.0-24.0 dB, default: 0.0)
+Random deviation for amplitude in decibels.
 - Creates dynamic level variation per grain
 - Prevents uniform loudness perception
 - **Use**: More natural amplitude envelope, shimmer effects
 
 **Example**:
 ```
-amp 0.5                # Base: 50% amplitude
-amp_dev 0.1            # Actual: 40-60% per grain
+amp -6                 # Base: -6 dB
+amp_dev 3              # Actual: -9 to -3 dB per grain
 ```
 
-### filterfreq_dev (float, 0-11000 Hz, default: 0.0)
+### filterfreq_dev (float, 0-12000 Hz, default: 0.0)
 Random deviation for filter cutoff frequency.
 - **Curtis Roads**: "Spectral randomization enriches timbre"
 - Creates per-grain filter variation

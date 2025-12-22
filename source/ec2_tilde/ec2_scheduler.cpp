@@ -11,8 +11,8 @@
 namespace ec2 {
 
 GrainScheduler::GrainScheduler(double samplingRate)
-  : mSamplingRate(samplingRate),
-    mUniformDist(0.0, 1.0) {
+  : mUniformDist(0.0, 1.0),
+    mSamplingRate(samplingRate) {
   // Seed random number generator
   std::random_device rd;
   mRng.seed(rd());

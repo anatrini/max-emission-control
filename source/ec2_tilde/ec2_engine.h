@@ -40,7 +40,7 @@ struct SynthParameters {
 
   // Spatial
   float pan = 0.0f;              // -1 to 1 [legacy stereo]
-  float amplitude = 0.5f;        // Linear gain (0-1)
+  float amplitude = -6.0f;       // dB (-180 to 48) - EC2 original uses dBFS
 
   // Filtering
   float filterFreq = 1000.0f;    // Hz
@@ -48,7 +48,7 @@ struct SynthParameters {
 
   // Scanning (for later implementation)
   float scanBegin = 0.0f;        // 0-1
-  float scanRange = 1.0f;        // 0-1
+  float scanRange = 0.5f;        // -1 to 1 (negative = reverse scanning)
   float scanSpeed = 1.0f;        // -32 to 32
 
   // Sound file selection
@@ -84,7 +84,7 @@ struct SynthParameters {
   float durationDeviation = 0.0f;       // ms
   float envelopeDeviation = 0.0f;       // 0-1
   float panDeviation = 0.0f;            // -1 to 1
-  float amplitudeDeviation = 0.0f;      // Linear amplitude deviation
+  float amplitudeDeviation = 0.0f;      // dB deviation
   float filterFreqDeviation = 0.0f;     // Hz
   float resonanceDeviation = 0.0f;      // 0-1
   float scanBeginDeviation = 0.0f;      // 0-1
@@ -204,7 +204,14 @@ private:
 
   float mSampleRate = DEFAULT_SAMPLE_RATE;
   float mCurrentScanIndex = 0.0f;
-  Line<double> mScanner;  // For scan position control (Phase 5)
+  Line<double> mScanner;  // For scan position control
+
+  // Scanner state tracking (for detecting parameter changes)
+  float mPrevScanBegin = 0.0f;
+  float mPrevScanRange = 0.5f;
+  float mPrevScanSpeed = 1.0f;
+  int mPrevSoundFile = 0;
+  bool mScannerNeedsReset = true;  // Force reset on first run
 
   int mActiveVoiceCount = 0;
   float mGrainEmissionTime = 0.0f;  // Track time for spatial allocator

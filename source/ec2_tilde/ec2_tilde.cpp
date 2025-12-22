@@ -482,12 +482,12 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->playback_rate = 1.0;
   x->grain_duration = 100.0;
   x->envelope_shape = 0.5;
-  x->amplitude = 0.5;
+  x->amplitude = -6.0;  // EC2 original default: -6 dB
   x->filter_freq = 1000.0;
   x->resonance = 0.0;
   x->stereo_pan = 0.0;
   x->scan_start = 0.5;
-  x->scan_range = 1.0;
+  x->scan_range = 0.5;  // EC2 original default: 0.5 (-1 to 1 range)
   x->scan_speed = 1.0;
 
   // Initialize deviation parameters to 0
@@ -760,7 +760,7 @@ void ec2_playback(t_ec2* x, double v) {
 }
 
 void ec2_duration(t_ec2* x, double v) {
-  x->grain_duration = std::max(1.0, std::min(1000.0, v));
+  x->grain_duration = std::max(0.046, std::min(10000.0, v));  // EC2 original: 0.046-10000 ms
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -772,7 +772,7 @@ void ec2_envelope(t_ec2* x, double v) {
 }
 
 void ec2_amplitude(t_ec2* x, double v) {
-  x->amplitude = std::max(0.0, std::min(1.0, v));
+  x->amplitude = std::max(-180.0, std::min(48.0, v));  // EC2 original: dB range -180 to 48
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -782,7 +782,7 @@ void ec2_amplitude(t_ec2* x, double v) {
 // ==================================================================
 
 void ec2_filterfreq(t_ec2* x, double v) {
-  x->filter_freq = std::max(20.0, std::min(22000.0, v));
+  x->filter_freq = std::max(20.0, std::min(24000.0, v));  // EC2 original: 20-24000 Hz
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -810,7 +810,7 @@ void ec2_scanstart(t_ec2* x, double v) {
 }
 
 void ec2_scanrange(t_ec2* x, double v) {
-  x->scan_range = std::max(0.0, std::min(1.0, v));
+  x->scan_range = std::max(-1.0, std::min(1.0, v));  // EC2 original: -1 to 1 (negative = reverse)
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
@@ -1593,7 +1593,7 @@ void ec2_update_engine_params(t_ec2* x) {
   params.grainDuration = x->grain_duration;
   params.envelope = x->envelope_shape;
 
-  // Amplitude is linear (0-1)
+  // Amplitude in dB (EC2 original: -180 to 48 dB)
   params.amplitude = x->amplitude;
 
   // Filtering

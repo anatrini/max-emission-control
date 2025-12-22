@@ -186,28 +186,7 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
     return true;
   }
 
-  // Get envelope value
-  float envVal = mEnvelope();
-
-  // Get playback index
-  float sourceIndex = mPlaybackIndex();
-  int iSourceIndex = static_cast<int>(sourceIndex);
-
-  // Wrap index if out of bounds
-  if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
-      iSourceIndex < 0) {
-    sourceIndex = std::fmod(
-        sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
-    iSourceIndex = static_cast<int>(sourceIndex);
-    if (iSourceIndex < 0) {
-      sourceIndex += (mSource->frames - mSource->channels);
-      iSourceIndex += (mSource->frames - mSource->channels);
-    }
-  }
-
-  mSourceIndex = sourceIndex;
-
-  // Dispatch to optimized template
+  // Dispatch to optimized template (envelope and playback handled inside)
   if (mSource->channels == 1) {
     if (mBypassFilter) {
       return processMultichannelTemplate<1, false>(outputs, numChannels);
@@ -378,18 +357,25 @@ void Grain::configureFilter(float freq, float resonance, int sourceChannels) {
   // Normalize cascade mix (max resonance is 41.2304)
   mCascadeFilterMix = resProcess / 41.2304f;
 
+  // EC2 original uses:
+  // bpf_1.res(res_process) - where Gamma res() sets Q directly
+  // bpf_2.res(log(res_process + 1))
+  // bpf_3.res(res_process)
+
+  // For filters 1 & 3: Q = res_process (range ~0.024 to ~41.2)
+  // For filter 2: Q = log(res_process + 1) (range ~0.024 to ~3.74)
+  float res2Q = std::log(resProcess + 1.0f);
+
   // Configure left channel filters
-  mBpf1L.setBandpass(freq, mSampleRate, resonance);
-  mBpf2L.setBandpass(freq, mSampleRate,
-                     std::log(resProcess + 1.0f) /
-                         49.5f); // Logarithmic for middle stage
-  mBpf3L.setBandpass(freq, mSampleRate, resonance);
+  mBpf1L.setBandpassQ(freq, mSampleRate, resProcess);  // Filter 1: Q = res_process
+  mBpf2L.setBandpassQ(freq, mSampleRate, res2Q);       // Filter 2: Q = log(res_process+1)
+  mBpf3L.setBandpassQ(freq, mSampleRate, resProcess);  // Filter 3: Q = res_process
 
   // Configure right channel filters (if stereo)
   if (sourceChannels == 2) {
-    mBpf1R.setBandpass(freq, mSampleRate, resonance);
-    mBpf2R.setBandpass(freq, mSampleRate, std::log(resProcess + 1.0f) / 49.5f);
-    mBpf3R.setBandpass(freq, mSampleRate, resonance);
+    mBpf1R.setBandpassQ(freq, mSampleRate, resProcess);
+    mBpf2R.setBandpassQ(freq, mSampleRate, res2Q);
+    mBpf3R.setBandpassQ(freq, mSampleRate, resProcess);
   }
 }
 

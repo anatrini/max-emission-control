@@ -114,6 +114,32 @@ public:
     setType(FILTER_BANDPASS, freq, sampleRate, resonance);
   }
 
+  /**
+   * Set bandpass filter using Q value directly (Gamma-compatible)
+   * Use this for middle filter stage to match EC2 original behavior
+   */
+  void setBandpassQ(T freq, T sampleRate, T Q) {
+    T omega = 2.0f * M_PI * freq / sampleRate;
+    T sinOmega = std::sin(omega);
+    T cosOmega = std::cos(omega);
+    T alpha = sinOmega / (2.0f * Q);
+
+    // Bandpass coefficients
+    b0 = alpha;
+    b1 = 0.0f;
+    b2 = -alpha;
+    T a0 = 1.0f + alpha;
+    a1 = -2.0f * cosOmega;
+    a2 = 1.0f - alpha;
+
+    // Normalize coefficients
+    b0 /= a0;
+    b1 /= a0;
+    b2 /= a0;
+    a1 /= a0;
+    a2 /= a0;
+  }
+
   void setLowpass(T freq, T sampleRate, T resonance = 0.707f) {
     setType(FILTER_LOWPASS, freq, sampleRate, resonance);
   }

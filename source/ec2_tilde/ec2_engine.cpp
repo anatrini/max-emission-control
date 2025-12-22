@@ -111,26 +111,108 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
     return;  // No audio to process
   }
 
-  // Apply modulation to scan parameters (Phase 9)
+  // Apply modulation to scan parameters
   float modulatedScanBegin = applyModulation(mParams.scanBegin, mParams.modScanBegin, 0.0f, 1.0f);
+  float modulatedScanRange = applyModulation(mParams.scanRange, mParams.modScanRange, -1.0f, 1.0f);
+  float modulatedScanSpeed = applyModulation(mParams.scanSpeed, mParams.modScanSpeed, -32.0f, 32.0f);
 
-  // Initialize scan index with modulated parameters if no signal input
+  // SCANNER LOGIC (EC2 original algorithm from ecSynth.cpp:113-169)
+  // Update scan index from Line object (moves continuously)
   if (!scanSignal) {
-    mCurrentScanIndex = modulatedScanBegin * currentBuffer->frames;
+    mCurrentScanIndex = mScanner();
   }
+
+  float frames = static_cast<float>(currentBuffer->frames);
+  float start, end;
+
+  // Detect if we need a hard reset of the scanner
+  bool needsHardReset =
+    mScannerNeedsReset ||  // First run
+    (mPrevSoundFile != mParams.soundFile) ||  // Buffer changed
+    (mCurrentScanIndex == mScanner.getTarget()) ||  // Scanner reached target
+    (modulatedScanBegin != mPrevScanBegin);  // ScanBegin changed (always hard reset in ec2~)
+
+  if (needsHardReset) {
+    mScannerNeedsReset = false;
+
+    // Calculate start and end based on scanSpeed and scanRange signs
+    // EC2 logic: if speed and range have same sign, go forward from begin
+    //            if opposite signs, go backward
+    if ((modulatedScanSpeed >= 0 && modulatedScanRange >= 0) ||
+        (modulatedScanSpeed < 0 && modulatedScanRange < 0)) {
+      start = modulatedScanBegin * frames;
+      end = start + (frames * modulatedScanRange);
+    } else {
+      start = (modulatedScanBegin + modulatedScanRange) * frames;
+      end = modulatedScanBegin * frames;
+    }
+
+    // Set scanner to move from start to end
+    // Duration = distance / (sampleRate * speed)
+    float duration = std::abs(end - start) / (mSampleRate * std::abs(modulatedScanSpeed));
+    mScanner.set(start, end, duration);
+    mCurrentScanIndex = start;
+  }
+  // On-the-fly adjustments when parameters change
+  else if (modulatedScanRange != mPrevScanRange ||
+           modulatedScanSpeed != mPrevScanSpeed) {
+
+    start = mScanner.getValue();
+
+    // Validate start position is within new range
+    if (modulatedScanRange >= 0) {
+      if ((start > (modulatedScanBegin + modulatedScanRange) * frames) ||
+          start < modulatedScanBegin * frames) {
+        start = modulatedScanBegin * frames;
+      }
+    } else {
+      if ((start < (modulatedScanBegin + modulatedScanRange) * frames) ||
+          (start > modulatedScanBegin * frames)) {
+        start = (modulatedScanBegin + modulatedScanRange) * frames;
+      }
+    }
+
+    // Calculate new end position
+    if ((modulatedScanSpeed >= 0 && modulatedScanRange >= 0) ||
+        (modulatedScanSpeed < 0 && modulatedScanRange < 0)) {
+      end = (modulatedScanBegin * frames) + (frames * modulatedScanRange);
+    } else {
+      end = (modulatedScanBegin * frames);
+    }
+
+    // Update scanner with new trajectory
+    float duration = std::abs(end - start) / (mSampleRate * std::abs(modulatedScanSpeed));
+    mScanner.set(start, end, duration);
+  }
+
+  // Wrapping logic - keep index within buffer bounds
+  if (mCurrentScanIndex >= frames || mCurrentScanIndex < 0) {
+    mCurrentScanIndex = std::fmod(mCurrentScanIndex, frames);
+    if (mCurrentScanIndex < 0) {
+      mCurrentScanIndex += frames;
+    }
+  }
+
+  // Store current values for next iteration
+  mPrevScanBegin = modulatedScanBegin;
+  mPrevScanRange = modulatedScanRange;
+  mPrevScanSpeed = modulatedScanSpeed;
+  mPrevSoundFile = mParams.soundFile;
+  // END OF SCANNER LOGIC
 
   // Process frame by frame
   for (int frame = 0; frame < numFrames; ++frame) {
     // Check if scheduler wants to trigger a new grain
     if (mScheduler.trigger()) {
 
-      // Update scan position from signal input if provided (Phase 12)
-      // Sample just-in-time when grain is triggered for efficiency
+      // Update scan position from signal input if provided
+      // When using signal input, override scanner automation
       if (scanSignal) {
         // Clamp scan signal to 0.0-1.0 range
         float scanPos = std::max(0.0f, std::min(scanSignal[frame], 1.0f));
-        mCurrentScanIndex = scanPos * currentBuffer->frames;
+        mCurrentScanIndex = scanPos * frames;
       }
+      // Otherwise mCurrentScanIndex is already set by scanner logic above
 
       // Apply statistical deviation to scan position
       float deviatedScanIndex = mCurrentScanIndex;
@@ -165,21 +247,21 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         PanningVector panning = mSpatialAllocator.allocate(metadata);
 
         // Apply modulation to other parameters (Phase 9)
-        float modulatedDuration = applyModulation(mParams.grainDuration, mParams.modGrainDuration, 1.0f, 1000.0f);
+        float modulatedDuration = applyModulation(mParams.grainDuration, mParams.modGrainDuration, 1.0f, 10000.0f);
         float modulatedEnvelope = applyModulation(mParams.envelope, mParams.modEnvelope, 0.0f, 1.0f);
         float modulatedPan = applyModulation(mParams.pan, mParams.modPan, -1.0f, 1.0f);
-        float modulatedAmplitude = applyModulation(mParams.amplitude, mParams.modAmplitude, 0.0f, 1.0f);
-        float modulatedFilterFreq = applyModulation(mParams.filterFreq, mParams.modFilterFreq, 20.0f, 22000.0f);
+        float modulatedAmplitude = applyModulation(mParams.amplitude, mParams.modAmplitude, -180.0f, 48.0f);  // dB range
+        float modulatedFilterFreq = applyModulation(mParams.filterFreq, mParams.modFilterFreq, 20.0f, 24000.0f);
         float modulatedResonance = applyModulation(mParams.resonance, mParams.modResonance, 0.0f, 1.0f);
 
         // Apply statistical deviation (Curtis Roads: stochastic grain clouds)
         // Each grain gets slightly randomized parameters for organic variation
         grainPlaybackRate = applyDeviation(grainPlaybackRate, mParams.playbackDeviation, -32.0f, 32.0f);
-        modulatedDuration = applyDeviation(modulatedDuration, mParams.durationDeviation, 1.0f, 1000.0f);
+        modulatedDuration = applyDeviation(modulatedDuration, mParams.durationDeviation, 0.046f, 10000.0f);
         modulatedEnvelope = applyDeviation(modulatedEnvelope, mParams.envelopeDeviation, 0.0f, 1.0f);
         modulatedPan = applyDeviation(modulatedPan, mParams.panDeviation, -1.0f, 1.0f);
-        modulatedAmplitude = applyDeviation(modulatedAmplitude, mParams.amplitudeDeviation, 0.0f, 1.0f);
-        modulatedFilterFreq = applyDeviation(modulatedFilterFreq, mParams.filterFreqDeviation, 20.0f, 22000.0f);
+        modulatedAmplitude = applyDeviation(modulatedAmplitude, mParams.amplitudeDeviation, -180.0f, 48.0f);  // dB range
+        modulatedFilterFreq = applyDeviation(modulatedFilterFreq, mParams.filterFreqDeviation, 20.0f, 24000.0f);
         modulatedResonance = applyDeviation(modulatedResonance, mParams.resonanceDeviation, 0.0f, 1.0f);
 
         // Configure grain parameters
@@ -191,11 +273,8 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         grainParams.envelope = modulatedEnvelope;
         grainParams.pan = modulatedPan;  // Legacy stereo pan (fallback)
 
-        // Convert linear amplitude (0-1) to dB for grain
-        // Grain expects dB, but we work with linear internally for modulation
-        float amplitudeDb = (modulatedAmplitude > 0.0001f) ?
-                            (20.0f * std::log10(modulatedAmplitude)) : -96.0f;
-        grainParams.amplitudeDb = amplitudeDb;
+        // Amplitude is already in dB (EC2 original behavior)
+        grainParams.amplitudeDb = modulatedAmplitude;
 
         grainParams.filterFreq = modulatedFilterFreq;
         grainParams.resonance = modulatedResonance;
