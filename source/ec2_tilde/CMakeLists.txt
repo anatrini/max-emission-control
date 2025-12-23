@@ -79,6 +79,7 @@ set(SOURCE_FILES
     ec2_engine.cpp
     ec2_spatial_allocator.cpp
     ec2_lfo.cpp
+    ec2_param_window.mm
     ${MAX_SDK_BASE_DIR}/c74support/max-includes/common/commonsyms.c
 )
 
@@ -111,6 +112,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     "-framework CoreAudio"
     "-framework AudioToolbox"
     "-framework Accelerate"
+    "-framework Cocoa"
     "-undefined dynamic_lookup"
 )
 

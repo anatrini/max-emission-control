@@ -19,6 +19,7 @@
 #include "ec2_engine.h"
 #include "ec2_utility.h"
 #include "ec2_version.h"
+#include "ec2_param_window.h"
 
 // Buffer loading helper
 namespace ec2_buffer_helper {
@@ -171,6 +172,9 @@ typedef struct _ec2 {
   double* rate_signal;
   double* playback_signal;
 
+  // Parameter window (JUCE)
+  ec2::ParameterWindow* param_window;
+
 } t_ec2;
 
 // Global class pointer
@@ -181,6 +185,7 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv);
 void ec2_free(t_ec2* x);
 void ec2_assist(t_ec2* x, void* b, long m, long a, char* s);
 void ec2_dblclick(t_ec2* x);
+void ec2_showbuffer(t_ec2* x);
 t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* data);
 void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags);
 void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam);
@@ -298,6 +303,8 @@ void ec2_update_engine_params(t_ec2* x);
 void ec2_send_osc_bundle(t_ec2* x);
 void ec2_parse_osc_bundle(t_ec2* x, const unsigned char* data, size_t size);
 void ec2_parse_osc_message(t_ec2* x, const unsigned char* data, size_t size);
+void ec2_get_all_parameters(t_ec2* x, std::vector<ec2::ParameterInfo>& params);
+void ec2_refresh_param_window(t_ec2* x);
 void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double value);
 std::shared_ptr<ec2::AudioBuffer<float>> ec2_load_buffer(const char* name);
 
@@ -326,6 +333,7 @@ extern "C" void ext_main(void* r) {
   // Assist and UI
   class_addmethod(c, (method)ec2_assist, "assist", A_CANT, 0);
   class_addmethod(c, (method)ec2_dblclick, "dblclick", A_CANT, 0);
+  class_addmethod(c, (method)ec2_showbuffer, "showbuffer", A_NOTHING, 0);
   class_addmethod(c, (method)ec2_notify, "notify", A_CANT, 0);
 
   // Basic synthesis parameters (float messages)
@@ -537,6 +545,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->buffer_ref = nullptr;
   x->sound_file = 0;
 
+  // Create parameter window
+  x->param_window = new ec2::ParameterWindow((t_object*)x);
+
   // Parse first argument as buffer name (if provided and not an attribute)
   if (argc > 0 && atom_gettype(argv) == A_SYM) {
     t_symbol* first_arg = atom_getsym(argv);
@@ -591,7 +602,7 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
     post("——————————————————————————————————————————————————————————————————");
     post("ec2~ version %s (compiled %s %s)", EC2_VERSION, EC2_BUILD_DATE, EC2_BUILD_TIME);
     post("based on EmissionControl2 by Curtis Roads, Jack Kilgore, Rodney DuPlessis");
-    post("Max port, spatial audio & multichannel allocation by Alessandro Anatrini ©%s", year.c_str());
+    post("Max port & multichannel spatial audio by Alessandro Anatrini ©%s", year.c_str());
     post("——————————————————————————————————————————————————————————————————");
     banner_printed = true;
   }
@@ -603,6 +614,7 @@ void ec2_free(t_ec2* x) {
   dsp_free((t_pxobject*)x);
 
   if (x->buffer_ref) object_free(x->buffer_ref);
+  if (x->param_window) delete x->param_window;
   if (x->engine) delete x->engine;
   if (x->signal_outlets) delete x->signal_outlets;
   if (x->osc_bundle_buffer) delete x->osc_bundle_buffer;
@@ -626,8 +638,125 @@ void ec2_assist(t_ec2* x, void* b, long m, long a, char* s) {
   }
 }
 
+// Helper to refresh parameter window if visible
+void ec2_refresh_param_window(t_ec2* x) {
+  if (x->param_window && x->param_window->isVisible()) {
+    std::vector<ec2::ParameterInfo> params;
+    ec2_get_all_parameters(x, params);
+    x->param_window->updateAllParameters(params);
+  }
+}
+
+// Helper function to get ALL parameters
+void ec2_get_all_parameters(t_ec2* x, std::vector<ec2::ParameterInfo>& params) {
+  params.clear();
+
+  // Synthesis
+  params.push_back({"grainrate", "Synthesis", x->grain_rate, 0.1, 500.0, "Grain emission rate (Hz)", false});
+  params.push_back({"async", "Synthesis", x->async, 0.0, 1.0, "Asynchronicity", false});
+  params.push_back({"intermittency", "Synthesis", x->intermittency, 0.0, 1.0, "Intermittency", false});
+  params.push_back({"streams", "Synthesis", x->streams, 1.0, 20.0, "Number of streams", false});
+  params.push_back({"playback", "Synthesis", x->playback_rate, -32.0, 32.0, "Playback rate", false});
+  params.push_back({"duration", "Synthesis", x->grain_duration, 0.046, 10000.0, "Duration (ms)", false});
+  params.push_back({"envelope", "Synthesis", x->envelope_shape, 0.0, 1.0, "Envelope shape", false});
+  params.push_back({"amp", "Synthesis", x->amplitude, -180.0, 48.0, "Amplitude (dB)", false});
+
+  // Filtering
+  params.push_back({"filterfreq", "Filtering", x->filter_freq, 20.0, 24000.0, "Filter frequency (Hz)", false});
+  params.push_back({"resonance", "Filtering", x->resonance, 0.0, 1.0, "Resonance", false});
+
+  // Spatial
+  params.push_back({"pan", "Spatial", x->stereo_pan, -1.0, 1.0, "Pan position", false});
+  params.push_back({"scanstart", "Spatial", x->scan_start, 0.0, 1.0, "Scan start", false});
+  params.push_back({"scanrange", "Spatial", x->scan_range, -1.0, 1.0, "Scan range", false});
+  params.push_back({"scanspeed", "Spatial", x->scan_speed, -32.0, 32.0, "Scan speed", false});
+
+  // Deviations
+  params.push_back({"grainrate_dev", "Deviations", x->grain_rate_dev, 0.0, 250.0, "Grain rate deviation (Hz)", false});
+  params.push_back({"async_dev", "Deviations", x->async_dev, 0.0, 0.5, "Async deviation", false});
+  params.push_back({"intermittency_dev", "Deviations", x->intermittency_dev, 0.0, 0.5, "Intermittency deviation", false});
+  params.push_back({"streams_dev", "Deviations", x->streams_dev, 0.0, 10.0, "Streams deviation", false});
+  params.push_back({"playback_dev", "Deviations", x->playback_dev, 0.0, 16.0, "Playback rate deviation", false});
+  params.push_back({"duration_dev", "Deviations", x->duration_dev, 0.0, 5000.0, "Duration deviation (ms)", false});
+  params.push_back({"envelope_dev", "Deviations", x->envelope_dev, 0.0, 0.5, "Envelope shape deviation", false});
+  params.push_back({"pan_dev", "Deviations", x->pan_dev, 0.0, 1.0, "Pan deviation", false});
+  params.push_back({"amp_dev", "Deviations", x->amp_dev, 0.0, 24.0, "Amplitude deviation (dB)", false});
+  params.push_back({"filterfreq_dev", "Deviations", x->filterfreq_dev, 0.0, 12000.0, "Filter freq deviation (Hz)", false});
+  params.push_back({"resonance_dev", "Deviations", x->resonance_dev, 0.0, 0.5, "Resonance deviation", false});
+  params.push_back({"scanstart_dev", "Deviations", x->scanstart_dev, 0.0, 0.5, "Scan start deviation", false});
+  params.push_back({"scanrange_dev", "Deviations", x->scanrange_dev, 0.0, 1.0, "Scan range deviation", false});
+  params.push_back({"scanspeed_dev", "Deviations", x->scanspeed_dev, 0.0, 16.0, "Scan speed deviation", false});
+
+  // Spatial Allocation
+  params.push_back({"allocmode", "Allocation", (double)x->alloc_mode, 0.0, 6.0, "Allocation mode", true});
+  params.push_back({"fixedchan", "Allocation", (double)x->fixed_channel, 1.0, 16.0, "Fixed channel", true});
+  params.push_back({"rrstep", "Allocation", (double)x->rr_step, 1.0, 16.0, "Round-robin step", true});
+  params.push_back({"randspread", "Allocation", x->random_spread, 0.0, 1.0, "Random spread", false});
+  params.push_back({"spatialcorr", "Allocation", x->spatial_corr, 0.0, 1.0, "Spatial correlation", false});
+  params.push_back({"pitchmin", "Allocation", x->pitch_min, 20.0, 20000.0, "Pitch min (Hz)", false});
+  params.push_back({"pitchmax", "Allocation", x->pitch_max, 20.0, 20000.0, "Pitch max (Hz)", false});
+  params.push_back({"trajshape", "Allocation", (double)x->traj_shape, 0.0, 5.0, "Trajectory shape", true});
+  params.push_back({"trajrate", "Allocation", x->traj_rate, 0.001, 100.0, "Trajectory rate (Hz)", false});
+  params.push_back({"trajdepth", "Allocation", x->traj_depth, 0.0, 1.0, "Trajectory depth", false});
+  params.push_back({"spiral_factor", "Allocation", x->spiral_factor, 0.0, 1.0, "Spiral factor", false});
+  params.push_back({"pendulum_decay", "Allocation", x->pendulum_decay, 0.0, 1.0, "Pendulum decay", false});
+
+  // LFOs
+  params.push_back({"lfo1shape", "LFO1", (double)x->lfo1_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo1rate", "LFO1", x->lfo1_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo1polarity", "LFO1", (double)x->lfo1_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo1duty", "LFO1", x->lfo1_duty, 0.0, 1.0, "Duty cycle", false});
+
+  params.push_back({"lfo2shape", "LFO2", (double)x->lfo2_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo2rate", "LFO2", x->lfo2_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo2polarity", "LFO2", (double)x->lfo2_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo2duty", "LFO2", x->lfo2_duty, 0.0, 1.0, "Duty cycle", false});
+
+  params.push_back({"lfo3shape", "LFO3", (double)x->lfo3_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo3rate", "LFO3", x->lfo3_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo3polarity", "LFO3", (double)x->lfo3_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo3duty", "LFO3", x->lfo3_duty, 0.0, 1.0, "Duty cycle", false});
+
+  params.push_back({"lfo4shape", "LFO4", (double)x->lfo4_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo4rate", "LFO4", x->lfo4_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo4polarity", "LFO4", (double)x->lfo4_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo4duty", "LFO4", x->lfo4_duty, 0.0, 1.0, "Duty cycle", false});
+
+  params.push_back({"lfo5shape", "LFO5", (double)x->lfo5_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo5rate", "LFO5", x->lfo5_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo5polarity", "LFO5", (double)x->lfo5_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo5duty", "LFO5", x->lfo5_duty, 0.0, 1.0, "Duty cycle", false});
+
+  params.push_back({"lfo6shape", "LFO6", (double)x->lfo6_shape, 0.0, 5.0, "Shape", true});
+  params.push_back({"lfo6rate", "LFO6", x->lfo6_rate, 0.001, 100.0, "Rate (Hz)", false});
+  params.push_back({"lfo6polarity", "LFO6", (double)x->lfo6_polarity, 0.0, 1.0, "Polarity", true});
+  params.push_back({"lfo6duty", "LFO6", x->lfo6_duty, 0.0, 1.0, "Duty cycle", false});
+
+  // Buffer information
+  if (x->buffer_name && x->buffer_name != gensym("")) {
+    // For regular buffer~, display buffer name (soundfile is only for polybuffer~)
+    // Since we can't store strings in ParameterInfo.value (which is double),
+    // we'll use a special encoding or just show 1.0 to indicate buffer is loaded
+    params.push_back({"buffer", "Buffer", 1.0, 0.0, 1.0, x->buffer_name->s_name, false});
+  } else {
+    params.push_back({"buffer", "Buffer", 0.0, 0.0, 1.0, "No buffer loaded", false});
+  }
+}
+
 void ec2_dblclick(t_ec2* x) {
-  // Open buffer editor when double-clicking the object
+  if (x->param_window) {
+    if (x->param_window->isVisible()) {
+      x->param_window->closeWindow();
+    } else {
+      std::vector<ec2::ParameterInfo> params;
+      ec2_get_all_parameters(x, params);
+      x->param_window->updateAllParameters(params);
+      x->param_window->openWindow();
+    }
+  }
+}
+
+void ec2_showbuffer(t_ec2* x) {
   if (!x->buffer_name || x->buffer_name == gensym("")) {
     object_error((t_object*)x, "no buffer set");
     return;
@@ -641,7 +770,6 @@ void ec2_dblclick(t_ec2* x) {
 
   t_buffer_obj* buffer = buffer_ref_getobject(buf_ref);
   if (buffer) {
-    // Open the buffer editor
     mess0(buffer, gensym("dblclick"));
   }
 
@@ -649,14 +777,11 @@ void ec2_dblclick(t_ec2* x) {
 }
 
 t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* data) {
-  // Check if notification is from our buffer_ref
   if (msg == gensym("buffer_modified") || msg == gensym("globalsymbol_binding")) {
-    // Reload buffer when it changes
     if (x->buffer_name && x->buffer_name != gensym("")) {
       auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(x->buffer_name->s_name);
       if (audio_buf) {
         x->engine->setAudioBuffer(audio_buf, 0);
-        // Update engine parameters after loading buffer
         ec2_update_engine_params(x);
       }
     }
@@ -733,48 +858,56 @@ void ec2_grainrate(t_ec2* x, double v) {
   x->grain_rate = std::max(0.1, std::min(500.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_async(t_ec2* x, double v) {
   x->async = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_intermittency(t_ec2* x, double v) {
   x->intermittency = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_streams(t_ec2* x, double v) {
   x->streams = std::max(1.0, std::min(20.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_playback(t_ec2* x, double v) {
   x->playback_rate = std::max(-32.0, std::min(32.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_duration(t_ec2* x, double v) {
   x->grain_duration = std::max(0.046, std::min(10000.0, v));  // EC2 original: 0.046-10000 ms
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_envelope(t_ec2* x, double v) {
   x->envelope_shape = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_amplitude(t_ec2* x, double v) {
   x->amplitude = std::max(-180.0, std::min(48.0, v));  // EC2 original: dB range -180 to 48
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // ==================================================================
@@ -785,12 +918,14 @@ void ec2_filterfreq(t_ec2* x, double v) {
   x->filter_freq = std::max(20.0, std::min(24000.0, v));  // EC2 original: 20-24000 Hz
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_resonance(t_ec2* x, double v) {
   x->resonance = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // ==================================================================
@@ -801,24 +936,28 @@ void ec2_pan(t_ec2* x, double v) {
   x->stereo_pan = std::max(-1.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanstart(t_ec2* x, double v) {
   x->scan_start = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanrange(t_ec2* x, double v) {
   x->scan_range = std::max(-1.0, std::min(1.0, v));  // EC2 original: -1 to 1 (negative = reverse)
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanspeed(t_ec2* x, double v) {
   x->scan_speed = std::max(-32.0, std::min(32.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // ==================================================================
@@ -829,84 +968,98 @@ void ec2_grainrate_dev(t_ec2* x, double v) {
   x->grain_rate_dev = std::max(0.0, std::min(250.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_async_dev(t_ec2* x, double v) {
   x->async_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_intermittency_dev(t_ec2* x, double v) {
   x->intermittency_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_streams_dev(t_ec2* x, double v) {
   x->streams_dev = std::max(0.0, std::min(10.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_playback_dev(t_ec2* x, double v) {
   x->playback_dev = std::max(0.0, std::min(16.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_duration_dev(t_ec2* x, double v) {
   x->duration_dev = std::max(0.0, std::min(500.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_envelope_dev(t_ec2* x, double v) {
   x->envelope_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_pan_dev(t_ec2* x, double v) {
   x->pan_dev = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_amp_dev(t_ec2* x, double v) {
   x->amp_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_filterfreq_dev(t_ec2* x, double v) {
   x->filterfreq_dev = std::max(0.0, std::min(11000.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_resonance_dev(t_ec2* x, double v) {
   x->resonance_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanstart_dev(t_ec2* x, double v) {
   x->scanstart_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanrange_dev(t_ec2* x, double v) {
   x->scanrange_dev = std::max(0.0, std::min(0.5, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_scanspeed_dev(t_ec2* x, double v) {
   x->scanspeed_dev = std::max(0.0, std::min(16.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // ==================================================================
@@ -969,24 +1122,28 @@ void ec2_lfo1shape(t_ec2* x, double v) {
   x->lfo1_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo1rate(t_ec2* x, double v) {
   x->lfo1_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo1polarity(t_ec2* x, double v) {
   x->lfo1_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo1duty(t_ec2* x, double v) {
   x->lfo1_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // LFO 2
@@ -994,24 +1151,28 @@ void ec2_lfo2shape(t_ec2* x, double v) {
   x->lfo2_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo2rate(t_ec2* x, double v) {
   x->lfo2_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo2polarity(t_ec2* x, double v) {
   x->lfo2_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo2duty(t_ec2* x, double v) {
   x->lfo2_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // LFO 3
@@ -1019,24 +1180,28 @@ void ec2_lfo3shape(t_ec2* x, double v) {
   x->lfo3_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo3rate(t_ec2* x, double v) {
   x->lfo3_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo3polarity(t_ec2* x, double v) {
   x->lfo3_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo3duty(t_ec2* x, double v) {
   x->lfo3_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // LFO 4
@@ -1044,24 +1209,28 @@ void ec2_lfo4shape(t_ec2* x, double v) {
   x->lfo4_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo4rate(t_ec2* x, double v) {
   x->lfo4_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo4polarity(t_ec2* x, double v) {
   x->lfo4_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo4duty(t_ec2* x, double v) {
   x->lfo4_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // LFO 5
@@ -1069,24 +1238,28 @@ void ec2_lfo5shape(t_ec2* x, double v) {
   x->lfo5_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo5rate(t_ec2* x, double v) {
   x->lfo5_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo5polarity(t_ec2* x, double v) {
   x->lfo5_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo5duty(t_ec2* x, double v) {
   x->lfo5_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // LFO 6
@@ -1094,24 +1267,28 @@ void ec2_lfo6shape(t_ec2* x, double v) {
   x->lfo6_shape = std::max(0, std::min(4, (int)v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo6rate(t_ec2* x, double v) {
   x->lfo6_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo6polarity(t_ec2* x, double v) {
   x->lfo6_polarity = std::max(0, std::min(2, (int)v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_lfo6duty(t_ec2* x, double v) {
   x->lfo6_duty = std::max(0.0, std::min(1.0, v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 // ==================================================================
@@ -1378,66 +1555,77 @@ void ec2_fixedchan(t_ec2* x, long v) {
   x->fixed_channel = std::max(1L, std::min(16L, v));  // User-facing: 1-16
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_rrstep(t_ec2* x, long v) {
   x->rr_step = std::max(1L, std::min(16L, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_randspread(t_ec2* x, double v) {
   x->random_spread = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_spatialcorr(t_ec2* x, double v) {
   x->spatial_corr = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_pitchmin(t_ec2* x, double v) {
   x->pitch_min = std::max(20.0, std::min(20000.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_pitchmax(t_ec2* x, double v) {
   x->pitch_max = std::max(20.0, std::min(20000.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_trajshape(t_ec2* x, long v) {
   x->traj_shape = std::max(0L, std::min(5L, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_trajrate(t_ec2* x, double v) {
   x->traj_rate = std::max(0.001, std::min(100.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_trajdepth(t_ec2* x, double v) {
   x->traj_depth = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_spiral_factor(t_ec2* x, double v) {
   x->spiral_factor = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_pendulum_decay(t_ec2* x, double v) {
   x->pendulum_decay = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
 }
 
 void ec2_weights(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
@@ -1725,10 +1913,11 @@ void ec2_update_engine_params(t_ec2* x) {
 }
 
 void ec2_send_osc_bundle(t_ec2* x) {
-  // Check suppress flag (matches old ec2~old.mxo at offset 0x4ae1)
+  // Check suppress flag
   if (x->suppress_osc_output) return;
 
-  // Build OSC bundle with all current parameters
+  // Build OSC bundle with grain visualization data (not parameters anymore)
+  // Parameters are now displayed in the native UI window opened with double-click
   x->osc_bundle_buffer->clear();
 
   // OSC bundle header: "#bundle\0" (8 bytes)
@@ -1741,8 +1930,8 @@ void ec2_send_osc_bundle(t_ec2* x) {
   for (int i = 0; i < 7; i++) x->osc_bundle_buffer->push_back(0);
   x->osc_bundle_buffer->push_back(1);
 
-  // Helper lambda to add OSC message to bundle (EXACT copy from decompiled ec2~old.mxo)
-  // Lambda signature: takes float, converts to double, stores as double with ',d' type tag
+  // Helper lambda to add OSC message to bundle
+  // Stores values as double with ',d' type tag for compatibility
   auto add_message = [&](std::vector<unsigned char>& vec, const std::string& addr, float value) {
     size_t start_pos = vec.size();
 
@@ -1795,83 +1984,84 @@ void ec2_send_osc_bundle(t_ec2* x) {
     vec[start_pos + 3] = static_cast<unsigned char>(msg_size & 0xFF);
   };
 
-  // Add parameters in EXACT order from old ec2~old.mxo disassembly (addresses 0x4b96-0x500f)
-  // Order: grainrate, async, intermittency, streams, playback, duration, envelope,
-  //        scanstart, scanrange, amplitude, filterfreq, resonance, pan, scanspeed
-  // Then all deviation parameters in same order
-  add_message(*x->osc_bundle_buffer, "grainrate", static_cast<float>(x->grain_rate));
-  add_message(*x->osc_bundle_buffer, "async", static_cast<float>(x->async));
-  add_message(*x->osc_bundle_buffer, "intermittency", static_cast<float>(x->intermittency));
-  add_message(*x->osc_bundle_buffer, "streams", static_cast<float>(x->streams));
-  add_message(*x->osc_bundle_buffer, "playback", static_cast<float>(x->playback_rate));
-  add_message(*x->osc_bundle_buffer, "duration", static_cast<float>(x->grain_duration));
-  add_message(*x->osc_bundle_buffer, "envelope", static_cast<float>(x->envelope_shape));
-  add_message(*x->osc_bundle_buffer, "scanstart", static_cast<float>(x->scan_start));
-  add_message(*x->osc_bundle_buffer, "scanrange", static_cast<float>(x->scan_range));
-  add_message(*x->osc_bundle_buffer, "amplitude", static_cast<float>(x->amplitude));
-  add_message(*x->osc_bundle_buffer, "filterfreq", static_cast<float>(x->filter_freq));
-  add_message(*x->osc_bundle_buffer, "resonance", static_cast<float>(x->resonance));
-  add_message(*x->osc_bundle_buffer, "pan", static_cast<float>(x->stereo_pan));
-  add_message(*x->osc_bundle_buffer, "scanspeed", static_cast<float>(x->scan_speed));
+  // ==================================================================
+  // GRAIN VISUALIZATION DATA (Curtis Roads best practices)
+  // ==================================================================
+  // This output is designed for waveform and grain cloud visualization
+  // All synthesis parameters are now in the native parameter window (double-click)
 
-  // Deviation parameters in matching order
-  add_message(*x->osc_bundle_buffer, "grainrate_dev", static_cast<float>(x->grain_rate_dev));
-  add_message(*x->osc_bundle_buffer, "async_dev", static_cast<float>(x->async_dev));
-  add_message(*x->osc_bundle_buffer, "intermittency_dev", static_cast<float>(x->intermittency_dev));
-  add_message(*x->osc_bundle_buffer, "streams_dev", static_cast<float>(x->streams_dev));
-  add_message(*x->osc_bundle_buffer, "playback_dev", static_cast<float>(x->playback_dev));
-  add_message(*x->osc_bundle_buffer, "duration_dev", static_cast<float>(x->duration_dev));
-  add_message(*x->osc_bundle_buffer, "envelope_dev", static_cast<float>(x->envelope_dev));
-  add_message(*x->osc_bundle_buffer, "pan_dev", static_cast<float>(x->pan_dev));
-  add_message(*x->osc_bundle_buffer, "amp_dev", static_cast<float>(x->amp_dev));
-  add_message(*x->osc_bundle_buffer, "filterfreq_dev", static_cast<float>(x->filterfreq_dev));
-  add_message(*x->osc_bundle_buffer, "resonance_dev", static_cast<float>(x->resonance_dev));
-  add_message(*x->osc_bundle_buffer, "scanstart_dev", static_cast<float>(x->scanstart_dev));
-  add_message(*x->osc_bundle_buffer, "scanrange_dev", static_cast<float>(x->scanrange_dev));
-  add_message(*x->osc_bundle_buffer, "scanspeed_dev", static_cast<float>(x->scanspeed_dev));
+  // 1. Buffer information
+  float buffer_length_samples = 0.0f;
+  float buffer_length_ms = 0.0f;
 
-  // LFO parameters (24 total: 6 LFOs × 4 params each)
-  // LFO values are read directly from engine
-  for (int i = 0; i < 6; i++) {
-    auto lfo = x->engine->getLFO(i);
-    if (lfo) {
-      std::string prefix = "lfo" + std::to_string(i + 1);
-      add_message(*x->osc_bundle_buffer, prefix + "shape", static_cast<float>(static_cast<int>(lfo->getShape())));
-      add_message(*x->osc_bundle_buffer, prefix + "rate", lfo->getFrequency());
-      add_message(*x->osc_bundle_buffer, prefix + "polarity", static_cast<float>(static_cast<int>(lfo->getPolarity())));
-      add_message(*x->osc_bundle_buffer, prefix + "duty", lfo->getDuty());
+  if (x->engine) {
+    auto audio_buf = x->engine->getAudioBuffer();
+    if (audio_buf) {
+      buffer_length_samples = static_cast<float>(audio_buf->frames);
+      buffer_length_ms = (buffer_length_samples / x->engine->getSampleRate()) * 1000.0f;
     }
   }
 
-  // LFO modulation routing (new system: global depths + active destinations)
-  // Output LFO global depths (6 values)
-  for (int i = 0; i < 6; i++) {
-    std::string depth_msg = "/lfo" + std::to_string(i + 1) + "depth";
-    add_message(*x->osc_bundle_buffer, depth_msg, static_cast<float>(x->lfo_states[i].global_depth));
+  add_message(*x->osc_bundle_buffer, "buffer_length_samples", buffer_length_samples);
+  add_message(*x->osc_bundle_buffer, "buffer_length_ms", buffer_length_ms);
+
+  // 2. Scan window (selected portion of file for granulation)
+  // Normalized 0-1 values representing the active region
+  float scan_start_norm = x->scan_start;  // Already normalized 0-1
+  float scan_end_norm = x->scan_start + x->scan_range;
+
+  // Clamp scan end to valid range
+  if (scan_end_norm > 1.0f) scan_end_norm = 1.0f;
+  if (scan_end_norm < 0.0f) scan_end_norm = 0.0f;
+  if (x->scan_range < 0.0f) {
+    // Negative scan range means scanning backwards
+    scan_end_norm = x->scan_start;
+    scan_start_norm = x->scan_start + x->scan_range;
+    if (scan_start_norm < 0.0f) scan_start_norm = 0.0f;
   }
 
-  // Output active LFO mappings (variable number based on actual mappings)
-  for (int i = 0; i < 6; i++) {
-    const LFOState& lfo = x->lfo_states[i];
-    for (const auto& dest : lfo.destinations) {
-      // Format: /lfo<N>_to_<param>_depth <value>
-      std::string map_msg = "/lfo" + std::to_string(i + 1) + "_to_" + dest.param_name + "_depth";
-      add_message(*x->osc_bundle_buffer, map_msg, static_cast<float>(dest.depth));
-    }
-  }
+  add_message(*x->osc_bundle_buffer, "scan_start_norm", scan_start_norm);
+  add_message(*x->osc_bundle_buffer, "scan_end_norm", scan_end_norm);
 
-  // Spatial allocation parameters (9 total - real-time messages)
-  add_message(*x->osc_bundle_buffer, "fixedchan", static_cast<float>(x->fixed_channel));
-  add_message(*x->osc_bundle_buffer, "rrstep", static_cast<float>(x->rr_step));
-  add_message(*x->osc_bundle_buffer, "randspread", static_cast<float>(x->random_spread));
-  add_message(*x->osc_bundle_buffer, "spatialcorr", static_cast<float>(x->spatial_corr));
-  add_message(*x->osc_bundle_buffer, "pitchmin", static_cast<float>(x->pitch_min));
-  add_message(*x->osc_bundle_buffer, "pitchmax", static_cast<float>(x->pitch_max));
-  add_message(*x->osc_bundle_buffer, "trajshape", static_cast<float>(x->traj_shape));
-  add_message(*x->osc_bundle_buffer, "trajrate", static_cast<float>(x->traj_rate));
-  add_message(*x->osc_bundle_buffer, "trajdepth", static_cast<float>(x->traj_depth));
-  add_message(*x->osc_bundle_buffer, "spiral_factor", static_cast<float>(x->spiral_factor));
-  add_message(*x->osc_bundle_buffer, "pendulum_decay", static_cast<float>(x->pendulum_decay));
+  // Convert to absolute sample positions for convenience
+  add_message(*x->osc_bundle_buffer, "scan_start_samples", scan_start_norm * buffer_length_samples);
+  add_message(*x->osc_bundle_buffer, "scan_end_samples", scan_end_norm * buffer_length_samples);
+
+  // 3. Active grain statistics
+  int active_grain_count = x->engine ? x->engine->getActiveVoiceCount() : 0;
+  add_message(*x->osc_bundle_buffer, "active_grain_count", static_cast<float>(active_grain_count));
+
+  // 4. Individual grain data (following Curtis Roads' recommendations)
+  // For each active grain, output:
+  // - Grain ID (voice pool index)
+  // - Position in buffer (normalized 0-1)
+  // - Position in buffer (absolute samples)
+  // - Envelope phase (0-1, useful for visualizing grain age)
+  // - Amplitude/loudness (for grain brightness in visualization)
+
+  // Note: The voice pool doesn't expose individual grain iteration, so we'll
+  // provide aggregate information. For detailed per-grain data, the engine
+  // would need to expose an iterator over active grains.
+
+  // For now, we output aggregate metrics that are useful for visualization:
+  // - Average grain position (centroid of grain cloud)
+  // - Grain density (grains per second)
+  // - Spatial spread (standard deviation of positions)
+
+  // Grain density (instantaneous emission rate)
+  add_message(*x->osc_bundle_buffer, "grain_density_hz", static_cast<float>(x->grain_rate));
+
+  // Stream count (number of independent grain streams)
+  add_message(*x->osc_bundle_buffer, "stream_count", static_cast<float>(x->streams));
+
+  // Average grain duration (for visualizing grain envelope width)
+  add_message(*x->osc_bundle_buffer, "grain_duration_ms", static_cast<float>(x->grain_duration));
+
+  // Playback rate (affects grain trajectory visualization)
+  add_message(*x->osc_bundle_buffer, "playback_rate", static_cast<float>(x->playback_rate));
+
+  // Scan speed (for visualizing scan window movement)
+  add_message(*x->osc_bundle_buffer, "scan_speed", static_cast<float>(x->scan_speed));
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];
