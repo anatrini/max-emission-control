@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 71.0, 116.0, 1407.0, 832.0 ],
+        "rect": [ 1683.0, 87.0, 1007.0, 832.0 ],
         "boxes": [
             {
                 "box": {
@@ -291,13 +291,13 @@
                 "box": {
                     "fontface": 0,
                     "id": "obj-3",
-                    "linecount": 80,
+                    "linecount": 69,
                     "maxclass": "o.display",
                     "numinlets": 1,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 911.0, 321.5, 248.0, 1045.0 ],
-                    "text": "/grainrate : 20.,\n/async : 0.,\n/intermittency : 0.,\n/streams : 1.,\n/playback : 1.,\n/duration : 1.,\n/envelope : 0.5,\n/scanstart : 0.5,\n/scanrange : 1.,\n/amplitude : 1.,\n/filterfreq : 1000.,\n/resonance : 0.,\n/pan : 0.,\n/scanspeed : 1.,\n/grainrate_dev : 0.,\n/async_dev : 0.,\n/intermittency_dev : 0.,\n/streams_dev : 0.,\n/playback_dev : 0.,\n/duration_dev : 0.,\n/envelope_dev : 0.,\n/pan_dev : 0.,\n/amp_dev : 3.16228e-05,\n/filterfreq_dev : 0.,\n/resonance_dev : 0.,\n/scanstart_dev : 0.,\n/scanrange_dev : 0.,\n/scanspeed_dev : 0.,\n/lfo1shape : 0.,\n/lfo1rate : 1.,\n/lfo1polarity : 1.,\n/lfo1duty : 0.5,\n/lfo2shape : 0.,\n/lfo2rate : 1.,\n/lfo2polarity : 0.,\n/lfo2duty : 0.5,\n/lfo3shape : 0.,\n/lfo3rate : 1.,\n/lfo3polarity : 0.,\n/lfo3duty : 0.5,\n/lfo4shape : 0.,\n/lfo4rate : 1.,\n/lfo4polarity : 0.,\n/lfo4duty : 0.5,\n/lfo5shape : 0.,\n/lfo5rate : 1.,\n/lfo5polarity : 0.,\n/lfo5duty : 0.5,\n/lfo6shape : 0.,\n/lfo6rate : 1.,\n/lfo6polarity : 0.,\n/lfo6duty : 0.5,\n/grainrate_lfosource : 0.,\n/grainrate_moddepth : 0.,\n/async_lfosource : 0.,\n/async_moddepth : 0.,\n/intermittency_lfosource : 0.,\n/intermittency_moddepth : 0.,\n/streams_lfosource : 0.,\n/streams_moddepth : 0.,\n/playback_lfosource : 0.,\n/playback_moddepth : 0.,\n/duration_lfosource : 0.,\n/duration_moddepth : 0.,\n/envelope_lfosource : 0.,\n/envelope_moddepth : 0.,\n/filterfreq_lfosource : 0.,\n/filterfreq_moddepth : 0.,\n/resonance_lfosource : 0.,\n/resonance_moddepth : 0.,\n/pan_lfosource : 0.,\n/pan_moddepth : 0.,\n/amplitude_lfosource : 0.,\n/amplitude_moddepth : 0.,\n/scanstart_lfosource : 0.,\n/scanstart_moddepth : 0.,\n/scanrange_lfosource : 0.,\n/scanrange_moddepth : 0.,\n/scanspeed_lfosource : 0.,\n/scanspeed_moddepth : 0."
+                    "patching_rect": [ 911.0, 321.5, 248.0, 904.0 ],
+                    "text": "/grainrate : 20.,\n/async : 0.,\n/intermittency : 0.,\n/streams : 1.,\n/playback : 1.,\n/duration : 1.,\n/envelope : 0.5,\n/scanstart : 0.5,\n/scanrange : 1.,\n/amplitude : 1.,\n/filterfreq : 1000.,\n/resonance : 0.,\n/pan : 0.,\n/scanspeed : 1.,\n/grainrate_dev : 0.,\n/async_dev : 0.,\n/intermittency_dev : 0.,\n/streams_dev : 0.,\n/playback_dev : 0.,\n/duration_dev : 0.,\n/envelope_dev : 0.,\n/pan_dev : 0.,\n/amp_dev : 3.16228e-05,\n/filterfreq_dev : 0.,\n/resonance_dev : 0.,\n/scanstart_dev : 0.,\n/scanrange_dev : 0.,\n/scanspeed_dev : 0.,\n/lfo1shape : 0.,\n/lfo1rate : 1.,\n/lfo1polarity : 0.,\n/lfo1duty : 0.5,\n/lfo2shape : 0.,\n/lfo2rate : 1.,\n/lfo2polarity : 0.,\n/lfo2duty : 0.5,\n/lfo3shape : 0.,\n/lfo3rate : 1.,\n/lfo3polarity : 0.,\n/lfo3duty : 0.5,\n/lfo4shape : 0.,\n/lfo4rate : 1.,\n/lfo4polarity : 0.,\n/lfo4duty : 0.5,\n/lfo5shape : 0.,\n/lfo5rate : 1.,\n/lfo5polarity : 0.,\n/lfo5duty : 0.5,\n/lfo6shape : 0.,\n/lfo6rate : 1.,\n/lfo6polarity : 0.,\n/lfo6duty : 0.5,\n//lfo1depth : 1.,\n//lfo2depth : 1.,\n//lfo3depth : 1.,\n//lfo4depth : 1.,\n//lfo5depth : 1.,\n//lfo6depth : 1.,\n/fixedchan : 1.,\n/rrstep : 1.,\n/randspread : 0.,\n/spatialcorr : 0.,\n/pitchmin : 20.,\n/pitchmax : 20000.,\n/trajshape : 0.,\n/trajrate : 0.5,\n/trajdepth : 0.,\n/spiral_factor : 0.,\n/pendulum_decay : 0.1"
                 }
             },
             {
@@ -335,18 +335,9 @@
                     "saved_object_attributes": {
                         "allocmode": 1,
                         "buffer": "johnson",
-                        "fixedchan": 0,
                         "mc": 1,
                         "outputs": 2,
-                        "pitchmax": 20000.0,
-                        "pitchmin": 20.0,
-                        "randspread": 0.0,
-                        "rrstep": 1,
-                        "soundfile": 0,
-                        "spatialcorr": 0.0,
-                        "trajdepth": 1.0,
-                        "trajrate": 0.5,
-                        "trajshape": 0
+                        "soundfile": 0
                     },
                     "text": "ec2~ johnson @outputs 2 @mc 1"
                 }
@@ -534,14 +525,6 @@
             "obj-6::obj-8": [ "live.menu[4]", "live.menu", 0 ],
             "obj-6::obj-89": [ "live.dial[16]", "Spatialcorr", 0 ],
             "obj-6::obj-97": [ "live.tab[2]", "live.tab", 0 ],
-            "parameterbanks": {
-                "0": {
-                    "index": 0,
-                    "name": "",
-                    "parameters": [ "-", "-", "-", "-", "-", "-", "-", "-" ],
-                    "buttons": [ "-", "-", "-", "-", "-", "-", "-", "-" ]
-                }
-            },
             "parameter_overrides": {
                 "obj-6::obj-110": {
                     "parameter_longname": "live.menu[2]"

@@ -77,10 +77,9 @@ struct LFODestination {
 };
 
 struct LFOState {
-  double global_depth;                           // Global depth for this LFO (0.0-1.0)
   std::vector<LFODestination> destinations;      // Active destinations (max 8)
 
-  LFOState() : global_depth(1.0) {}
+  LFOState() {}
 };
 
 // Main object struct
@@ -514,9 +513,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->scanrange_dev = 0.0;
   x->scanspeed_dev = 0.0;
 
-  // Initialize LFO states (6 LFOs, each with global_depth=1.0 and empty destinations)
+  // Initialize LFO states (6 LFOs with empty destinations)
+  // No global depth anymore - each parameter has its own depth
   for (int i = 0; i < 6; i++) {
-    x->lfo_states[i].global_depth = 1.0;
     x->lfo_states[i].destinations.clear();
   }
 
@@ -1331,19 +1330,18 @@ double ec2_get_lfo_modulation(t_ec2* x, const std::string& param_name) {
   if (dest_idx < 0) return 0.0;
 
   LFOState& lfo = x->lfo_states[lfo_num - 1];
-  double destination_depth = lfo.destinations[dest_idx].depth;
-  double global_depth = lfo.global_depth;
+  double depth = lfo.destinations[dest_idx].depth;
 
   // Get LFO current output from engine
   // Note: We approximate by reading LFO parameters since engine doesn't expose current value
   // For accurate modulation, the engine applies LFO internally
   // This function is used only for Max-level parameters (deviation, spatial, LFO-to-LFO)
 
-  // Return effective depth (engine will multiply by actual LFO value at audio rate)
-  return global_depth * destination_depth;
+  // Return depth (engine will multiply by actual LFO value at audio rate)
+  return depth;
 }
 
-// Helper to get LFO routing info for engine params (lfoSource and effective depth)
+// Helper to get LFO routing info for engine params (lfoSource and depth)
 // Sets lfoSource (0-6) and depth (0.0-1.0) for a parameter
 void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int& lfo_source, double& depth) {
   int lfo_num = ec2_find_param_lfo_source(x, param_name);
@@ -1362,8 +1360,8 @@ void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int
 
   LFOState& lfo = x->lfo_states[lfo_num - 1];
   lfo_source = lfo_num;
-  // Effective depth = global_depth × destination_depth
-  depth = lfo.global_depth * lfo.destinations[dest_idx].depth;
+  // Use parameter-specific depth directly (no global depth anymore)
+  depth = lfo.destinations[dest_idx].depth;
 }
 
 // ==================================================================
@@ -1371,53 +1369,17 @@ void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int
 // ==================================================================
 
 // Main message handler for LFO routing
-// Handles: /lfo<N>_to_<param> map [depth]
-//          /lfo<N>_to_<param> unmap
-//          /lfo<N>depth <value>
+// Handles: /lfo<N>_to_<param> <depth>
+//   - depth > 0.0: connect/update LFO to parameter with given depth (0.0-1.0)
+//   - depth = 0.0: disconnect LFO from parameter
+//   - If parameter already controlled by different LFO, automatically disconnect from old LFO
+//   - Maximum 8 parameters per LFO
 void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
   std::string msg = s->s_name;
 
   // Ignore messages that don't start with "/lfo" (avoid catching unrelated "anything" messages)
   if (msg.find("/lfo") != 0) {
     return;  // Silently ignore - not an LFO message
-  }
-
-  // Check for /lfo<N>depth message (consistent with lfo<N>rate, lfo<N>shape, etc.)
-  if (msg.find("depth") != std::string::npos && msg.find("_to_") == std::string::npos) {
-    // Extract LFO number from "/lfo<N>depth"
-    size_t lfo_start = 4;  // After "/lfo"
-    size_t lfo_end = msg.find("depth");
-    if (lfo_end == std::string::npos || lfo_end <= lfo_start) {
-      object_error((t_object*)x, "invalid LFO depth message format: %s", msg.c_str());
-      return;
-    }
-
-    std::string lfo_num_str = msg.substr(lfo_start, lfo_end - lfo_start);
-    int lfo_num = std::atoi(lfo_num_str.c_str());
-
-    if (lfo_num < 1 || lfo_num > 6) {
-      object_error((t_object*)x, "invalid LFO number: %d (must be 1-6)", lfo_num);
-      return;
-    }
-
-    if (argc < 1) {
-      object_error((t_object*)x, "/lfo%ddepth requires a value", lfo_num);
-      return;
-    }
-
-    double depth = atom_getfloat(argv);
-    depth = std::max(0.0, std::min(1.0, depth));
-
-    x->lfo_states[lfo_num - 1].global_depth = depth;
-
-    // Check if LFO has any destinations
-    if (x->lfo_states[lfo_num - 1].destinations.empty()) {
-      object_warn((t_object*)x, "LFO%d is not mapped to any parameters", lfo_num);
-    }
-
-    ec2_update_engine_params(x);
-    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-    return;
   }
 
   // Check for /lfo<N>_to_<param> messages
@@ -1437,113 +1399,113 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 
     std::string param_name = msg.substr(to_pos + 4);  // After "_to_"
 
-    // Check if we have a command (map/unmap)
+    // Require depth value
     if (argc < 1) {
-      object_error((t_object*)x, "%s requires 'map' or 'unmap' command", msg.c_str());
+      object_error((t_object*)x, "%s requires depth value (0.0-1.0)", msg.c_str());
       return;
     }
 
-    t_symbol* cmd = atom_getsym(argv);
-    std::string command = cmd->s_name;
+    double depth = atom_getfloat(argv);
+    depth = std::max(0.0, std::min(1.0, depth));
 
-    if (command == "map") {
-      // Map LFO to parameter
+    LFOState& lfo = x->lfo_states[lfo_num - 1];
 
-      // Check for self-modulation (LFO cannot modulate itself)
-      if (param_name.find("lfo" + std::to_string(lfo_num)) == 0) {
-        object_error((t_object*)x, "LFO%d cannot modulate its own parameters (attempted: %s)",
-                     lfo_num, param_name.c_str());
-        return;
+    // depth = 0.0 means disconnect
+    if (depth == 0.0) {
+      // Find and remove this parameter from LFO destinations
+      auto it = std::find_if(lfo.destinations.begin(), lfo.destinations.end(),
+                             [&param_name](const LFODestination& d) { return d.param_name == param_name; });
+
+      if (it != lfo.destinations.end()) {
+        lfo.destinations.erase(it);
+        post("ec2~: LFO%d disconnected from %s", lfo_num, param_name.c_str());
       }
-
-      // Check if parameter is already mapped to a different LFO
-      int existing_lfo = ec2_find_param_lfo_source(x, param_name);
-      if (existing_lfo != 0 && existing_lfo != lfo_num) {
-        object_error((t_object*)x, "parameter '%s' is already modulated by LFO%d. Unmap first with: /lfo%d_to_%s unmap",
-                     param_name.c_str(), existing_lfo, existing_lfo, param_name.c_str());
-        return;
-      }
-
-      // Check if LFO already has this destination
-      int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
-      if (dest_idx >= 0) {
-        // Already mapped, just update depth if provided
-        if (argc >= 2) {
-          double depth = atom_getfloat(argv + 1);
-          depth = std::max(0.0, std::min(1.0, depth));
-          x->lfo_states[lfo_num - 1].destinations[dest_idx].depth = depth;
-        }
-        post("ec2~: LFO%d already mapped to %s, depth updated", lfo_num, param_name.c_str());
-        ec2_update_engine_params(x);
-        if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-        return;
-      }
-
-      // Check if LFO has reached max destinations
-      LFOState& lfo = x->lfo_states[lfo_num - 1];
-      if (lfo.destinations.size() >= MAX_LFO_DESTINATIONS) {
-        object_error((t_object*)x, "LFO%d has reached maximum destinations (%d/%d). Unmap a parameter first.",
-                     lfo_num, (int)lfo.destinations.size(), MAX_LFO_DESTINATIONS);
-        return;
-      }
-
-      // Get depth - ALWAYS required, no optional parameter
-      if (argc < 2) {
-        object_error((t_object*)x, "/lfo%d_to_%s map requires depth value (0.0-1.0)",
-                     lfo_num, param_name.c_str());
-        return;
-      }
-
-      double depth = atom_getfloat(argv + 1);
-      depth = std::max(0.0, std::min(1.0, depth));
-
-      // Check for spatial allocation parameter coherence
-      if (param_name == "fixedchan" && x->alloc_mode != 0) {
-        object_warn((t_object*)x, "LFO%d mapped to 'fixedchan', but allocmode is %ld (not Fixed Channel mode 0). This parameter has no effect.",
-                   lfo_num, x->alloc_mode);
-      } else if (param_name == "rrstep" && x->alloc_mode != 1) {
-        object_warn((t_object*)x, "LFO%d mapped to 'rrstep', but allocmode is %ld (not Round-Robin mode 1). This parameter has no effect.",
-                   lfo_num, x->alloc_mode);
-      } else if ((param_name == "randspread" || param_name == "spatialcorr") &&
-                 (x->alloc_mode != 2 && x->alloc_mode != 3)) {
-        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Random mode 2 or Weighted Random mode 3). This parameter has no effect.",
-                   lfo_num, param_name.c_str(), x->alloc_mode);
-      } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
-        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
-                   lfo_num, param_name.c_str(), x->alloc_mode);
-      } else if ((param_name == "trajshape" || param_name == "trajrate" || param_name == "trajdepth") &&
-                 x->alloc_mode != 6) {
-        object_warn((t_object*)x, "LFO%d mapped to '%s', but allocmode is %ld (not Trajectory mode 6). This parameter has no effect.",
-                   lfo_num, param_name.c_str(), x->alloc_mode);
-      }
-
-      // Add new destination
-      lfo.destinations.push_back(LFODestination(param_name, depth));
-      post("ec2~: LFO%d mapped to %s (depth %.2f)", lfo_num, param_name.c_str(), depth);
 
       ec2_update_engine_params(x);
       if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-
-    } else if (command == "unmap") {
-      // Unmap LFO from parameter
-
-      int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
-      if (dest_idx < 0) {
-        object_warn((t_object*)x, "LFO%d is not mapped to %s", lfo_num, param_name.c_str());
-        return;
-      }
-
-      // Remove destination
-      LFOState& lfo = x->lfo_states[lfo_num - 1];
-      lfo.destinations.erase(lfo.destinations.begin() + dest_idx);
-      post("ec2~: LFO%d unmapped from %s", lfo_num, param_name.c_str());
-
-      ec2_update_engine_params(x);
-      if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-
-    } else {
-      object_error((t_object*)x, "unknown command '%s' (expected 'map' or 'unmap')", command.c_str());
+      return;
     }
+
+    // depth > 0.0 means connect/update
+
+    // Check for self-modulation (LFO cannot modulate itself)
+    if (param_name.find("lfo" + std::to_string(lfo_num)) == 0) {
+      object_error((t_object*)x, "LFO%d cannot modulate its own parameters (attempted: %s)",
+                   lfo_num, param_name.c_str());
+      return;
+    }
+
+    // If this parameter is already controlled by a DIFFERENT LFO, remove it from that LFO
+    // (a parameter can only be controlled by one LFO at a time - last message wins)
+    for (int i = 0; i < 6; i++) {
+      if (i == lfo_num - 1) continue;  // Skip current LFO
+
+      auto& other_lfo = x->lfo_states[i];
+      auto it = std::find_if(other_lfo.destinations.begin(), other_lfo.destinations.end(),
+                             [&param_name](const LFODestination& d) { return d.param_name == param_name; });
+
+      if (it != other_lfo.destinations.end()) {
+        other_lfo.destinations.erase(it);
+        post("ec2~: %s disconnected from LFO%d (now controlled by LFO%d)",
+             param_name.c_str(), i + 1, lfo_num);
+      }
+    }
+
+    // Check if this LFO already has this destination
+    int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
+    if (dest_idx >= 0) {
+      // Already connected, just update depth
+      lfo.destinations[dest_idx].depth = depth;
+      post("ec2~: LFO%d to %s depth updated to %.3f", lfo_num, param_name.c_str(), depth);
+      ec2_update_engine_params(x);
+      if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+      return;
+    }
+
+    // New connection - check if LFO has reached max destinations (8)
+    if (lfo.destinations.size() >= MAX_LFO_DESTINATIONS) {
+      // Build list of currently connected parameters
+      std::string param_list;
+      for (size_t i = 0; i < lfo.destinations.size(); i++) {
+        param_list += lfo.destinations[i].param_name;
+        if (i < lfo.destinations.size() - 1) param_list += ", ";
+      }
+
+      object_error((t_object*)x,
+                   "LFO%d can control a maximum of %d parameters. "
+                   "LFO%d is currently connected to: %s. "
+                   "Disconnect at least one parameter and try again.",
+                   lfo_num, MAX_LFO_DESTINATIONS, lfo_num, param_list.c_str());
+      return;
+    }
+
+    // Check for spatial allocation parameter coherence
+    if (param_name == "fixedchan" && x->alloc_mode != 0) {
+      object_warn((t_object*)x, "LFO%d connected to 'fixedchan', but allocmode is %ld (not Fixed Channel mode 0). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
+    } else if (param_name == "rrstep" && x->alloc_mode != 1) {
+      object_warn((t_object*)x, "LFO%d connected to 'rrstep', but allocmode is %ld (not Round-Robin mode 1). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
+    } else if ((param_name == "randspread" || param_name == "spatialcorr") &&
+               (x->alloc_mode != 2 && x->alloc_mode != 3)) {
+      object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Random mode 2 or Weighted Random mode 3). This parameter has no effect.",
+                 lfo_num, param_name.c_str(), x->alloc_mode);
+    } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
+      object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
+                 lfo_num, param_name.c_str(), x->alloc_mode);
+    } else if ((param_name == "trajshape" || param_name == "trajrate" || param_name == "trajdepth") &&
+               x->alloc_mode != 6) {
+      object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Trajectory mode 6). This parameter has no effect.",
+                 lfo_num, param_name.c_str(), x->alloc_mode);
+    }
+
+    // Add new destination
+    lfo.destinations.push_back(LFODestination(param_name, depth));
+    post("ec2~: LFO%d connected to %s (depth %.3f)", lfo_num, param_name.c_str(), depth);
+
+    ec2_update_engine_params(x);
+    if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+    return;
   }
 }
 

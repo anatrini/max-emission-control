@@ -1,0 +1,10 @@
+grainrate async intermittency streams playback duration envelope filterfreq resonance pan amplitude scanstart scanrange scanspeed grainrate_dev async_dev intermittency_dev streams_dev playback_dev duration_dev envelope_dev pan_dev amp_dev filterfreq_dev resonance_dev scanstart_dev scanrange_dev scanspeed_dev lfo1shape lfo1rate lfo1polarity lfo1duty lfo2shape lfo2rate lfo2polarity lfo2duty lfo3shape lfo3rate lfo3polarity lfo3duty lfo4shape lfo4rate lfo4polarity lfo4duty lfo5shape lfo5rate lfo5polarity lfo5duty lfo6shape lfo6rate lfo6polarity lfo6duty fixedchan rrstep randspread spatialcorr pitchmin pitchmax trajshape trajrate trajdepth
+
+
+
+
+
+
+
+
+
