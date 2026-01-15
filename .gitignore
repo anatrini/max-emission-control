@@ -1,15 +1,35 @@
+## Build artifacts
 build/
 cmake-build-*/
 *.dSYM/
+*.o
+*.a
+*.dylib
+
+## Max package outputs (built artifacts)
 package/externals/
 package/media/
+externals/*.mxo/
+
+## SDK and external dependencies
 max-sdk/
 my-min-devkit/
+
+## OS files
 .DS_Store
+Thumbs.db
+*.swp
+*~
+
+## IDE and editor files
+.vscode/
 *.user
 *.suo
+*.xcworkspace/
+*.xcuserdata/
+.idea/
 
-# Local progress tracking and documentation (not for git)
+## Local progress tracking and documentation (not for git)
 docs/PROGRESS.md
 docs/multichannel_out_alloc
 docs/BINARY_DISTRIBUTION_GUIDE.md

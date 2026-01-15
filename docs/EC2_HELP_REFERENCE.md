@@ -76,17 +76,16 @@ Used for real-time performance control. Sent in 2 ways:
 - `spiral_factor` - Spiral tightness (Trajectory mode)
 - `pendulum_decay` - Pendulum damping (Trajectory mode)
 
-**LFO Control (30 messages):**
+**LFO Control (24 messages):**
 - `lfo1shape` through `lfo6shape` - LFO waveforms (0-4)
 - `lfo1rate` through `lfo6rate` - LFO frequencies (0.001-100 Hz)
 - `lfo1polarity` through `lfo6polarity` - LFO polarities (0-2)
 - `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0)
-- `lfo1depth` through `lfo6depth` - LFO global modulation depth (0.0-1.0)
 
 **LFO Modulation Routing (special command messages):**
-- `/lfo<N>_to_<parameter> map <depth>` - Map LFO to any of 61 parameters (depth REQUIRED)
-- `/lfo<N>_to_<parameter> unmap` - Unmap LFO from parameter
+- `/lfo<N>_to_<parameter> <depth>` - Connect/update LFO to parameter (depth > 0.0) or disconnect (depth = 0.0)
 - Each LFO can modulate up to 8 destinations simultaneously
+- One parameter can only be controlled by one LFO (last message wins)
 - Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params (61 total)
 
 **Send as messages:**
@@ -97,13 +96,26 @@ Used for real-time performance control. Sent in 2 ways:
 
 ### Automatic OSC Output
 
-Every parameter change automatically sends an OSC bundle through the rightmost outlet. No bang required!
+ec2~ automatically sends **grain visualization data** through the rightmost outlet at regular intervals. This provides real-time insight into the granular synthesis engine state, following Curtis Roads' best practices for grain cloud visualization.
 
+**Output format (OSC FullPacket bundle):**
+```
+/buffer_length_ms <float>      // Total buffer duration in milliseconds
+/scan_window_start <float>     // Scan window start position (0.0-1.0)
+/scan_window_end <float>       // Scan window end position (0.0-1.0)
+/active_grains <int>           // Number of currently active grains
+/grain_stats_rate <float>      // Current grain emission rate (Hz)
+/grain_stats_duration <float>  // Average grain duration (ms)
+```
+
+**Example usage:**
 ```
 [ec2~]
 |
-[o.display]  // Shows all parameters in real-time
+[o.display]  // Shows grain visualization data in real-time
 ```
+
+**Note:** Parameter values are no longer output via OSC. Use the parameter window (double-click ec2~) for live parameter monitoring and editing.
 
 ### OSC Bundle Input
 
@@ -911,30 +923,7 @@ OSC-style message to load one or more buffers by name. This is equivalent to the
 
 **OSC Compatibility**: This message follows OSC naming conventions (message starts with `/`) and is compatible with odot, spat5, and other OSC-based Max workflows.
 
-### modroute <parameter> <lfo_num> [depth]
-Routes an LFO to modulate a synthesis parameter. This is the primary message for setting up LFO modulation.
-
-**Format**: `modroute parameter_name lfo_number [depth]`
-
-**Parameters**:
-- **parameter_name** (symbol): Name of the parameter to modulate (see LFO Modulation System section for full list)
-- **lfo_number** (int, 0-6): Which LFO to use (1-6), or 0/"none" to clear modulation
-- **depth** (float, 0.0-1.0, optional): Modulation depth (default: 0.5)
-
-**Examples**:
-```
-[message modroute grainrate 1 0.5(    // LFO1 modulates grain rate, depth 0.5
-[message modroute filterfreq 2 0.8(   // LFO2 modulates filter, depth 0.8
-[message modroute playback 3 0.3(     // LFO3 modulates pitch, depth 0.3
-[message modroute grainrate none(     // Clear modulation from grain rate
-[message modroute filterfreq 0(       // Also clears modulation (0 = none)
-|
-[ec2~]
-```
-
-**Modulatable Parameters**:
-- Grain scheduling: `grainrate`, `async`, `intermittency`, `streams`
-- Grain characteristics: `playback`, `duration`, `envelope`, `amp`
+**Note**: For LFO modulation routing, see the **LFO Modulation System** section which uses the `/lfo<N>_to_<parameter> <depth>` message format.
 - Filtering: `filterfreq`, `resonance`
 - Panning: `pan` (stereo mode only)
 - Scanning: `scanstart`, `scanrange`, `scanspeed`
@@ -993,7 +982,7 @@ Example with `@outputs 8 @mc 1`:
    MC (8ch)        OSC
 ```
 
-The OSC outlet outputs parameter state when the object receives a `bang` message. Use this for debugging or for routing parameter state to other Max objects.
+The OSC outlet automatically outputs grain visualization data at regular intervals (no bang required). This includes buffer info, scan window position, active grain count, and grain statistics. Use this for real-time visualization or routing grain state to other Max objects.
 
 
 ### waveform (Phase 13)
@@ -1013,19 +1002,26 @@ ec2~: buffer info:
   peak amplitude: 0.8 (-1.94 dB)
 ```
 
-### openbuffer (Phase 13)
+### showbuffer (Phase 13)
 Opens Max's built-in buffer editor for the currently loaded buffer, allowing waveform viewing and editing.
 
 ```
-[openbuffer(   // Open buffer editor window
+[showbuffer(   // Open buffer editor window
 ```
 
 This provides direct access to Max's waveform display and editing tools for the current buffer.
 
 ### dblclick (Phase 13)
-Double-clicking the ec2~ object opens the buffer editor (same as `openbuffer` message). This provides a quick way to view the waveform without typing a message.
+Double-clicking the ec2~ object opens the **native parameter window**, which displays all 73 parameters in a live-editable table. This provides a quick way to view and adjust all synthesis parameters without typing messages.
 
-**Note**: Double-click behavior is similar to waveform~ and other Max buffer-based objects.
+The parameter window features:
+- **Category**: Parameter grouping (Grain, Spatial, Modulation, etc.)
+- **Parameter Name**: Full parameter name
+- **Value**: Current value (editable - double-click to edit)
+- **Range**: Valid min/max range for the parameter
+- **Description**: Brief explanation of the parameter's function
+
+**Note**: To access the buffer editor, use the `showbuffer` message instead.
 
 ---
 
@@ -1243,83 +1239,42 @@ Each LFO (LFO1 through LFO6) has 5 control parameters:
 [message /lfo2duty 0.25(    // 25% duty cycle
 ```
 
-#### 5. Global Depth (lfo1depth - lfo6depth)
-**Type:** message, float, 0.0-1.0, default: 1.0
-
-**Description:** Global modulation depth that scales ALL destinations mapped to this LFO. This allows you to control the overall modulation intensity of an LFO without changing individual per-destination depths.
-
-**Message format:** `/lfo1depth <value>`, `/lfo2depth <value>`, etc.
-
-**Examples:**
-```
-[message /lfo1depth 1.0(   // Full depth (100%)
-[message /lfo2depth 0.5(   // Half depth (50%)
-[message /lfo3depth 0.0(   // No modulation (LFO effectively disabled)
-```
-
 **Note:** All LFO parameters can be sent via OSC-style messages or FullPacket bundles.
 
 ### Modulation Routing (Command Messages)
 
-ec2~ uses a flexible map/unmap system to route LFO modulation to parameters. These are **special command messages**, NOT standard OSC parameters.
+ec2~ uses a simplified single-message system to route LFO modulation to parameters. These are **special command messages**, NOT standard OSC parameters.
 
-#### How Modulation Depth Works
+#### Routing Command Format
 
-ec2~ provides **dual-depth control**:
-1. **Global depth** (per LFO): `/lfo1depth`, `/lfo2depth`, etc. - These ARE standard parameters (listed above)
-2. **Per-destination depth**: Set during mapping with the `map` command
-3. **Effective modulation** = `lfo_value × global_depth × destination_depth`
-
-#### Mapping Commands
-
-These are SPECIAL COMMAND MESSAGES, not OSC parameters:
-
-**1. Map an LFO to a parameter:**
+**Connect/Update or Disconnect an LFO:**
 ```
-/lfo<N>_to_<parameter> map <destination_depth>
+/lfo<N>_to_<parameter> <depth>
 ```
 - `N` = LFO number (1-6)
 - `parameter` = any of 61 modulatable parameters (see list below)
-- `destination_depth` = per-destination depth (0.0-1.0, REQUIRED)
+- `depth` = modulation depth (0.0-1.0)
+  - **depth > 0.0**: Connect LFO to parameter (or update depth if already connected)
+  - **depth = 0.0**: Disconnect LFO from parameter
 
 **Examples:**
 ```
-[message /lfo1_to_grainrate map 1.0(      // Map with full depth (100%)
-[message /lfo1_to_filterfreq map 0.7(     // Map with 70% destination depth
-[message /lfo2_to_amplitude map 0.5(      // Map with 50% destination depth
+[message /lfo1_to_grainrate 1.0(      // Connect with full depth (100%)
+[message /lfo1_to_filterfreq 0.7(     // Connect with 70% depth
+[message /lfo2_to_amplitude 0.5(      // Connect with 50% depth
+[message /lfo1_to_grainrate 0.0(      // Disconnect LFO1 from grainrate
+[message /lfo1_to_filterfreq 0.3(     // Update existing connection to 30% depth
 ```
 
-**2. Unmap an LFO from a parameter:**
-```
-/lfo<N>_to_<parameter> unmap
-```
-
-**Examples:**
-```
-[message /lfo1_to_grainrate unmap(        // Remove LFO1 from grainrate
-[message /lfo2_to_filterfreq unmap(       // Remove LFO2 from filterfreq
-```
-
-**3. Set global depth (this IS a standard parameter):**
-```
-/lfo<N>depth <value>
-```
-- `value` = global depth (0.0-1.0, default: 1.0)
-- Scales ALL destinations mapped to this LFO
-
-**Examples:**
-```
-[message /lfo1depth 1.0(     // Full global depth
-[message /lfo1depth 0.5(     // 50% global depth - halves all destinations
-[message /lfo1depth 0.0(     // Disable LFO1 entirely
-```
+**Note:** The depth value directly controls the modulation intensity - there is no global depth parameter.
 
 #### Routing Constraints
 
 - Each LFO can modulate up to **8 destinations** simultaneously
-- Each parameter can only be modulated by **ONE LFO** at a time
-- LFOs cannot modulate their own parameters (no `/lfo1_to_lfo1rate map`)
-- Cross-modulation IS allowed (e.g., `/lfo1_to_lfo2rate map`)
+- Each parameter can only be modulated by **ONE LFO** at a time ("last message wins")
+  - If you map LFO2 to a parameter already controlled by LFO1, LFO1's connection is automatically removed
+- LFOs cannot modulate their own parameters (e.g., `/lfo1_to_lfo1rate` is invalid)
+- Cross-modulation IS allowed (e.g., `/lfo1_to_lfo2rate 0.5` is valid)
 
 #### Modulatable Parameters (61 total)
 
@@ -1350,40 +1305,42 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 
 **Basic Mapping**:
 ```
-// Map LFO1 to grainrate with full depth
-[message /lfo1_to_grainrate map 1.0(
+// Connect LFO1 to grainrate with full depth
+[message /lfo1_to_grainrate 1.0(
 
-// Map LFO2 to filterfreq with 70% depth
-[message /lfo2_to_filterfreq map 0.7(
+// Connect LFO2 to filterfreq with 70% depth
+[message /lfo2_to_filterfreq 0.7(
 
-// Unmap LFO1 from grainrate
-[message /lfo1_to_grainrate unmap(
+// Disconnect LFO1 from grainrate
+[message /lfo1_to_grainrate 0.0(
+
+// Update existing connection to new depth
+[message /lfo2_to_filterfreq 0.5(
 ```
 
-**Global Depth Control**:
+**Multiple LFO Connections**:
 ```
-// Map multiple parameters to LFO1
-[message /lfo1_to_grainrate map 1.0(
-[message /lfo1_to_filterfreq map 0.8(
-[message /lfo1_to_pan map 0.5(
+// Connect multiple parameters to LFO1
+[message /lfo1_to_grainrate 1.0(
+[message /lfo1_to_filterfreq 0.8(
+[message /lfo1_to_pan 0.5(
 
-// Set LFO1 global depth to 50% - affects ALL destinations
-[message /lfo1depth 0.5(
-// Effective modulation:
-//   grainrate: 1.0 × 0.5 = 0.5
-//   filterfreq: 0.8 × 0.5 = 0.4
-//   pan: 0.5 × 0.5 = 0.25
+// Each parameter has its own independent depth
+// To reduce all modulation, adjust each depth individually
+[message /lfo1_to_grainrate 0.5(
+[message /lfo1_to_filterfreq 0.4(
+[message /lfo1_to_pan 0.25(
 ```
 
 **Multiple LFOs on Different Parameters**:
 ```
 [message /lfo1shape 0(           // LFO1: Sine wave
 [message /lfo1rate 0.5(          // LFO1: 0.5 Hz
-[message /lfo1_to_grainrate map 0.6(
+[message /lfo1_to_grainrate 0.6(
 
 [message /lfo2shape 4(           // LFO2: Random/noise
 [message /lfo2rate 5(            // LFO2: 5 Hz
-[message /lfo2_to_filterfreq map 0.7(
+[message /lfo2_to_filterfreq 0.7(
 ```
 
 **Modulating Deviation Parameters**:
@@ -1391,7 +1348,7 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 // Slowly evolve texture density
 [message /lfo3shape 0(           // Sine
 [message /lfo3rate 0.1(          // Very slow (10s cycle)
-[message /lfo3_to_grainrate_dev map 0.8(
+[message /lfo3_to_grainrate_dev 0.8(
 // Result: Grain rate deviation smoothly varies from tight to loose
 ```
 
@@ -1400,26 +1357,26 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 // LFO1 modulates LFO2's rate
 [message /lfo1shape 0(           // Sine
 [message /lfo1rate 0.2(          // 5s cycle
-[message /lfo1_to_lfo2rate map 0.5(
+[message /lfo1_to_lfo2rate 0.5(
 
 // LFO2 (with varying rate) modulates filter
 [message /lfo2shape 0(
 [message /lfo2rate 2.0(          // Base rate: 2 Hz
-[message /lfo2_to_filterfreq map 0.7(
+[message /lfo2_to_filterfreq 0.7(
 // Result: Filter sweep rate changes periodically
 ```
 
 **Complex Routing (Up to 8 destinations per LFO)**:
 ```
 // LFO1 controls overall "energy" of multiple params
-[message /lfo1_to_grainrate map 0.5(
-[message /lfo1_to_amplitude map 0.6(
-[message /lfo1_to_filterfreq map 0.4(
-[message /lfo1_to_streams map 0.3(
-[message /lfo1_to_scanspeed map 0.5(
-[message /lfo1_to_duration_dev map 0.7(
-[message /lfo1_to_pan_dev map 0.8(
-[message /lfo1_to_trajrate map 0.4(
+[message /lfo1_to_grainrate 0.5(
+[message /lfo1_to_amplitude 0.6(
+[message /lfo1_to_filterfreq 0.4(
+[message /lfo1_to_streams 0.3(
+[message /lfo1_to_scanspeed 0.5(
+[message /lfo1_to_duration_dev 0.7(
+[message /lfo1_to_pan_dev 0.8(
+[message /lfo1_to_trajrate 0.4(
 // Now LFO1 at max capacity (8 destinations)
 ```
 
@@ -1427,22 +1384,26 @@ These are SPECIAL COMMAND MESSAGES, not OSC parameters:
 
 **Max destinations reached**:
 ```
-ec2~: ERROR: LFO1 has reached maximum destinations (8/8). Unmap a parameter first.
+ec2~: ERROR: LFO1 has reached maximum destinations (8/8).
+Current connections: grainrate, amplitude, filterfreq, streams, scanspeed, duration_dev, pan_dev, trajrate
+To add a new destination, first disconnect one of these parameters.
 ```
 
-**Parameter already mapped**:
+**Parameter already mapped** (last message wins):
 ```
-ec2~: ERROR: parameter 'grainrate' is already modulated by LFO2. Unmap first with: /lfo2_to_grainrate unmap
+// This is now automatic - no error is generated
+[message /lfo1_to_grainrate 0.5(    // LFO1 controls grainrate
+[message /lfo2_to_grainrate 0.7(    // LFO2 takes over (LFO1 connection removed automatically)
 ```
 
 **Self-modulation attempt**:
 ```
-[message /lfo1_to_lfo1rate map 1.0(
+[message /lfo1_to_lfo1rate 1.0(
 ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 ```
 
 **Restrictions**:
-- Each parameter can only be modulated by ONE LFO at a time
+- Each parameter can only be modulated by ONE LFO at a time (last message wins)
 - Each LFO can modulate up to 8 parameters simultaneously
 - LFOs cannot modulate their own parameters (no LFO1→lfo1rate)
 - Cross-modulation is allowed (LFO1→lfo2rate is valid)
@@ -1454,9 +1415,9 @@ ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 // Use slow LFO to modulate deviation parameters
 [message /lfo1shape 0(                // Sine
 [message /lfo1rate 0.05(              // 20s cycle
-[message /lfo1_to_grainrate_dev map 0.9(
-[message /lfo1_to_duration_dev map 0.8(
-[message /lfo1_to_pan_dev map 0.7(
+[message /lfo1_to_grainrate_dev 0.9(
+[message /lfo1_to_duration_dev 0.8(
+[message /lfo1_to_pan_dev 0.7(
 // Texture smoothly morphs from regular to chaotic and back
 ```
 
@@ -1465,36 +1426,52 @@ ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 // LFO1 varies the speed of LFO2's pulsation
 [message /lfo1shape 2(                // Rise (sawtooth)
 [message /lfo1rate 0.1(               // Very slow acceleration
-[message /lfo1_to_lfo2rate map 0.8(
+[message /lfo1_to_lfo2rate 0.8(
 
 // LFO2 creates rhythmic amplitude pulses
 [message /lfo2shape 1(                // Square
 [message /lfo2rate 2.0(               // Base: 2 Hz
 [message /lfo2duty 0.2(               // Short pulses
-[message /lfo2_to_amplitude map 0.6(
+[message /lfo2_to_amplitude 0.6(
 // Result: Pulse rate accelerates over time
 ```
 
 **Complex Spatial Movement**:
 ```
 // Multiple LFOs control different spatial aspects
-[message /lfo1_to_trajrate map 0.5(      // Trajectory speed varies
-[message /lfo2_to_trajdepth map 0.7(     // Movement depth varies
-[message /lfo3_to_randspread map 0.6(    // Spatial spread varies
-[message /lfo4_to_pan_dev map 0.8(       // Stereo deviation varies
+[message /lfo1_to_trajrate 0.5(      // Trajectory speed varies
+[message /lfo2_to_trajdepth 0.7(     // Movement depth varies
+[message /lfo3_to_randspread 0.6(    // Spatial spread varies
+[message /lfo4_to_pan_dev 0.8(       // Stereo deviation varies
 // Creates rich, unpredictable spatial behavior
 ```
 
 ### LFO Implementation Details
 
-- **Always Running**: All 6 LFOs run continuously in the background at sample rate
-- **Modulation Application**:
-  - For continuous parameters: `modulated = base × (1.0 + lfo_value × global_depth × dest_depth)`
-  - For discrete parameters: `modulated = base + (int)(lfo_value × global_depth × dest_depth × range)`
+The LFO implementation is aligned with the original EmissionControl2 `ecModulator` behavior.
+
+- **Always Running**: All 6 LFOs run continuously in the background at control rate
+- **Modulation Formula**: `modulated = baseValue + (lfoValue × depth × (max - min))`
+  - Example: grainrate with base=50, depth=0.5, range=[0.1, 500] → oscillates ±125 Hz around 50 Hz
+- **Depth = 0**: No modulation applied - parameter remains at base value (guaranteed)
+- **Rate ≈ 0**: Output becomes nearly constant (phase advances very slowly)
 - **Phase Independence**: LFO phases are independent (no phase-locking)
 - **Continuous Operation**: LFOs are not reset when changing parameters
 - **CPU Usage**: Minimal overhead (~0.1% per active LFO on modern systems)
-- **OSC Output**: Active mappings and depths are transmitted via OSC outlet for monitoring
+
+#### Waveform Behavior (Matches Original EC2)
+
+| Shape | Bipolar (polarity=0) | Unipolar+ (polarity=1) | Unipolar- (polarity=2) |
+|-------|---------------------|------------------------|------------------------|
+| Sine (0) | [-1, +1] cosine wave | [0, +1] | [-1, 0] |
+| Square (1) | [-1, +1] with duty cycle | [0, +1] or 0 | [-1, 0] or 0 |
+| Rise (2) | [0, +1] ramp up* | [0, +1] | [0, -1] |
+| Fall (3) | [+1, 0] ramp down* | [+1, 0] | [-1, 0] |
+| Noise (4) | [-1, +1] sample-hold | [0, +1] sample-hold | [-1, 0] sample-hold |
+
+*Note: Rise and Fall waveforms produce **unipolar** output [0,1] even in "bipolar" mode. This matches the original EC2 behavior where `upU()` and `downU()` from the Gamma library produce [0,1] ranges. This means:
+- Rise + Bipolar: modulation goes from 0 to +depth×range (only positive offset)
+- Fall + Bipolar: modulation goes from +depth×range to 0 (only positive offset, decreasing)
 
 ---
 
