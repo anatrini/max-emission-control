@@ -103,13 +103,18 @@ private:
 
     // For sample and hold noise
     std::mt19937 mRNG;
-    std::uniform_real_distribution<float> mDist;
+    std::uniform_real_distribution<float> mDistBipolar;    // [-1, 1]
+    std::uniform_real_distribution<float> mDistUnipolar;   // [0, 1]
     float mHoldValue = 0.0f;
     unsigned int mLastPhase = 0;
 
+    // Internal polarity tracking (matches original EC2)
+    // mSign is used for unipolar modes: +1 for UNI_POS, -1 for UNI_NEG
+    int mSign = 1;
+    bool mIsUnipolar = false;
+
     void updatePhaseIncrement();
-    float generateWaveform(float phase);
-    float applyPolarity(float value);
+    float generateWaveform();
 };
 
 /**
