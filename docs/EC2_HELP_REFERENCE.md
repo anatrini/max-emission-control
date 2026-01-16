@@ -76,18 +76,16 @@ Used for real-time performance control. Sent in 2 ways:
 - `spiral_factor` - Spiral tightness (Trajectory mode)
 - `pendulum_decay` - Pendulum damping (Trajectory mode)
 
-**LFO Control (24 messages):**
-- `lfo1shape` through `lfo6shape` - LFO waveforms (0-4)
+**LFO Configuration (24 messages, NO slash prefix):**
+- `lfo1shape` through `lfo6shape` - LFO waveforms (0: sine, 1: square, 2: rise, 3: fall, 4: noise)
 - `lfo1rate` through `lfo6rate` - LFO frequencies (0.001-100 Hz)
-- `lfo1polarity` through `lfo6polarity` - LFO polarities (0-2)
-- `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0)
+- `lfo1polarity` through `lfo6polarity` - LFO polarities (0: bipolar, 1: unipolar+, 2: unipolar-)
+- `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0, only for square wave)
 
-**LFO Modulation Routing (special command messages):**
-- `/lfo<N>_to_<parameter> <depth>` - Connect/update LFO to parameter (depth > 0.0) or disconnect (depth = 0.0)
-- Each LFO can modulate any number of parameters (no limit)
-- One parameter can only be controlled by one LFO (last message wins)
-- Modulatable: 15 synthesis + 14 deviation + 9 spatial = 38 total parameters
-- **Note:** LFO parameters cannot be modulated by other LFOs (no cross-modulation)
+**LFO Routing (WITH slash prefix):**
+- `/lfo<N>_to_<parameter> <depth>` - Connect LFO to parameter (depth > 0) or disconnect (depth = 0)
+- Modulatable parameters (15): grainrate, async, intermittency, streams, playback, duration, envelope, amplitude, filterfreq, resonance, pan, scanstart, scanrange, scanspeed, soundfile
+- One LFO per parameter (last message wins), no limit on destinations per LFO
 
 **Send as messages:**
 ```
@@ -1169,107 +1167,80 @@ All modes support:
 
 ---
 
-## LFO Modulation System (Phase 9)
+## LFO Modulation System
 
-ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible routing matrix that allows modulation of **38 parameters** including synthesis parameters (with soundfile selection), deviation parameters, and spatial allocation parameters. This enables complex, evolving textures without external control signals.
+ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) that can modulate **15 synthesis parameters**. Each LFO generates a waveform, and routing messages connect LFOs to parameters with per-destination depth control.
 
-**Note:** Unlike some modular systems, LFOs in ec2~ cannot modulate other LFO parameters. This matches the original EmissionControl2 design.
+---
 
-### LFO Parameters (30 total)
+### Message Types Overview
 
-Each LFO (LFO1 through LFO6) has 5 control parameters:
+There are two distinct message types for LFOs:
 
-#### 1. Shape (lfo1shape - lfo6shape)
-**Type:** message, int, 0-4, default: 0
+| Type | Format | Example | Purpose |
+|------|--------|---------|---------|
+| **LFO Configuration** | `lfo<N><param> <value>` | `lfo1shape 0` | Configure LFO waveform |
+| **LFO Routing** | `/lfo<N>_to_<param> <depth>` | `/lfo1_to_grainrate 0.5` | Connect LFO to parameter |
 
-**Values:**
-- **0**: Sine wave - Smooth, periodic modulation
-- **1**: Square wave - Abrupt switching between two values
-- **2**: Rise (ascending sawtooth) - Linear upward ramp
-- **3**: Fall (descending sawtooth) - Linear downward ramp
-- **4**: Noise - Random sample-and-hold values
+**Note:** Configuration messages have NO slash prefix. Routing messages HAVE slash prefix.
 
-**Message format:** `/lfo1shape <value>`, `/lfo2shape <value>`, etc.
+---
 
-**Examples:**
-```
-[message /lfo1shape 0(      // Sine wave
-[message /lfo2shape 4(      // Noise
-```
+### LFO Configuration Messages (24 total)
 
-#### 2. Rate (lfo1rate - lfo6rate)
-**Type:** message, float, 0.001-100.0 Hz, default: 1.0
+Each LFO (1-6) has 4 configuration parameters. Messages use format `lfo<N><param> <value>` (no slash).
 
-**Description:** Controls the frequency/speed of the LFO oscillation
+#### Shape: `lfo<N>shape <0-4>`
 
-**Message format:** `/lfo1rate <value>`, `/lfo2rate <value>`, etc.
-
-**Examples:**
-```
-[message /lfo1rate 2.5(     // 2.5 Hz
-[message /lfo2rate 0.1(     // 0.1 Hz (10 second cycle)
-```
-
-#### 3. Polarity (lfo1polarity - lfo6polarity)
-**Type:** message, int, 0-2, default: 0
-
-**Values:**
-- **0**: Bipolar - Output range: -1.0 to +1.0
-- **1**: Unipolar+ - Output range: 0.0 to +1.0
-- **2**: Unipolar- - Output range: -1.0 to 0.0
-
-**Message format:** `/lfo1polarity <value>`, `/lfo2polarity <value>`, etc.
-
-**Examples:**
-```
-[message /lfo1polarity 0(   // Bipolar
-[message /lfo2polarity 1(   // Unipolar+
-```
-
-#### 4. Duty Cycle (lfo1duty - lfo6duty)
-**Type:** message, float, 0.0-1.0, default: 0.5
-
-**Description:** For square wave shape only, controls the high/low time ratio
-- 0.5 = 50% duty cycle (equal high/low times)
-- 0.25 = 25% high, 75% low
-- 0.75 = 75% high, 25% low
-
-**Message format:** `/lfo1duty <value>`, `/lfo2duty <value>`, etc.
-
-**Examples:**
-```
-[message /lfo1duty 0.5(     // 50% duty cycle
-[message /lfo2duty 0.25(    // 25% duty cycle
-```
-
-**Note:** All LFO parameters can be sent via OSC-style messages or FullPacket bundles.
-
-### Modulation Routing
-
-The LFO modulation system follows the original EmissionControl2 design:
-
-#### Key Concept: Per-Destination Depth (No Global Depth)
-
-**Important:** There is **no global depth parameter** for LFOs. The modulation depth is specified **individually for each LFO→parameter connection**. This allows one LFO to modulate multiple parameters with different intensities:
+| Value | Shape | Description |
+|-------|-------|-------------|
+| 0 | Sine | Smooth cosine wave |
+| 1 | Square | On/off switching with duty cycle |
+| 2 | Rise | Ascending ramp (sawtooth up) |
+| 3 | Fall | Descending ramp (sawtooth down) |
+| 4 | Noise | Random sample-and-hold |
 
 ```
-LFO1 (shape=sine, rate=2Hz)
-  │
-  ├──► grainrate   depth=0.8  (strong modulation)
-  ├──► filterfreq  depth=0.2  (subtle modulation)
-  └──► pan         depth=0.5  (medium modulation)
+[lfo1shape 0(     // LFO1: sine wave
+[lfo2shape 4(     // LFO2: noise
 ```
 
-This is more flexible than a global depth because:
-- One LFO can affect multiple parameters with **different intensities**
-- You don't need separate LFOs just to have different modulation depths
+#### Rate: `lfo<N>rate <0.001-100>`
 
-#### Architecture Summary
+Oscillation frequency in Hz.
 
-- **LFO parameters** (shape, rate, polarity, duty): Define the **waveform characteristics**
-- **Routing depth**: Defines **how much** that waveform affects each specific parameter
-- Each **parameter** can be assigned to **one LFO** (1-6)
-- There is **no limit** on how many parameters can be modulated by the same LFO
+```
+[lfo1rate 0.5(    // LFO1: 0.5 Hz (2 second cycle)
+[lfo2rate 10(     // LFO2: 10 Hz
+```
+
+#### Polarity: `lfo<N>polarity <0-2>`
+
+| Value | Polarity | Output Range |
+|-------|----------|--------------|
+| 0 | Bipolar | -1.0 to +1.0 |
+| 1 | Unipolar+ | 0.0 to +1.0 |
+| 2 | Unipolar- | -1.0 to 0.0 |
+
+```
+[lfo1polarity 0(  // LFO1: bipolar (-1 to +1)
+[lfo2polarity 1(  // LFO2: unipolar+ (0 to +1)
+```
+
+#### Duty Cycle: `lfo<N>duty <0.0-1.0>`
+
+Only affects Square wave (shape=1). Controls high/low time ratio.
+
+```
+[lfo1duty 0.5(    // 50% duty cycle (default)
+[lfo1duty 0.25(   // 25% high, 75% low
+```
+
+---
+
+### LFO Routing Messages
+
+Connect an LFO to a parameter with a specific depth. Messages use format `/lfo<N>_to_<param> <depth>` (WITH slash).
 
 #### Command Format
 
@@ -1277,241 +1248,132 @@ This is more flexible than a global depth because:
 /lfo<N>_to_<parameter> <depth>
 ```
 
-| Component | Description |
-|-----------|-------------|
-| `N` | LFO number (1-6) |
-| `parameter` | Target parameter name (see list below) |
-| `depth` | Modulation intensity for THIS connection: 0.0-1.0 (0.0 = disconnect) |
+- `N`: LFO number (1-6)
+- `parameter`: Target parameter name (see list below)
+- `depth`: Modulation intensity 0.0-1.0 (0.0 = disconnect)
+
+#### Key Concept: Per-Destination Depth
+
+There is **NO global depth** per LFO. Each routing has its own independent depth:
+
+```
+LFO1 (sine, 2Hz)
+  │
+  ├──► grainrate   depth=0.8  (strong)
+  ├──► filterfreq  depth=0.2  (subtle)
+  └──► pan         depth=0.5  (medium)
+```
+
+One LFO can modulate multiple parameters with different intensities.
+
+#### Modulatable Parameters (15 total)
+
+| Parameter | Description | Range |
+|-----------|-------------|-------|
+| `grainrate` | Grain emission rate | 0.1-500 Hz |
+| `async` | Asynchronicity | 0-1 |
+| `intermittency` | Grain dropout probability | 0-1 |
+| `streams` | Number of grain streams | 1-20 |
+| `playback` | Playback rate/pitch | -32 to 32 |
+| `duration` | Grain duration | 0.046-10000 ms |
+| `envelope` | Envelope shape | 0-1 |
+| `amplitude` | Amplitude | -180 to 48 dB |
+| `filterfreq` | Filter frequency | 20-24000 Hz |
+| `resonance` | Filter resonance | 0-1 |
+| `pan` | Stereo panning | -1 to 1 |
+| `scanstart` | Scan start position | 0-1 |
+| `scanrange` | Scan range | -1 to 1 |
+| `scanspeed` | Scan speed | -32 to 32 |
+| `soundfile` | Buffer index (polybuffer) | 0-15 |
+
+#### Routing Rules
+
+- **One LFO per parameter**: A parameter can only be modulated by one LFO at a time
+- **Last message wins**: `/lfo2_to_grainrate 0.5` disconnects any previous LFO from grainrate
+- **No LFO modulation**: LFO parameters cannot be modulated (messages like `/lfo1_to_lfo2rate` are rejected)
+- **No destination limit**: One LFO can modulate any number of parameters
+
+#### Examples
+
+```
+// Configure LFO1
+[lfo1shape 0(                    // Sine wave
+[lfo1rate 0.5(                   // 0.5 Hz
+[lfo1polarity 0(                 // Bipolar
+
+// Route LFO1 to parameters (note: WITH slash)
+[/lfo1_to_grainrate 0.8(         // Strong effect
+[/lfo1_to_filterfreq 0.2(        // Subtle effect
+
+// Update depth
+[/lfo1_to_grainrate 0.4(         // Reduce to 40%
+
+// Disconnect
+[/lfo1_to_grainrate 0.0(         // Disconnect
+
+// Reassign to different LFO
+[/lfo2_to_grainrate 0.6(         // LFO2 takes over
+```
 
 #### Modulation Formula
 
 ```
-modulated_value = base_value + (lfo_output × depth × (param_max - param_min))
+modulated = base_value + (lfo_output × depth × (max - min))
 ```
 
-- `base_value`: The parameter's current value (e.g., grainrate = 50 Hz)
-- `lfo_output`: LFO waveform value (-1 to +1 for bipolar, 0 to +1 for unipolar)
-- `depth`: Per-destination depth (0.0 to 1.0)
-- `param_max - param_min`: Parameter's full range
+Example:
+- grainrate base = 50 Hz
+- LFO output = 0.5 (sine at this moment)
+- depth = 0.4
+- range = [0.1, 500]
 
-**Example calculation:**
 ```
-grainrate = 50 Hz (base)
-LFO1 output = 0.5 (sine wave at this moment)
-depth = 0.4
-range = [0.1, 500] Hz
-
-modulated = 50 + (0.5 × 0.4 × (500 - 0.1))
-          = 50 + (0.5 × 0.4 × 499.9)
-          = 50 + 100
-          = 150 Hz
+modulated = 50 + (0.5 × 0.4 × 499.9) = 150 Hz
 ```
 
-#### How It Works
+---
 
-1. **Assign LFO to parameter**: Send `/lfo<N>_to_<param> <depth>` with depth > 0
-2. **Update depth**: Send the same message with a new depth value
-3. **Disconnect**: Send with depth = 0.0
-4. **Reassign**: If a parameter is already controlled by LFO1 and you send `/lfo2_to_<param>`, it automatically disconnects from LFO1
+### Complete Example
 
-**Examples:**
 ```
-// Configure LFO1 waveform
-[message /lfo1shape 0(               // Sine wave
-[message /lfo1rate 0.5(              // 0.5 Hz (2 second cycle)
-[message /lfo1polarity 0(            // Bipolar (-1 to +1)
+// Setup LFO1: slow sine for grain rate
+[lfo1shape 0(
+[lfo1rate 0.2(
+[lfo1polarity 0(
+[/lfo1_to_grainrate 0.6(
 
-// Route LFO1 to multiple parameters with DIFFERENT depths
-[message /lfo1_to_grainrate 0.8(     // Strong effect on grain rate
-[message /lfo1_to_filterfreq 0.2(    // Subtle effect on filter
-[message /lfo1_to_pan 0.5(           // Medium effect on panning
+// Setup LFO2: fast noise for filter
+[lfo2shape 4(
+[lfo2rate 8(
+[lfo2polarity 1(
+[/lfo2_to_filterfreq 0.4(
 
-// Update a specific depth without affecting others
-[message /lfo1_to_grainrate 0.4(     // Reduce grainrate depth to 40%
+// Setup LFO3: square pulse for amplitude
+[lfo3shape 1(
+[lfo3rate 4(
+[lfo3duty 0.3(
+[/lfo3_to_amplitude 0.5(
 
-// Disconnect one routing
-[message /lfo1_to_pan 0.0(           // Pan no longer modulated
-
-// Reassign parameter to different LFO
-[message /lfo2_to_filterfreq 0.6(    // filterfreq now controlled by LFO2
-```
-
-#### Routing Rules
-
-- **One LFO per parameter**: Each parameter can only be modulated by one LFO at a time
-- **No LFO cross-modulation**: LFOs cannot modulate any LFO parameters (neither their own nor other LFOs). Messages like `/lfo1_to_lfo2rate` are rejected.
-- **No destination limit**: An LFO can modulate any number of synthesis/deviation/spatial parameters simultaneously
-
-#### Modulatable Parameters (38 total)
-
-**Synthesis Parameters (15)**:
-- `grainrate`, `async`, `intermittency`, `streams`
-- `playback`, `duration`, `envelope`, `amplitude`
-- `filterfreq`, `resonance`
-- `pan`, `scanstart`, `scanrange`, `scanspeed`
-- `soundfile` - Dynamic buffer selection for polybuffer~ playback
-
-**Deviation Parameters (14)**:
-- `grainrate_dev`, `async_dev`, `intermittency_dev`, `streams_dev`
-- `playback_dev`, `duration_dev`, `envelope_dev`, `amp_dev`
-- `filterfreq_dev`, `resonance_dev`
-- `pan_dev`, `scanstart_dev`, `scanrange_dev`, `scanspeed_dev`
-
-**Spatial Allocation Parameters (9)**:
-- `fixedchan`, `rrstep`, `randspread`, `spatialcorr`
-- `pitchmin`, `pitchmax`
-- `trajshape`, `trajrate`, `trajdepth`
-
-**Note:** LFO parameters (shape, rate, polarity, duty) are **not** modulatable by other LFOs. This matches the original EmissionControl2 design.
-
-#### Routing Examples
-
-**Basic Mapping**:
-```
-// Connect LFO1 to grainrate with full depth
-[message /lfo1_to_grainrate 1.0(
-
-// Connect LFO2 to filterfreq with 70% depth
-[message /lfo2_to_filterfreq 0.7(
-
-// Disconnect LFO1 from grainrate
-[message /lfo1_to_grainrate 0.0(
-
-// Update existing connection to new depth
-[message /lfo2_to_filterfreq 0.5(
+// Soundfile modulation (sweep through polybuffer)
+[lfo4shape 2(                    // Rise (sawtooth)
+[lfo4rate 0.1(                   // 10 second cycle
+[lfo4polarity 1(                 // Unipolar+ (0 to +1)
+[/lfo4_to_soundfile 1.0(
 ```
 
-**Multiple LFO Connections**:
-```
-// Connect multiple parameters to LFO1
-[message /lfo1_to_grainrate 1.0(
-[message /lfo1_to_filterfreq 0.8(
-[message /lfo1_to_pan 0.5(
+---
 
-// Each parameter has its own independent depth
-// To reduce all modulation, adjust each depth individually
-[message /lfo1_to_grainrate 0.5(
-[message /lfo1_to_filterfreq 0.4(
-[message /lfo1_to_pan 0.25(
-```
+### Waveform Behavior (Matches Original EC2)
 
-**Multiple LFOs on Different Parameters**:
-```
-[message /lfo1shape 0(           // LFO1: Sine wave
-[message /lfo1rate 0.5(          // LFO1: 0.5 Hz
-[message /lfo1_to_grainrate 0.6(
+| Shape | Bipolar (0) | Unipolar+ (1) | Unipolar- (2) |
+|-------|-------------|---------------|---------------|
+| Sine (0) | [-1, +1] | [0, +1] | [-1, 0] |
+| Square (1) | [-1, +1] | [0, +1] | [-1, 0] |
+| Rise (2) | [0, +1]* | [0, +1] | [0, -1] |
+| Fall (3) | [+1, 0]* | [+1, 0] | [-1, 0] |
+| Noise (4) | [-1, +1] | [0, +1] | [-1, 0] |
 
-[message /lfo2shape 4(           // LFO2: Random/noise
-[message /lfo2rate 5(            // LFO2: 5 Hz
-[message /lfo2_to_filterfreq 0.7(
-```
-
-**Modulating Deviation Parameters**:
-```
-// Slowly evolve texture density
-[message /lfo3shape 0(           // Sine
-[message /lfo3rate 0.1(          // Very slow (10s cycle)
-[message /lfo3_to_grainrate_dev 0.8(
-// Result: Grain rate deviation smoothly varies from tight to loose
-```
-
-**Soundfile Modulation** (dynamic buffer selection):
-```
-// Load multiple buffers via polybuffer
-[polybuffer mysounds 8(          // Load 8 buffers
-
-// LFO1 sweeps through buffers
-[message /lfo1shape 2(           // Rise (sawtooth)
-[message /lfo1rate 0.1(          // 10s cycle
-[message /lfo1polarity 1(        // Unipolar+ (0 to +1)
-[message /lfo1_to_soundfile 1.0( // Full range modulation
-// Result: Grains read from different buffers over time
-```
-
-**Complex Routing (Multiple Destinations)**:
-```
-// LFO1 controls overall "energy" of multiple params
-[message /lfo1_to_grainrate 0.5(
-[message /lfo1_to_amplitude 0.6(
-[message /lfo1_to_filterfreq 0.4(
-[message /lfo1_to_streams 0.3(
-[message /lfo1_to_scanspeed 0.5(
-[message /lfo1_to_duration_dev 0.7(
-[message /lfo1_to_pan_dev 0.8(
-[message /lfo1_to_trajrate 0.4(
-// LFO1 now modulates 8 parameters (no limit on destinations)
-```
-
-#### Error Handling
-
-**Parameter reassignment** (automatic, no error):
-```
-[message /lfo1_to_grainrate 0.5(    // LFO1 controls grainrate
-[message /lfo2_to_grainrate 0.7(    // LFO2 takes over (LFO1 disconnected automatically)
-// Post: ec2~: grainrate disconnected from LFO1 (now controlled by LFO2)
-```
-
-**LFO parameter modulation attempt** (rejected):
-```
-[message /lfo1_to_lfo2rate 1.0(
-// Error: ec2~: LFO parameters cannot be modulated by other LFOs (attempted: /lfo1_to_lfo2rate)
-```
-
-### Musical Applications
-
-**Slowly Evolving Texture Complexity**:
-```
-// Use slow LFO to modulate deviation parameters
-[message /lfo1shape 0(                // Sine
-[message /lfo1rate 0.05(              // 20s cycle
-[message /lfo1_to_grainrate_dev 0.9(
-[message /lfo1_to_duration_dev 0.8(
-[message /lfo1_to_pan_dev 0.7(
-// Texture smoothly morphs from regular to chaotic and back
-```
-
-**Rhythmic Pulsation**:
-```
-// LFO creates rhythmic amplitude pulses
-[message /lfo1shape 1(                // Square wave
-[message /lfo1rate 4.0(               // 4 Hz pulsation
-[message /lfo1duty 0.3(               // Short pulses (30% duty)
-[message /lfo1_to_amplitude 0.6(
-// Result: Rhythmic pumping effect on amplitude
-```
-
-**Complex Spatial Movement**:
-```
-// Multiple LFOs control different spatial aspects
-[message /lfo1_to_trajrate 0.5(      // Trajectory speed varies
-[message /lfo2_to_trajdepth 0.7(     // Movement depth varies
-[message /lfo3_to_randspread 0.6(    // Spatial spread varies
-[message /lfo4_to_pan_dev 0.8(       // Stereo deviation varies
-// Creates rich, unpredictable spatial behavior
-```
-
-### LFO Implementation Details
-
-The LFO implementation is aligned with the original EmissionControl2 `ecModulator` behavior.
-
-- **Always Running**: All 6 LFOs run continuously in the background at control rate
-- **Modulation Formula**: `modulated = baseValue + (lfoValue × depth × (max - min))`
-  - Example: grainrate with base=50, depth=0.5, range=[0.1, 500] → oscillates ±125 Hz around 50 Hz
-- **Depth = 0**: No modulation applied - parameter remains at base value (guaranteed)
-- **Rate ≈ 0**: Output becomes nearly constant (phase advances very slowly)
-- **Phase Independence**: LFO phases are independent (no phase-locking)
-- **Continuous Operation**: LFOs are not reset when changing parameters
-- **CPU Usage**: Minimal overhead (~0.1% per active LFO on modern systems)
-
-#### Waveform Behavior (Matches Original EC2)
-
-| Shape | Bipolar (polarity=0) | Unipolar+ (polarity=1) | Unipolar- (polarity=2) |
-|-------|---------------------|------------------------|------------------------|
-| Sine (0) | [-1, +1] cosine wave | [0, +1] | [-1, 0] |
-| Square (1) | [-1, +1] with duty cycle | [0, +1] or 0 | [-1, 0] or 0 |
-| Rise (2) | [0, +1] ramp up* | [0, +1] | [0, -1] |
-| Fall (3) | [+1, 0] ramp down* | [+1, 0] | [-1, 0] |
-| Noise (4) | [-1, +1] sample-hold | [0, +1] sample-hold | [-1, 0] sample-hold |
+*Rise and Fall produce unipolar output [0,1] even in bipolar mode (matches original EC2)
 
 *Note: Rise and Fall waveforms produce **unipolar** output [0,1] even in "bipolar" mode. This matches the original EC2 behavior where `upU()` and `downU()` from the Gamma library produce [0,1] ranges. This means:
 - Rise + Bipolar: modulation goes from 0 to +depth×range (only positive offset)
@@ -1571,9 +1433,11 @@ All attribute names can be used as OSC messages by adding a `/` prefix and using
 - `/pitchmin`, `/pitchmax` - Pitch-to-space mapping range (mode 5)
 - `/trajshape`, `/trajrate`, `/trajdepth` - Trajectory parameters (mode 6)
 
-**LFO Parameters**:
-- `/lfo1rate`, `/lfo2rate`, `/lfo3rate`, `/lfo4rate`, `/lfo5rate`, `/lfo6rate`
-- (All other LFO attributes also supported)
+**LFO Configuration** (NO slash - see LFO section):
+- `lfo1shape`, `lfo1rate`, `lfo1polarity`, `lfo1duty` (same for lfo2-lfo6)
+
+**LFO Routing** (WITH slash):
+- `/lfo1_to_<param>`, `/lfo2_to_<param>`, etc.
 
 ### OSC Integration Example
 
