@@ -65,9 +65,8 @@ loadFromMaxBuffer(const std::string& buffer_name) {
 }
 } // namespace ec2_buffer_helper
 
-// LFO destination structure (up to 8 destinations per LFO)
-#define MAX_LFO_DESTINATIONS 8
-
+// LFO destination structure
+// Note: No limit on destinations per LFO (matches original EC2 behavior)
 struct LFODestination {
   std::string param_name;  // Parameter being modulated
   double depth;            // Modulation depth (0.0-1.0)
@@ -77,7 +76,7 @@ struct LFODestination {
 };
 
 struct LFOState {
-  std::vector<LFODestination> destinations;      // Active destinations (max 8)
+  std::vector<LFODestination> destinations;      // Active destinations (no limit)
 
   LFOState() {}
 };
@@ -1459,23 +1458,6 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
       post("ec2~: LFO%d to %s depth updated to %.3f", lfo_num, param_name.c_str(), depth);
       ec2_update_engine_params(x);
       if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
-      return;
-    }
-
-    // New connection - check if LFO has reached max destinations (8)
-    if (lfo.destinations.size() >= MAX_LFO_DESTINATIONS) {
-      // Build list of currently connected parameters
-      std::string param_list;
-      for (size_t i = 0; i < lfo.destinations.size(); i++) {
-        param_list += lfo.destinations[i].param_name;
-        if (i < lfo.destinations.size() - 1) param_list += ", ";
-      }
-
-      object_error((t_object*)x,
-                   "LFO%d can control a maximum of %d parameters. "
-                   "LFO%d is currently connected to: %s. "
-                   "Disconnect at least one parameter and try again.",
-                   lfo_num, MAX_LFO_DESTINATIONS, lfo_num, param_list.c_str());
       return;
     }
 

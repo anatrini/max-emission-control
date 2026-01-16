@@ -84,7 +84,7 @@ Used for real-time performance control. Sent in 2 ways:
 
 **LFO Modulation Routing (special command messages):**
 - `/lfo<N>_to_<parameter> <depth>` - Connect/update LFO to parameter (depth > 0.0) or disconnect (depth = 0.0)
-- Each LFO can modulate up to 8 destinations simultaneously
+- Each LFO can modulate any number of parameters (no limit)
 - One parameter can only be controlled by one LFO (last message wins)
 - Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params (61 total)
 
@@ -1241,40 +1241,48 @@ Each LFO (LFO1 through LFO6) has 5 control parameters:
 
 **Note:** All LFO parameters can be sent via OSC-style messages or FullPacket bundles.
 
-### Modulation Routing (Command Messages)
+### Modulation Routing
 
-ec2~ uses a simplified single-message system to route LFO modulation to parameters. These are **special command messages**, NOT standard OSC parameters.
+The LFO modulation system follows the original EmissionControl2 design where:
+- Each **parameter** can be assigned to **one LFO** (1-6)
+- Each **parameter** has its own **depth** value (0.0-1.0)
+- There is **no limit** on how many parameters can be modulated by the same LFO
 
-#### Routing Command Format
+#### Command Format
 
-**Connect/Update or Disconnect an LFO:**
 ```
 /lfo<N>_to_<parameter> <depth>
 ```
-- `N` = LFO number (1-6)
-- `parameter` = any of 61 modulatable parameters (see list below)
-- `depth` = modulation depth (0.0-1.0)
-  - **depth > 0.0**: Connect LFO to parameter (or update depth if already connected)
-  - **depth = 0.0**: Disconnect LFO from parameter
+
+| Component | Description |
+|-----------|-------------|
+| `N` | LFO number (1-6) |
+| `parameter` | Target parameter name (see list below) |
+| `depth` | Modulation depth: 0.0-1.0 (0.0 = disconnect) |
+
+#### How It Works
+
+1. **Assign LFO to parameter**: Send `/lfo<N>_to_<param> <depth>` with depth > 0
+2. **Update depth**: Send the same message with a new depth value
+3. **Disconnect**: Send with depth = 0.0
+4. **Reassign**: If a parameter is already controlled by LFO1 and you send `/lfo2_to_<param>`, it automatically disconnects from LFO1
 
 **Examples:**
 ```
-[message /lfo1_to_grainrate 1.0(      // Connect with full depth (100%)
-[message /lfo1_to_filterfreq 0.7(     // Connect with 70% depth
-[message /lfo2_to_amplitude 0.5(      // Connect with 50% depth
+[message /lfo1_to_grainrate 0.5(      // LFO1 modulates grainrate at 50% depth
+[message /lfo1_to_filterfreq 0.7(     // LFO1 also modulates filterfreq at 70%
+[message /lfo2_to_amplitude 0.3(      // LFO2 modulates amplitude at 30%
+[message /lfo1_to_grainrate 0.8(      // Update: grainrate depth now 80%
 [message /lfo1_to_grainrate 0.0(      // Disconnect LFO1 from grainrate
-[message /lfo1_to_filterfreq 0.3(     // Update existing connection to 30% depth
+[message /lfo3_to_filterfreq 0.6(     // Reassign filterfreq from LFO1 to LFO3
 ```
 
-**Note:** The depth value directly controls the modulation intensity - there is no global depth parameter.
+#### Routing Rules
 
-#### Routing Constraints
-
-- Each LFO can modulate up to **8 destinations** simultaneously
-- Each parameter can only be modulated by **ONE LFO** at a time ("last message wins")
-  - If you map LFO2 to a parameter already controlled by LFO1, LFO1's connection is automatically removed
-- LFOs cannot modulate their own parameters (e.g., `/lfo1_to_lfo1rate` is invalid)
-- Cross-modulation IS allowed (e.g., `/lfo1_to_lfo2rate 0.5` is valid)
+- **One LFO per parameter**: Each parameter can only be modulated by one LFO at a time
+- **No self-modulation**: An LFO cannot modulate its own parameters (e.g., `/lfo1_to_lfo1rate` is rejected)
+- **Cross-modulation allowed**: LFO1 can modulate LFO2's rate, etc. (e.g., `/lfo1_to_lfo2rate 0.5`)
+- **No destination limit**: An LFO can modulate any number of parameters simultaneously
 
 #### Modulatable Parameters (61 total)
 
@@ -1366,7 +1374,7 @@ ec2~ uses a simplified single-message system to route LFO modulation to paramete
 // Result: Filter sweep rate changes periodically
 ```
 
-**Complex Routing (Up to 8 destinations per LFO)**:
+**Complex Routing (Multiple Destinations)**:
 ```
 // LFO1 controls overall "energy" of multiple params
 [message /lfo1_to_grainrate 0.5(
@@ -1377,36 +1385,23 @@ ec2~ uses a simplified single-message system to route LFO modulation to paramete
 [message /lfo1_to_duration_dev 0.7(
 [message /lfo1_to_pan_dev 0.8(
 [message /lfo1_to_trajrate 0.4(
-// Now LFO1 at max capacity (8 destinations)
+// LFO1 now modulates 8 parameters (no limit on destinations)
 ```
 
 #### Error Handling
 
-**Max destinations reached**:
+**Parameter reassignment** (automatic, no error):
 ```
-ec2~: ERROR: LFO1 has reached maximum destinations (8/8).
-Current connections: grainrate, amplitude, filterfreq, streams, scanspeed, duration_dev, pan_dev, trajrate
-To add a new destination, first disconnect one of these parameters.
-```
-
-**Parameter already mapped** (last message wins):
-```
-// This is now automatic - no error is generated
 [message /lfo1_to_grainrate 0.5(    // LFO1 controls grainrate
-[message /lfo2_to_grainrate 0.7(    // LFO2 takes over (LFO1 connection removed automatically)
+[message /lfo2_to_grainrate 0.7(    // LFO2 takes over (LFO1 disconnected automatically)
+// Post: ec2~: grainrate disconnected from LFO1 (now controlled by LFO2)
 ```
 
-**Self-modulation attempt**:
+**Self-modulation attempt** (rejected):
 ```
 [message /lfo1_to_lfo1rate 1.0(
-ec2~: ERROR: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
+// Error: ec2~: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
 ```
-
-**Restrictions**:
-- Each parameter can only be modulated by ONE LFO at a time (last message wins)
-- Each LFO can modulate up to 8 parameters simultaneously
-- LFOs cannot modulate their own parameters (no LFO1→lfo1rate)
-- Cross-modulation is allowed (LFO1→lfo2rate is valid)
 
 ### Musical Applications
 
