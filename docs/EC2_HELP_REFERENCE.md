@@ -86,7 +86,8 @@ Used for real-time performance control. Sent in 2 ways:
 - `/lfo<N>_to_<parameter> <depth>` - Connect/update LFO to parameter (depth > 0.0) or disconnect (depth = 0.0)
 - Each LFO can modulate any number of parameters (no limit)
 - One parameter can only be controlled by one LFO (last message wins)
-- Modulatable: 14 synthesis + 14 deviation + 9 spatial + 24 LFO params (61 total)
+- Modulatable: 15 synthesis + 14 deviation + 9 spatial = 38 total parameters
+- **Note:** LFO parameters cannot be modulated by other LFOs (no cross-modulation)
 
 **Send as messages:**
 ```
@@ -1170,7 +1171,9 @@ All modes support:
 
 ## LFO Modulation System (Phase 9)
 
-ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible routing matrix that allows modulation of **all 61 parameters** including synthesis parameters, deviation parameters, spatial allocation parameters, and even other LFO parameters. This enables complex, evolving textures and meta-modulation without external control signals.
+ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) with a flexible routing matrix that allows modulation of **38 parameters** including synthesis parameters (with soundfile selection), deviation parameters, and spatial allocation parameters. This enables complex, evolving textures without external control signals.
+
+**Note:** Unlike some modular systems, LFOs in ec2~ cannot modulate other LFO parameters. This matches the original EmissionControl2 design.
 
 ### LFO Parameters (30 total)
 
@@ -1280,17 +1283,17 @@ The LFO modulation system follows the original EmissionControl2 design where:
 #### Routing Rules
 
 - **One LFO per parameter**: Each parameter can only be modulated by one LFO at a time
-- **No self-modulation**: An LFO cannot modulate its own parameters (e.g., `/lfo1_to_lfo1rate` is rejected)
-- **Cross-modulation allowed**: LFO1 can modulate LFO2's rate, etc. (e.g., `/lfo1_to_lfo2rate 0.5`)
-- **No destination limit**: An LFO can modulate any number of parameters simultaneously
+- **No LFO cross-modulation**: LFOs cannot modulate any LFO parameters (neither their own nor other LFOs). Messages like `/lfo1_to_lfo2rate` are rejected.
+- **No destination limit**: An LFO can modulate any number of synthesis/deviation/spatial parameters simultaneously
 
-#### Modulatable Parameters (61 total)
+#### Modulatable Parameters (38 total)
 
-**Synthesis Parameters (14)**:
+**Synthesis Parameters (15)**:
 - `grainrate`, `async`, `intermittency`, `streams`
 - `playback`, `duration`, `envelope`, `amplitude`
 - `filterfreq`, `resonance`
 - `pan`, `scanstart`, `scanrange`, `scanspeed`
+- `soundfile` - Dynamic buffer selection for polybuffer~ playback
 
 **Deviation Parameters (14)**:
 - `grainrate_dev`, `async_dev`, `intermittency_dev`, `streams_dev`
@@ -1303,11 +1306,7 @@ The LFO modulation system follows the original EmissionControl2 design where:
 - `pitchmin`, `pitchmax`
 - `trajshape`, `trajrate`, `trajdepth`
 
-**LFO Parameters (24)** - Meta-modulation:
-- `lfo1shape` through `lfo6shape` (cannot modulate self)
-- `lfo1rate` through `lfo6rate` (cannot modulate self)
-- `lfo1polarity` through `lfo6polarity` (cannot modulate self)
-- `lfo1duty` through `lfo6duty` (cannot modulate self)
+**Note:** LFO parameters (shape, rate, polarity, duty) are **not** modulatable by other LFOs. This matches the original EmissionControl2 design.
 
 #### Routing Examples
 
@@ -1360,18 +1359,17 @@ The LFO modulation system follows the original EmissionControl2 design where:
 // Result: Grain rate deviation smoothly varies from tight to loose
 ```
 
-**Meta-Modulation (LFO → LFO)**:
+**Soundfile Modulation** (dynamic buffer selection):
 ```
-// LFO1 modulates LFO2's rate
-[message /lfo1shape 0(           // Sine
-[message /lfo1rate 0.2(          // 5s cycle
-[message /lfo1_to_lfo2rate 0.5(
+// Load multiple buffers via polybuffer
+[polybuffer mysounds 8(          // Load 8 buffers
 
-// LFO2 (with varying rate) modulates filter
-[message /lfo2shape 0(
-[message /lfo2rate 2.0(          // Base rate: 2 Hz
-[message /lfo2_to_filterfreq 0.7(
-// Result: Filter sweep rate changes periodically
+// LFO1 sweeps through buffers
+[message /lfo1shape 2(           // Rise (sawtooth)
+[message /lfo1rate 0.1(          // 10s cycle
+[message /lfo1polarity 1(        // Unipolar+ (0 to +1)
+[message /lfo1_to_soundfile 1.0( // Full range modulation
+// Result: Grains read from different buffers over time
 ```
 
 **Complex Routing (Multiple Destinations)**:
@@ -1397,10 +1395,10 @@ The LFO modulation system follows the original EmissionControl2 design where:
 // Post: ec2~: grainrate disconnected from LFO1 (now controlled by LFO2)
 ```
 
-**Self-modulation attempt** (rejected):
+**LFO parameter modulation attempt** (rejected):
 ```
-[message /lfo1_to_lfo1rate 1.0(
-// Error: ec2~: LFO1 cannot modulate its own parameters (attempted: lfo1rate)
+[message /lfo1_to_lfo2rate 1.0(
+// Error: ec2~: LFO parameters cannot be modulated by other LFOs (attempted: /lfo1_to_lfo2rate)
 ```
 
 ### Musical Applications
@@ -1416,19 +1414,14 @@ The LFO modulation system follows the original EmissionControl2 design where:
 // Texture smoothly morphs from regular to chaotic and back
 ```
 
-**Rhythmic Pulsation with Variable Speed**:
+**Rhythmic Pulsation**:
 ```
-// LFO1 varies the speed of LFO2's pulsation
-[message /lfo1shape 2(                // Rise (sawtooth)
-[message /lfo1rate 0.1(               // Very slow acceleration
-[message /lfo1_to_lfo2rate 0.8(
-
-// LFO2 creates rhythmic amplitude pulses
-[message /lfo2shape 1(                // Square
-[message /lfo2rate 2.0(               // Base: 2 Hz
-[message /lfo2duty 0.2(               // Short pulses
-[message /lfo2_to_amplitude 0.6(
-// Result: Pulse rate accelerates over time
+// LFO creates rhythmic amplitude pulses
+[message /lfo1shape 1(                // Square wave
+[message /lfo1rate 4.0(               // 4 Hz pulsation
+[message /lfo1duty 0.3(               // Short pulses (30% duty)
+[message /lfo1_to_amplitude 0.6(
+// Result: Rhythmic pumping effect on amplitude
 ```
 
 **Complex Spatial Movement**:

@@ -1427,9 +1427,10 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 
     // depth > 0.0 means connect/update
 
-    // Check for self-modulation (LFO cannot modulate itself)
-    if (param_name.find("lfo" + std::to_string(lfo_num)) == 0) {
-      object_error((t_object*)x, "LFO%d cannot modulate its own parameters (attempted: %s)",
+    // Check for LFO parameter modulation - LFOs cannot modulate any LFO parameters
+    // (neither their own nor other LFOs - matches original EC2 behavior)
+    if (param_name.find("lfo") == 0) {
+      object_error((t_object*)x, "LFO parameters cannot be modulated by other LFOs (attempted: /lfo%d_to_%s)",
                    lfo_num, param_name.c_str());
       return;
     }
@@ -1852,6 +1853,9 @@ void ec2_update_engine_params(t_ec2* x) {
 
   ec2_get_lfo_routing_for_engine(x, "scanspeed", params.modScanSpeed.lfoSource, temp_depth);
   params.modScanSpeed.depth = static_cast<float>(temp_depth);
+
+  ec2_get_lfo_routing_for_engine(x, "soundfile", params.modSoundFile.lfoSource, temp_depth);
+  params.modSoundFile.depth = static_cast<float>(temp_depth);
 
   x->engine->updateParameters(params);
 }

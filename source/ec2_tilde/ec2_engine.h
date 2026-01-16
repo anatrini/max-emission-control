@@ -72,6 +72,7 @@ struct SynthParameters {
   ModulationParameters modScanBegin;
   ModulationParameters modScanRange;
   ModulationParameters modScanSpeed;
+  ModulationParameters modSoundFile;  // Buffer/file selection (matches original EC2)
 
   // Statistical/Probabilistic Parameters (Curtis Roads: stochastic grain clouds)
   // Each deviation parameter adds random variation to create organic textures

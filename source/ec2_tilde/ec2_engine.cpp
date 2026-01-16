@@ -105,10 +105,22 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
   mScheduler.configure(modulatedGrainRate, modulatedAsync, modulatedIntermittency);
   mScheduler.setPolyStream(SYNCHRONOUS, modulatedStreams);
 
+  // Apply modulation to soundFile (matches original EC2 ecSynth.cpp:201-204)
+  // Round to nearest integer for buffer index selection
+  float modulatedSoundFileF = applyModulation(static_cast<float>(mParams.soundFile),
+                                              mParams.modSoundFile, 0.0f, 15.0f);
+  int modulatedSoundFile = static_cast<int>(modulatedSoundFileF + 0.5f);  // Round to nearest
+  modulatedSoundFile = std::max(0, std::min(15, modulatedSoundFile));  // Clamp to valid range
+
   // Safety check - need at least one buffer
-  auto currentBuffer = getAudioBuffer(mParams.soundFile);
+  auto currentBuffer = getAudioBuffer(modulatedSoundFile);
   if (!currentBuffer || currentBuffer->size == 0) {
-    return;  // No audio to process
+    // Fallback to base soundFile if modulated index has no buffer
+    currentBuffer = getAudioBuffer(mParams.soundFile);
+    if (!currentBuffer || currentBuffer->size == 0) {
+      return;  // No audio to process
+    }
+    modulatedSoundFile = mParams.soundFile;  // Use fallback
   }
 
   // Apply modulation to scan parameters
@@ -128,7 +140,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
   // Detect if we need a hard reset of the scanner
   bool needsHardReset =
     mScannerNeedsReset ||  // First run
-    (mPrevSoundFile != mParams.soundFile) ||  // Buffer changed
+    (mPrevSoundFile != modulatedSoundFile) ||  // Buffer changed (including via LFO modulation)
     (mCurrentScanIndex == mScanner.getTarget()) ||  // Scanner reached target
     (modulatedScanBegin != mPrevScanBegin);  // ScanBegin changed (always hard reset in ec2~)
 
@@ -197,7 +209,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
   mPrevScanBegin = modulatedScanBegin;
   mPrevScanRange = modulatedScanRange;
   mPrevScanSpeed = modulatedScanSpeed;
-  mPrevSoundFile = mParams.soundFile;
+  mPrevSoundFile = modulatedSoundFile;  // Track modulated value for change detection
   // END OF SCANNER LOGIC
 
   // Process frame by frame
