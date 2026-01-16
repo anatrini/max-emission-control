@@ -1246,9 +1246,29 @@ Each LFO (LFO1 through LFO6) has 5 control parameters:
 
 ### Modulation Routing
 
-The LFO modulation system follows the original EmissionControl2 design where:
+The LFO modulation system follows the original EmissionControl2 design:
+
+#### Key Concept: Per-Destination Depth (No Global Depth)
+
+**Important:** There is **no global depth parameter** for LFOs. The modulation depth is specified **individually for each LFO→parameter connection**. This allows one LFO to modulate multiple parameters with different intensities:
+
+```
+LFO1 (shape=sine, rate=2Hz)
+  │
+  ├──► grainrate   depth=0.8  (strong modulation)
+  ├──► filterfreq  depth=0.2  (subtle modulation)
+  └──► pan         depth=0.5  (medium modulation)
+```
+
+This is more flexible than a global depth because:
+- One LFO can affect multiple parameters with **different intensities**
+- You don't need separate LFOs just to have different modulation depths
+
+#### Architecture Summary
+
+- **LFO parameters** (shape, rate, polarity, duty): Define the **waveform characteristics**
+- **Routing depth**: Defines **how much** that waveform affects each specific parameter
 - Each **parameter** can be assigned to **one LFO** (1-6)
-- Each **parameter** has its own **depth** value (0.0-1.0)
 - There is **no limit** on how many parameters can be modulated by the same LFO
 
 #### Command Format
@@ -1261,7 +1281,31 @@ The LFO modulation system follows the original EmissionControl2 design where:
 |-----------|-------------|
 | `N` | LFO number (1-6) |
 | `parameter` | Target parameter name (see list below) |
-| `depth` | Modulation depth: 0.0-1.0 (0.0 = disconnect) |
+| `depth` | Modulation intensity for THIS connection: 0.0-1.0 (0.0 = disconnect) |
+
+#### Modulation Formula
+
+```
+modulated_value = base_value + (lfo_output × depth × (param_max - param_min))
+```
+
+- `base_value`: The parameter's current value (e.g., grainrate = 50 Hz)
+- `lfo_output`: LFO waveform value (-1 to +1 for bipolar, 0 to +1 for unipolar)
+- `depth`: Per-destination depth (0.0 to 1.0)
+- `param_max - param_min`: Parameter's full range
+
+**Example calculation:**
+```
+grainrate = 50 Hz (base)
+LFO1 output = 0.5 (sine wave at this moment)
+depth = 0.4
+range = [0.1, 500] Hz
+
+modulated = 50 + (0.5 × 0.4 × (500 - 0.1))
+          = 50 + (0.5 × 0.4 × 499.9)
+          = 50 + 100
+          = 150 Hz
+```
 
 #### How It Works
 
@@ -1272,12 +1316,24 @@ The LFO modulation system follows the original EmissionControl2 design where:
 
 **Examples:**
 ```
-[message /lfo1_to_grainrate 0.5(      // LFO1 modulates grainrate at 50% depth
-[message /lfo1_to_filterfreq 0.7(     // LFO1 also modulates filterfreq at 70%
-[message /lfo2_to_amplitude 0.3(      // LFO2 modulates amplitude at 30%
-[message /lfo1_to_grainrate 0.8(      // Update: grainrate depth now 80%
-[message /lfo1_to_grainrate 0.0(      // Disconnect LFO1 from grainrate
-[message /lfo3_to_filterfreq 0.6(     // Reassign filterfreq from LFO1 to LFO3
+// Configure LFO1 waveform
+[message /lfo1shape 0(               // Sine wave
+[message /lfo1rate 0.5(              // 0.5 Hz (2 second cycle)
+[message /lfo1polarity 0(            // Bipolar (-1 to +1)
+
+// Route LFO1 to multiple parameters with DIFFERENT depths
+[message /lfo1_to_grainrate 0.8(     // Strong effect on grain rate
+[message /lfo1_to_filterfreq 0.2(    // Subtle effect on filter
+[message /lfo1_to_pan 0.5(           // Medium effect on panning
+
+// Update a specific depth without affecting others
+[message /lfo1_to_grainrate 0.4(     // Reduce grainrate depth to 40%
+
+// Disconnect one routing
+[message /lfo1_to_pan 0.0(           // Pan no longer modulated
+
+// Reassign parameter to different LFO
+[message /lfo2_to_filterfreq 0.6(    // filterfreq now controlled by LFO2
 ```
 
 #### Routing Rules
