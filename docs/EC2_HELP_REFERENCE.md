@@ -31,59 +31,59 @@ Used for configuration that affects object structure. Set in 3 ways:
 - `@allocmode` (int, 0-6, default: 1) - Spatial allocation mode
 - `@soundfile` (int, 0-15, default: 0) - Buffer index for polybuffer
 
-### Parameters (OSC-style / prefix) - 97 total
+### Parameters (OSC-style messages) - 65 total
 Used for real-time performance control. Sent in 2 ways:
-- **OSC-style messages**: `[message /grainrate 40(`, `[message /amplitude 0.5(`
+- **OSC-style messages**: `[message /grainrate 40(`, `[message /amp 0.5(`
 - **FullPacket bundles** (odot): bidirectional OSC via rightmost outlet
 
-**Format**: `/parameter_name <value>` (note the leading slash)
-
 **Grain Scheduling (4):**
-- `/grainrate` - Grain emission rate (Hz)
-- `/async` - Asynchronicity
-- `/intermittency` - Grain sparsity
-- `/streams` - Number of grain streams
+- `grainrate` (float) - Grain emission rate (Hz)
+- `async` (float) - Asynchronicity
+- `intermittency` (float) - Grain sparsity
+- `streams` (float) - Number of grain streams
 
 **Grain Characteristics (4):**
-- `/duration` - Grain duration (ms)
-- `/playback` - Playback rate/pitch
-- `/amplitude` (or `/amp`) - Amplitude
-- `/envelope` - Envelope shape
+- `duration` (float) - Grain duration (ms)
+- `playback` (float) - Playback rate/pitch
+- `amp` (float) - Amplitude (dB)
+- `envelope` (float) - Envelope shape
 
 **Filtering (2):**
-- `/filterfreq` - Filter cutoff frequency
-- `/resonance` - Filter resonance
+- `filterfreq` (float) - Filter cutoff frequency
+- `resonance` (float) - Filter resonance
 
 **Spatial (1):**
-- `/pan` - Stereo panning
+- `pan` (float) - Stereo panning
 
 **Scanning (3):**
-- `/scanstart` - Scan start position
-- `/scanrange` - Scan range
-- `/scanspeed` - Scan speed
+- `scanstart` (float) - Scan start position
+- `scanrange` (float) - Scan range
+- `scanspeed` (float) - Scan speed
 
-**Spatial Allocation Parameters (12 messages):**
-- `fixedchan` - Fixed channel number (1-16)
-- `rrstep` - Round-robin step size
-- `randspread` - Random spread amount
-- `spatialcorr` - Spatial correlation
-- `weights` - Per-channel probability weights (Weighted mode)
-- `pitchmin` - Pitch-to-space minimum frequency
-- `pitchmax` - Pitch-to-space maximum frequency
-- `trajshape` - Trajectory shape (0-5)
-- `trajrate` - Trajectory rate
-- `trajdepth` - Trajectory depth
-- `spiral_factor` - Spiral tightness (Trajectory mode)
-- `pendulum_decay` - Pendulum damping (Trajectory mode)
+**Statistical Deviation (14):**
+- `grainrate_dev`, `async_dev`, `intermittency_dev`, `streams_dev` (float)
+- `playback_dev`, `duration_dev`, `envelope_dev`, `pan_dev`, `amp_dev` (float)
+- `filterfreq_dev`, `resonance_dev`, `scanstart_dev`, `scanrange_dev`, `scanspeed_dev` (float)
 
-**LFO Configuration (24 messages, NO slash prefix):**
-- `lfo1shape` through `lfo6shape` - LFO waveforms (0: sine, 1: square, 2: rise, 3: fall, 4: noise)
-- `lfo1rate` through `lfo6rate` - LFO frequencies (0.001-100 Hz)
-- `lfo1polarity` through `lfo6polarity` - LFO polarities (0: bipolar, 1: unipolar+, 2: unipolar-)
-- `lfo1duty` through `lfo6duty` - LFO duty cycles (0.0-1.0, only for square wave)
+**Spatial Allocation (13):**
+- `fixedchan` (int) - Fixed channel number (1-16)
+- `rrstep` (int) - Round-robin step size
+- `randspread` (float) - Random spread amount (mode 2 only)
+- `randspread_weighted` (float) - Weighted spread amount (mode 3 only)
+- `spatialcorr` (float) - Spatial correlation
+- `weights` (list) - Per-channel probability weights (mode 3)
+- `pitchmin`, `pitchmax` (float) - Pitch-to-space mapping range
+- `trajshape` (int) - Trajectory shape (0-5)
+- `trajrate`, `trajdepth` (float) - Trajectory rate and depth
+- `spiral_factor`, `pendulum_decay` (float) - Trajectory modifiers
 
-**LFO Routing (WITH slash prefix):**
-- `/lfo<N>_to_<parameter> <depth>` - Connect LFO to parameter (depth > 0) or disconnect (depth = 0)
+**LFO Configuration (24):**
+- `/lfo1shape` through `/lfo6shape` (int: 0-4) - LFO waveforms
+- `/lfo1rate` through `/lfo6rate` (float: 0.001-100 Hz) - LFO frequencies
+- `/lfo1polarity` through `/lfo6polarity` (int: 0-2) - LFO polarities
+- `/lfo1duty` through `/lfo6duty` (float: 0.0-1.0) - LFO duty cycles
+
+**LFO Routing (via `/lfo<N>_to_<param> <depth>`):**
 - Modulatable parameters (15): grainrate, async, intermittency, streams, playback, duration, envelope, amplitude, filterfreq, resonance, pan, scanstart, scanrange, scanspeed, soundfile
 - One LFO per parameter (last message wins), no limit on destinations per LFO
 
@@ -581,7 +581,7 @@ Randomly assigns grains to channels with uniform probability.
 ### Parameters
 
 #### randspread (message, float, 0.0-1.0, default: 0.0)
-Controls panning between adjacent channels. Real-time message for dynamic control.
+Controls panning between adjacent channels for **Mode 2 (Random) only**. Real-time message for dynamic control.
 - 0.0: Hard assignment to single channel
 - > 0.0: Panning between adjacent channels
 - 1.0: Full constant-power panning
@@ -610,7 +610,7 @@ Spatial correlation between successive grains. Real-time message for dynamic con
 
 ## Mode 3: Weighted
 
-Weighted random distribution with per-channel probability weights. Extends Mode 2 (Random) by adding per-channel weights while preserving randspread and spatialcorr behavior.
+Weighted random distribution with per-channel probability weights.
 
 **Use cases:**
 - Directional spatial focus (emphasize front over rear speakers)
@@ -620,7 +620,14 @@ Weighted random distribution with per-channel probability weights. Extends Mode 
 
 ### Parameters
 
-**Note:** Mode 3 shares `randspread` and `spatialcorr` parameters with Mode 2, and adds the `weights` parameter for per-channel probability control.
+#### randspread_weighted (message, float, 0.0-1.0, default: 0.0)
+Controls panning between adjacent channels for **Mode 3 (Weighted) only**. Real-time message for dynamic control.
+- 0.0: Hard assignment to single channel
+- > 0.0: Panning between adjacent channels
+- 1.0: Full constant-power panning
+
+#### spatialcorr (message, float, 0.0-1.0, default: 0.0)
+Spatial correlation between successive grains (shared with Mode 2). Real-time message for dynamic control.
 
 #### weights (message, list of floats, default: uniform)
 **Message format:** `/weights <value1> <value2> ... <valueN>`
@@ -644,14 +651,12 @@ Array of per-channel probability weights. Each value corresponds to one channel 
 // Reset to uniform distribution (clear weights):
 [message /weights(                     // Empty = uniform across all channels
 
-// Combine with randspread and spatialcorr (shared with Mode 2):
+// Combine with randspread_weighted and spatialcorr:
 [message allocmode 3(
 [message /weights 0.5 0.3 0.1 0.1(     // Weight channels
-[message /randspread 0.5(              // Add panning between adjacent channels
-[message /spatialcorr 0.2(             // Add spatial correlation
+[message randspread_weighted 0.5(      // Add panning between adjacent channels
+[message spatialcorr 0.2(              // Add spatial correlation
 ```
-
-**Note:** `randspread` and `spatialcorr` parameters (documented in Mode 2) apply equally to Mode 3, controlling panning and spatial correlation with weighted probabilities.
 
 **Theory:** Allows concentration of grain probability on specific channels. Each channel has a weight determining its selection probability. This implements Roads's concept of "weighted spatial probability distributions" for creating focused or directional spatial textures.
 
@@ -1175,22 +1180,22 @@ ec2~ includes 6 independent Low-Frequency Oscillators (LFOs) that can modulate *
 
 ### Message Types Overview
 
-There are two distinct message types for LFOs:
+There are two categories of LFO messages, both using OSC-style slash prefix:
 
 | Type | Format | Example | Purpose |
 |------|--------|---------|---------|
-| **LFO Configuration** | `lfo<N><param> <value>` | `lfo1shape 0` | Configure LFO waveform |
+| **LFO Configuration** | `/lfo<N><param> <value>` | `/lfo1shape 0` | Configure LFO waveform |
 | **LFO Routing** | `/lfo<N>_to_<param> <depth>` | `/lfo1_to_grainrate 0.5` | Connect LFO to parameter |
 
-**Note:** Configuration messages have NO slash prefix. Routing messages HAVE slash prefix.
+All LFO messages use the "/" prefix, consistent with OSC conventions.
 
 ---
 
 ### LFO Configuration Messages (24 total)
 
-Each LFO (1-6) has 4 configuration parameters. Messages use format `lfo<N><param> <value>` (no slash).
+Each LFO (1-6) has 4 configuration parameters. Messages use format `/lfo<N><param> <value>`.
 
-#### Shape: `lfo<N>shape <0-4>`
+#### Shape: `/lfo<N>shape <int: 0-4>`
 
 | Value | Shape | Description |
 |-------|-------|-------------|
@@ -1201,20 +1206,20 @@ Each LFO (1-6) has 4 configuration parameters. Messages use format `lfo<N><param
 | 4 | Noise | Random sample-and-hold |
 
 ```
-[lfo1shape 0(     // LFO1: sine wave
-[lfo2shape 4(     // LFO2: noise
+[/lfo1shape 0(     // LFO1: sine wave
+[/lfo2shape 4(     // LFO2: noise
 ```
 
-#### Rate: `lfo<N>rate <0.001-100>`
+#### Rate: `/lfo<N>rate <float: 0.001-100>`
 
 Oscillation frequency in Hz.
 
 ```
-[lfo1rate 0.5(    // LFO1: 0.5 Hz (2 second cycle)
-[lfo2rate 10(     // LFO2: 10 Hz
+[/lfo1rate 0.5(    // LFO1: 0.5 Hz (2 second cycle)
+[/lfo2rate 10(     // LFO2: 10 Hz
 ```
 
-#### Polarity: `lfo<N>polarity <0-2>`
+#### Polarity: `/lfo<N>polarity <int: 0-2>`
 
 | Value | Polarity | Output Range |
 |-------|----------|--------------|
@@ -1223,24 +1228,24 @@ Oscillation frequency in Hz.
 | 2 | Unipolar- | -1.0 to 0.0 |
 
 ```
-[lfo1polarity 0(  // LFO1: bipolar (-1 to +1)
-[lfo2polarity 1(  // LFO2: unipolar+ (0 to +1)
+[/lfo1polarity 0(  // LFO1: bipolar (-1 to +1)
+[/lfo2polarity 1(  // LFO2: unipolar+ (0 to +1)
 ```
 
-#### Duty Cycle: `lfo<N>duty <0.0-1.0>`
+#### Duty Cycle: `/lfo<N>duty <float: 0.0-1.0>`
 
 Only affects Square wave (shape=1). Controls high/low time ratio.
 
 ```
-[lfo1duty 0.5(    // 50% duty cycle (default)
-[lfo1duty 0.25(   // 25% high, 75% low
+[/lfo1duty 0.5(    // 50% duty cycle (default)
+[/lfo1duty 0.25(   // 25% high, 75% low
 ```
 
 ---
 
 ### LFO Routing Messages
 
-Connect an LFO to a parameter with a specific depth. Messages use format `/lfo<N>_to_<param> <depth>` (WITH slash).
+Connect an LFO to a parameter with a specific depth. Messages use format `/lfo<N>_to_<param> <depth>`.
 
 #### Command Format
 
@@ -1297,11 +1302,11 @@ One LFO can modulate multiple parameters with different intensities.
 
 ```
 // Configure LFO1
-[lfo1shape 0(                    // Sine wave
-[lfo1rate 0.5(                   // 0.5 Hz
-[lfo1polarity 0(                 // Bipolar
+[/lfo1shape 0(                   // Sine wave
+[/lfo1rate 0.5(                  // 0.5 Hz
+[/lfo1polarity 0(                // Bipolar
 
-// Route LFO1 to parameters (note: WITH slash)
+// Route LFO1 to parameters
 [/lfo1_to_grainrate 0.8(         // Strong effect
 [/lfo1_to_filterfreq 0.2(        // Subtle effect
 
@@ -1337,27 +1342,27 @@ modulated = 50 + (0.5 × 0.4 × 499.9) = 150 Hz
 
 ```
 // Setup LFO1: slow sine for grain rate
-[lfo1shape 0(
-[lfo1rate 0.2(
-[lfo1polarity 0(
+[/lfo1shape 0(
+[/lfo1rate 0.2(
+[/lfo1polarity 0(
 [/lfo1_to_grainrate 0.6(
 
 // Setup LFO2: fast noise for filter
-[lfo2shape 4(
-[lfo2rate 8(
-[lfo2polarity 1(
+[/lfo2shape 4(
+[/lfo2rate 8(
+[/lfo2polarity 1(
 [/lfo2_to_filterfreq 0.4(
 
 // Setup LFO3: square pulse for amplitude
-[lfo3shape 1(
-[lfo3rate 4(
-[lfo3duty 0.3(
+[/lfo3shape 1(
+[/lfo3rate 4(
+[/lfo3duty 0.3(
 [/lfo3_to_amplitude 0.5(
 
 // Soundfile modulation (sweep through polybuffer)
-[lfo4shape 2(                    // Rise (sawtooth)
-[lfo4rate 0.1(                   // 10 second cycle
-[lfo4polarity 1(                 // Unipolar+ (0 to +1)
+[/lfo4shape 2(                   // Rise (sawtooth)
+[/lfo4rate 0.1(                  // 10 second cycle
+[/lfo4polarity 1(                // Unipolar+ (0 to +1)
 [/lfo4_to_soundfile 1.0(
 ```
 
@@ -1428,15 +1433,16 @@ All attribute names can be used as OSC messages by adding a `/` prefix and using
 **Spatial Allocation Parameters (real-time messages)**:
 - `/fixedchan` - Fixed channel number 1-16 (mode 0)
 - `/rrstep` - Round-robin step (mode 1)
-- `/randspread` - Random spread amount (mode 2,3)
-- `/spatialcorr` - Spatial correlation (mode 3)
+- `/randspread` - Random spread amount (mode 2 only)
+- `/randspread_weighted` - Weighted spread amount (mode 3 only)
+- `/spatialcorr` - Spatial correlation (mode 2, 3)
 - `/pitchmin`, `/pitchmax` - Pitch-to-space mapping range (mode 5)
 - `/trajshape`, `/trajrate`, `/trajdepth` - Trajectory parameters (mode 6)
 
-**LFO Configuration** (NO slash - see LFO section):
-- `lfo1shape`, `lfo1rate`, `lfo1polarity`, `lfo1duty` (same for lfo2-lfo6)
+**LFO Configuration**:
+- `/lfo1shape`, `/lfo1rate`, `/lfo1polarity`, `/lfo1duty` (same for lfo2-lfo6)
 
-**LFO Routing** (WITH slash):
+**LFO Routing**:
 - `/lfo1_to_<param>`, `/lfo2_to_<param>`, etc.
 
 ### OSC Integration Example
@@ -1520,11 +1526,9 @@ When you change `@outputs` or `@mc`:
 
 ## Future Enhancements (Not Yet Implemented)
 
-- Cluster/mask for channel subset selection
-- Weight arrays for weighted mode (requires list/array message handling)
-- Distance-based 3D spatialization
+- Cluster/mask for channel subset selection via OSC
+- Distance-based 3D spatialization (mode 7)
 - Per-stream spatial allocation
-- Buffer~ change notifications (automatic reload on buffer~ modification)
 
 ---
 

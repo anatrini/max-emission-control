@@ -145,11 +145,12 @@ typedef struct _ec2 {
   int lfo1_polarity, lfo2_polarity, lfo3_polarity, lfo4_polarity, lfo5_polarity, lfo6_polarity;
   double lfo1_duty, lfo2_duty, lfo3_duty, lfo4_duty, lfo5_duty, lfo6_duty;
 
-  // Spatial allocation parameters (10 total + weights)
+  // Spatial allocation parameters (11 total + weights)
   long alloc_mode;       // 0-6
   long fixed_channel;    // 1-16
   long rr_step;          // 1-16
-  double random_spread;  // 0.0-1.0
+  double random_spread;          // 0.0-1.0 (mode 2: random)
+  double random_spread_weighted; // 0.0-1.0 (mode 3: weighted)
   double spatial_corr;   // 0.0-1.0
   double pitch_min;      // 20-20000 Hz
   double pitch_max;      // 20-20000 Hz
@@ -235,10 +236,11 @@ int ec2_find_param_lfo_source(t_ec2* x, const std::string& param_name);
 double ec2_get_lfo_modulation(t_ec2* x, const std::string& param_name);
 void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int& lfo_source, double& depth);
 
-// Spatial allocation parameters (9 total - converted from attributes to messages)
+// Spatial allocation parameters (10 total - converted from attributes to messages)
 void ec2_fixedchan(t_ec2* x, long v);
 void ec2_rrstep(t_ec2* x, long v);
-void ec2_randspread(t_ec2* x, double v);
+void ec2_randspread(t_ec2* x, double v);           // Mode 2: Random
+void ec2_randspread_weighted(t_ec2* x, double v);  // Mode 3: Weighted
 void ec2_spatialcorr(t_ec2* x, double v);
 void ec2_pitchmin(t_ec2* x, double v);
 void ec2_pitchmax(t_ec2* x, double v);
@@ -247,29 +249,30 @@ void ec2_trajrate(t_ec2* x, double v);
 void ec2_trajdepth(t_ec2* x, double v);
 
 // LFO parameters (24 total: 6 LFOs × 4 params each)
-void ec2_lfo1shape(t_ec2* x, double v);
+// shape and polarity are integers (long), rate and duty are floats (double)
+void ec2_lfo1shape(t_ec2* x, long v);
 void ec2_lfo1rate(t_ec2* x, double v);
-void ec2_lfo1polarity(t_ec2* x, double v);
+void ec2_lfo1polarity(t_ec2* x, long v);
 void ec2_lfo1duty(t_ec2* x, double v);
-void ec2_lfo2shape(t_ec2* x, double v);
+void ec2_lfo2shape(t_ec2* x, long v);
 void ec2_lfo2rate(t_ec2* x, double v);
-void ec2_lfo2polarity(t_ec2* x, double v);
+void ec2_lfo2polarity(t_ec2* x, long v);
 void ec2_lfo2duty(t_ec2* x, double v);
-void ec2_lfo3shape(t_ec2* x, double v);
+void ec2_lfo3shape(t_ec2* x, long v);
 void ec2_lfo3rate(t_ec2* x, double v);
-void ec2_lfo3polarity(t_ec2* x, double v);
+void ec2_lfo3polarity(t_ec2* x, long v);
 void ec2_lfo3duty(t_ec2* x, double v);
-void ec2_lfo4shape(t_ec2* x, double v);
+void ec2_lfo4shape(t_ec2* x, long v);
 void ec2_lfo4rate(t_ec2* x, double v);
-void ec2_lfo4polarity(t_ec2* x, double v);
+void ec2_lfo4polarity(t_ec2* x, long v);
 void ec2_lfo4duty(t_ec2* x, double v);
-void ec2_lfo5shape(t_ec2* x, double v);
+void ec2_lfo5shape(t_ec2* x, long v);
 void ec2_lfo5rate(t_ec2* x, double v);
-void ec2_lfo5polarity(t_ec2* x, double v);
+void ec2_lfo5polarity(t_ec2* x, long v);
 void ec2_lfo5duty(t_ec2* x, double v);
-void ec2_lfo6shape(t_ec2* x, double v);
+void ec2_lfo6shape(t_ec2* x, long v);
 void ec2_lfo6rate(t_ec2* x, double v);
-void ec2_lfo6polarity(t_ec2* x, double v);
+void ec2_lfo6polarity(t_ec2* x, long v);
 void ec2_lfo6duty(t_ec2* x, double v);
 
 // Spatial allocation attributes (use setter functions)
@@ -375,10 +378,11 @@ extern "C" void ext_main(void* r) {
   // These are registered as typed messages with A_GIMME to accept variable arguments
   class_addmethod(c, (method)ec2_lfo_map, "anything", A_GIMME, 0);  // Catch-all for /lfo* messages
 
-  // Spatial allocation parameters (9 total - real-time control)
+  // Spatial allocation parameters (10 total - real-time control)
   class_addmethod(c, (method)ec2_fixedchan, "fixedchan", A_LONG, 0);
   class_addmethod(c, (method)ec2_rrstep, "rrstep", A_LONG, 0);
-  class_addmethod(c, (method)ec2_randspread, "randspread", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_randspread, "randspread", A_FLOAT, 0);                      // Mode 2: Random
+  class_addmethod(c, (method)ec2_randspread_weighted, "randspread_weighted", A_FLOAT, 0);  // Mode 3: Weighted
   class_addmethod(c, (method)ec2_spatialcorr, "spatialcorr", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_pitchmin, "pitchmin", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_pitchmax, "pitchmax", A_FLOAT, 0);
@@ -389,31 +393,31 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_pendulum_decay, "pendulum_decay", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_weights, "weights", A_GIMME, 0);
 
-  // LFO parameters (24 total)
-  class_addmethod(c, (method)ec2_lfo1shape, "lfo1shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo1rate, "lfo1rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo1polarity, "lfo1polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo1duty, "lfo1duty", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo2shape, "lfo2shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo2rate, "lfo2rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo2polarity, "lfo2polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo2duty, "lfo2duty", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo3shape, "lfo3shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo3rate, "lfo3rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo3polarity, "lfo3polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo3duty, "lfo3duty", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo4shape, "lfo4shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo4rate, "lfo4rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo4polarity, "lfo4polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo4duty, "lfo4duty", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo5shape, "lfo5shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo5rate, "lfo5rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo5polarity, "lfo5polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo5duty, "lfo5duty", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo6shape, "lfo6shape", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo6rate, "lfo6rate", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo6polarity, "lfo6polarity", A_FLOAT, 0);
-  class_addmethod(c, (method)ec2_lfo6duty, "lfo6duty", A_FLOAT, 0);
+  // LFO parameters (24 total) - shape/polarity are integers (A_LONG), rate/duty are floats (A_FLOAT)
+  class_addmethod(c, (method)ec2_lfo1shape, "/lfo1shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo1rate, "/lfo1rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo1polarity, "/lfo1polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo1duty, "/lfo1duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2shape, "/lfo2shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo2rate, "/lfo2rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo2polarity, "/lfo2polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo2duty, "/lfo2duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3shape, "/lfo3shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo3rate, "/lfo3rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo3polarity, "/lfo3polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo3duty, "/lfo3duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4shape, "/lfo4shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo4rate, "/lfo4rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo4polarity, "/lfo4polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo4duty, "/lfo4duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5shape, "/lfo5shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo5rate, "/lfo5rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo5polarity, "/lfo5polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo5duty, "/lfo5duty", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6shape, "/lfo6shape", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo6rate, "/lfo6rate", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_lfo6polarity, "/lfo6polarity", A_LONG, 0);
+  class_addmethod(c, (method)ec2_lfo6duty, "/lfo6duty", A_FLOAT, 0);
 
   // Buffer management - using attribute setter instead of message handler
   // (Attribute @buffer is registered below with CLASS_ATTR_SYM + setter)
@@ -528,7 +532,8 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->alloc_mode = 1;  // roundrobin
   x->fixed_channel = 1;  // 1-16 (user-facing channel numbers)
   x->rr_step = 1;
-  x->random_spread = 0.0;
+  x->random_spread = 0.0;           // Mode 2: Random
+  x->random_spread_weighted = 0.0;  // Mode 3: Weighted
   x->spatial_corr = 0.0;
   x->pitch_min = 20.0;
   x->pitch_max = 20000.0;
@@ -1116,8 +1121,8 @@ void ec2_update_lfo_with_modulation(t_ec2* x, int lfo_index) {
 }
 
 // LFO 1
-void ec2_lfo1shape(t_ec2* x, double v) {
-  x->lfo1_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo1shape(t_ec2* x, long v) {
+  x->lfo1_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1130,8 +1135,8 @@ void ec2_lfo1rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo1polarity(t_ec2* x, double v) {
-  x->lfo1_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo1polarity(t_ec2* x, long v) {
+  x->lfo1_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 0);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1145,8 +1150,8 @@ void ec2_lfo1duty(t_ec2* x, double v) {
 }
 
 // LFO 2
-void ec2_lfo2shape(t_ec2* x, double v) {
-  x->lfo2_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo2shape(t_ec2* x, long v) {
+  x->lfo2_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1159,8 +1164,8 @@ void ec2_lfo2rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo2polarity(t_ec2* x, double v) {
-  x->lfo2_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo2polarity(t_ec2* x, long v) {
+  x->lfo2_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 1);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1174,8 +1179,8 @@ void ec2_lfo2duty(t_ec2* x, double v) {
 }
 
 // LFO 3
-void ec2_lfo3shape(t_ec2* x, double v) {
-  x->lfo3_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo3shape(t_ec2* x, long v) {
+  x->lfo3_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1188,8 +1193,8 @@ void ec2_lfo3rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo3polarity(t_ec2* x, double v) {
-  x->lfo3_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo3polarity(t_ec2* x, long v) {
+  x->lfo3_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 2);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1203,8 +1208,8 @@ void ec2_lfo3duty(t_ec2* x, double v) {
 }
 
 // LFO 4
-void ec2_lfo4shape(t_ec2* x, double v) {
-  x->lfo4_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo4shape(t_ec2* x, long v) {
+  x->lfo4_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1217,8 +1222,8 @@ void ec2_lfo4rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo4polarity(t_ec2* x, double v) {
-  x->lfo4_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo4polarity(t_ec2* x, long v) {
+  x->lfo4_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 3);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1232,8 +1237,8 @@ void ec2_lfo4duty(t_ec2* x, double v) {
 }
 
 // LFO 5
-void ec2_lfo5shape(t_ec2* x, double v) {
-  x->lfo5_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo5shape(t_ec2* x, long v) {
+  x->lfo5_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1246,8 +1251,8 @@ void ec2_lfo5rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo5polarity(t_ec2* x, double v) {
-  x->lfo5_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo5polarity(t_ec2* x, long v) {
+  x->lfo5_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 4);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1261,8 +1266,8 @@ void ec2_lfo5duty(t_ec2* x, double v) {
 }
 
 // LFO 6
-void ec2_lfo6shape(t_ec2* x, double v) {
-  x->lfo6_shape = std::max(0, std::min(4, (int)v));
+void ec2_lfo6shape(t_ec2* x, long v) {
+  x->lfo6_shape = std::max(0L, std::min(4L, v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1275,8 +1280,8 @@ void ec2_lfo6rate(t_ec2* x, double v) {
   ec2_refresh_param_window(x);
 }
 
-void ec2_lfo6polarity(t_ec2* x, double v) {
-  x->lfo6_polarity = std::max(0, std::min(2, (int)v));
+void ec2_lfo6polarity(t_ec2* x, long v) {
+  x->lfo6_polarity = std::max(0L, std::min(2L, v));
   ec2_update_lfo_with_modulation(x, 5);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1435,6 +1440,14 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
       return;
     }
 
+    // Block LFO routing to deviation parameters (_dev suffix)
+    // Deviation parameters are NOT modulatable by LFOs
+    if (param_name.length() > 4 && param_name.substr(param_name.length() - 4) == "_dev") {
+      object_error((t_object*)x, "Deviation parameters cannot be modulated by LFOs (attempted: /lfo%d_to_%s)",
+                   lfo_num, param_name.c_str());
+      return;
+    }
+
     // If this parameter is already controlled by a DIFFERENT LFO, remove it from that LFO
     // (a parameter can only be controlled by one LFO at a time - last message wins)
     for (int i = 0; i < 6; i++) {
@@ -1469,10 +1482,15 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     } else if (param_name == "rrstep" && x->alloc_mode != 1) {
       object_warn((t_object*)x, "LFO%d connected to 'rrstep', but allocmode is %ld (not Round-Robin mode 1). This parameter has no effect.",
                  lfo_num, x->alloc_mode);
-    } else if ((param_name == "randspread" || param_name == "spatialcorr") &&
-               (x->alloc_mode != 2 && x->alloc_mode != 3)) {
-      object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Random mode 2 or Weighted Random mode 3). This parameter has no effect.",
-                 lfo_num, param_name.c_str(), x->alloc_mode);
+    } else if (param_name == "randspread" && x->alloc_mode != 2) {
+      object_warn((t_object*)x, "LFO%d connected to 'randspread', but allocmode is %ld (not Random mode 2). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
+    } else if (param_name == "randspread_weighted" && x->alloc_mode != 3) {
+      object_warn((t_object*)x, "LFO%d connected to 'randspread_weighted', but allocmode is %ld (not Weighted Random mode 3). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
+    } else if (param_name == "spatialcorr" && (x->alloc_mode != 2 && x->alloc_mode != 3)) {
+      object_warn((t_object*)x, "LFO%d connected to 'spatialcorr', but allocmode is %ld (not Random mode 2 or Weighted mode 3). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
     } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
       object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
                  lfo_num, param_name.c_str(), x->alloc_mode);
@@ -1512,6 +1530,13 @@ void ec2_rrstep(t_ec2* x, long v) {
 
 void ec2_randspread(t_ec2* x, double v) {
   x->random_spread = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
+}
+
+void ec2_randspread_weighted(t_ec2* x, double v) {
+  x->random_spread_weighted = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1739,37 +1764,21 @@ void ec2_update_engine_params(t_ec2* x) {
   params.scanRange = x->scan_range;
   params.scanSpeed = x->scan_speed;
 
-  // Deviations (with LFO modulation applied)
-  // LFO modulation multiplies deviation values: modulated_dev = base_dev * (1.0 + lfo_mod)
-  double grainrate_dev_mod = ec2_get_lfo_modulation(x, "grainrate_dev");
-  double async_dev_mod = ec2_get_lfo_modulation(x, "async_dev");
-  double intermittency_dev_mod = ec2_get_lfo_modulation(x, "intermittency_dev");
-  double streams_dev_mod = ec2_get_lfo_modulation(x, "streams_dev");
-  double playback_dev_mod = ec2_get_lfo_modulation(x, "playback_dev");
-  double duration_dev_mod = ec2_get_lfo_modulation(x, "duration_dev");
-  double envelope_dev_mod = ec2_get_lfo_modulation(x, "envelope_dev");
-  double pan_dev_mod = ec2_get_lfo_modulation(x, "pan_dev");
-  double amp_dev_mod = ec2_get_lfo_modulation(x, "amp_dev");
-  double filterfreq_dev_mod = ec2_get_lfo_modulation(x, "filterfreq_dev");
-  double resonance_dev_mod = ec2_get_lfo_modulation(x, "resonance_dev");
-  double scanstart_dev_mod = ec2_get_lfo_modulation(x, "scanstart_dev");
-  double scanrange_dev_mod = ec2_get_lfo_modulation(x, "scanrange_dev");
-  double scanspeed_dev_mod = ec2_get_lfo_modulation(x, "scanspeed_dev");
-
-  params.grainRateDeviation = x->grain_rate_dev * (1.0 + grainrate_dev_mod);
-  params.asyncDeviation = x->async_dev * (1.0 + async_dev_mod);
-  params.intermittencyDeviation = x->intermittency_dev * (1.0 + intermittency_dev_mod);
-  params.streamsDeviation = x->streams_dev * (1.0 + streams_dev_mod);
-  params.playbackDeviation = x->playback_dev * (1.0 + playback_dev_mod);
-  params.durationDeviation = x->duration_dev * (1.0 + duration_dev_mod);
-  params.envelopeDeviation = x->envelope_dev * (1.0 + envelope_dev_mod);
-  params.panDeviation = x->pan_dev * (1.0 + pan_dev_mod);
-  params.amplitudeDeviation = x->amp_dev * (1.0 + amp_dev_mod);
-  params.filterFreqDeviation = x->filterfreq_dev * (1.0 + filterfreq_dev_mod);
-  params.resonanceDeviation = x->resonance_dev * (1.0 + resonance_dev_mod);
-  params.scanBeginDeviation = x->scanstart_dev * (1.0 + scanstart_dev_mod);
-  params.scanRangeDeviation = x->scanrange_dev * (1.0 + scanrange_dev_mod);
-  params.scanSpeedDeviation = x->scanspeed_dev * (1.0 + scanspeed_dev_mod);
+  // Deviations (direct values - NOT modulatable by LFOs)
+  params.grainRateDeviation = x->grain_rate_dev;
+  params.asyncDeviation = x->async_dev;
+  params.intermittencyDeviation = x->intermittency_dev;
+  params.streamsDeviation = x->streams_dev;
+  params.playbackDeviation = x->playback_dev;
+  params.durationDeviation = x->duration_dev;
+  params.envelopeDeviation = x->envelope_dev;
+  params.panDeviation = x->pan_dev;
+  params.amplitudeDeviation = x->amp_dev;
+  params.filterFreqDeviation = x->filterfreq_dev;
+  params.resonanceDeviation = x->resonance_dev;
+  params.scanBeginDeviation = x->scanstart_dev;
+  params.scanRangeDeviation = x->scanrange_dev;
+  params.scanSpeedDeviation = x->scanspeed_dev;
 
   // Spatial allocation (with LFO modulation applied)
   params.spatial.mode = static_cast<ec2::AllocationMode>(x->alloc_mode);
@@ -1781,6 +1790,7 @@ void ec2_update_engine_params(t_ec2* x) {
   double fixedchan_mod = ec2_get_lfo_modulation(x, "fixedchan");
   double rrstep_mod = ec2_get_lfo_modulation(x, "rrstep");
   double randspread_mod = ec2_get_lfo_modulation(x, "randspread");
+  double randspread_weighted_mod = ec2_get_lfo_modulation(x, "randspread_weighted");
   double spatialcorr_mod = ec2_get_lfo_modulation(x, "spatialcorr");
   double pitchmin_mod = ec2_get_lfo_modulation(x, "pitchmin");
   double pitchmax_mod = ec2_get_lfo_modulation(x, "pitchmax");
@@ -1791,7 +1801,19 @@ void ec2_update_engine_params(t_ec2* x) {
   // Convert from 1-based (user-facing) to 0-based (engine internal)
   params.spatial.fixedChannel = (x->fixed_channel - 1) + static_cast<int>(fixedchan_mod * x->outputs);
   params.spatial.roundRobinStep = x->rr_step + static_cast<int>(rrstep_mod * 16);
-  params.spatial.spread = x->random_spread * (1.0 + randspread_mod);
+
+  // Select spread based on allocation mode: mode 2 uses randspread, mode 3 uses randspread_weighted
+  if (x->alloc_mode == 2) {
+    // Random mode: use randspread
+    params.spatial.spread = x->random_spread * (1.0 + randspread_mod);
+  } else if (x->alloc_mode == 3) {
+    // Weighted mode: use randspread_weighted
+    params.spatial.spread = x->random_spread_weighted * (1.0 + randspread_weighted_mod);
+  } else {
+    // Other modes: default to 0 (no spread)
+    params.spatial.spread = 0.0;
+  }
+
   params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);
   params.spatial.pitchMin = x->pitch_min * (1.0 + pitchmin_mod);
   params.spatial.pitchMax = x->pitch_max * (1.0 + pitchmax_mod);
