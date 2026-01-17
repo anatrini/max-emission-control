@@ -151,7 +151,8 @@ typedef struct _ec2 {
   long rr_step;          // 1-16
   double random_spread;          // 0.0-1.0 (mode 2: random)
   double random_spread_weighted; // 0.0-1.0 (mode 3: weighted)
-  double spatial_corr;   // 0.0-1.0
+  double spatial_corr;           // 0.0-1.0 (mode 2: random)
+  double spatial_corr_weighted;  // 0.0-1.0 (mode 3: weighted)
   double pitch_min;      // 20-20000 Hz
   double pitch_max;      // 20-20000 Hz
   long traj_shape;       // 0-5: 0=Sine, 1=Saw, 2=Triangle, 3=Random, 4=Spiral, 5=Pendulum
@@ -284,6 +285,7 @@ void ec2_fixedchan(t_ec2* x, long v);
 void ec2_rrstep(t_ec2* x, long v);
 void ec2_randspread(t_ec2* x, double v);
 void ec2_spatialcorr(t_ec2* x, double v);
+void ec2_spatialcorr_weighted(t_ec2* x, double v);
 void ec2_pitchmin(t_ec2* x, double v);
 void ec2_pitchmax(t_ec2* x, double v);
 void ec2_trajshape(t_ec2* x, long v);
@@ -389,7 +391,8 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_rrstep, "rrstep", A_LONG, 0);
   class_addmethod(c, (method)ec2_randspread, "randspread", A_FLOAT, 0);                      // Mode 2: Random
   class_addmethod(c, (method)ec2_randspread_weighted, "randspread_weighted", A_FLOAT, 0);  // Mode 3: Weighted
-  class_addmethod(c, (method)ec2_spatialcorr, "spatialcorr", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_spatialcorr, "spatialcorr", A_FLOAT, 0);                    // Mode 2: Random
+  class_addmethod(c, (method)ec2_spatialcorr_weighted, "spatialcorr_weighted", A_FLOAT, 0); // Mode 3: Weighted
   class_addmethod(c, (method)ec2_pitchmin, "pitchmin", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_pitchmax, "pitchmax", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_trajshape, "trajshape", A_LONG, 0);
@@ -540,7 +543,8 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->rr_step = 1;
   x->random_spread = 0.0;           // Mode 2: Random
   x->random_spread_weighted = 0.0;  // Mode 3: Weighted
-  x->spatial_corr = 0.0;
+  x->spatial_corr = 0.0;            // Mode 2: Random
+  x->spatial_corr_weighted = 0.0;   // Mode 3: Weighted
   x->pitch_min = 20.0;
   x->pitch_max = 20000.0;
   x->traj_shape = 0;
@@ -700,8 +704,10 @@ void ec2_get_all_parameters(t_ec2* x, std::vector<ec2::ParameterInfo>& params) {
   params.push_back({"allocmode", "Allocation", (double)x->alloc_mode, 0.0, 6.0, "Allocation mode", true});
   params.push_back({"fixedchan", "Allocation", (double)x->fixed_channel, 1.0, 16.0, "Fixed channel", true});
   params.push_back({"rrstep", "Allocation", (double)x->rr_step, 1.0, 16.0, "Round-robin step", true});
-  params.push_back({"randspread", "Allocation", x->random_spread, 0.0, 1.0, "Random spread", false});
-  params.push_back({"spatialcorr", "Allocation", x->spatial_corr, 0.0, 1.0, "Spatial correlation", false});
+  params.push_back({"randspread", "Allocation", x->random_spread, 0.0, 1.0, "Random spread (mode 2)", false});
+  params.push_back({"randspread_weighted", "Allocation", x->random_spread_weighted, 0.0, 1.0, "Random spread (mode 3)", false});
+  params.push_back({"spatialcorr", "Allocation", x->spatial_corr, 0.0, 1.0, "Spatial corr (mode 2)", false});
+  params.push_back({"spatialcorr_weighted", "Allocation", x->spatial_corr_weighted, 0.0, 1.0, "Spatial corr (mode 3)", false});
   params.push_back({"pitchmin", "Allocation", x->pitch_min, 20.0, 20000.0, "Pitch min (Hz)", false});
   params.push_back({"pitchmax", "Allocation", x->pitch_max, 20.0, 20000.0, "Pitch max (Hz)", false});
   params.push_back({"trajshape", "Allocation", (double)x->traj_shape, 0.0, 5.0, "Trajectory shape", true});
@@ -1505,8 +1511,11 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     } else if (param_name == "randspread_weighted" && x->alloc_mode != 3) {
       object_warn((t_object*)x, "LFO%d connected to 'randspread_weighted', but allocmode is %ld (not Weighted Random mode 3). This parameter has no effect.",
                  lfo_num, x->alloc_mode);
-    } else if (param_name == "spatialcorr" && (x->alloc_mode != 2 && x->alloc_mode != 3)) {
-      object_warn((t_object*)x, "LFO%d connected to 'spatialcorr', but allocmode is %ld (not Random mode 2 or Weighted mode 3). This parameter has no effect.",
+    } else if (param_name == "spatialcorr" && x->alloc_mode != 2) {
+      object_warn((t_object*)x, "LFO%d connected to 'spatialcorr', but allocmode is %ld (not Random mode 2). This parameter has no effect.",
+                 lfo_num, x->alloc_mode);
+    } else if (param_name == "spatialcorr_weighted" && x->alloc_mode != 3) {
+      object_warn((t_object*)x, "LFO%d connected to 'spatialcorr_weighted', but allocmode is %ld (not Weighted Random mode 3). This parameter has no effect.",
                  lfo_num, x->alloc_mode);
     } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
       object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
@@ -1561,6 +1570,13 @@ void ec2_randspread_weighted(t_ec2* x, double v) {
 
 void ec2_spatialcorr(t_ec2* x, double v) {
   x->spatial_corr = std::max(0.0, std::min(1.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
+}
+
+void ec2_spatialcorr_weighted(t_ec2* x, double v) {
+  x->spatial_corr_weighted = std::max(0.0, std::min(1.0, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1812,6 +1828,7 @@ void ec2_update_engine_params(t_ec2* x) {
   double randspread_mod = ec2_get_lfo_modulation(x, "randspread");
   double randspread_weighted_mod = ec2_get_lfo_modulation(x, "randspread_weighted");
   double spatialcorr_mod = ec2_get_lfo_modulation(x, "spatialcorr");
+  double spatialcorr_weighted_mod = ec2_get_lfo_modulation(x, "spatialcorr_weighted");
   double pitchmin_mod = ec2_get_lfo_modulation(x, "pitchmin");
   double pitchmax_mod = ec2_get_lfo_modulation(x, "pitchmax");
   double trajshape_mod = ec2_get_lfo_modulation(x, "trajshape");
@@ -1834,7 +1851,18 @@ void ec2_update_engine_params(t_ec2* x) {
     params.spatial.spread = 0.0;
   }
 
-  params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);
+  // Select spatialCorr based on allocation mode: mode 2 uses spatialcorr, mode 3 uses spatialcorr_weighted
+  if (x->alloc_mode == 2) {
+    // Random mode: use spatialcorr
+    params.spatial.spatialCorr = x->spatial_corr * (1.0 + spatialcorr_mod);
+  } else if (x->alloc_mode == 3) {
+    // Weighted mode: use spatialcorr_weighted
+    params.spatial.spatialCorr = x->spatial_corr_weighted * (1.0 + spatialcorr_weighted_mod);
+  } else {
+    // Other modes: default to 0 (no spatial correlation)
+    params.spatial.spatialCorr = 0.0;
+  }
+
   params.spatial.pitchMin = x->pitch_min * (1.0 + pitchmin_mod);
   params.spatial.pitchMax = x->pitch_max * (1.0 + pitchmax_mod);
   params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape + static_cast<int>(trajshape_mod * 6));
@@ -1975,83 +2003,32 @@ void ec2_send_osc_bundle(t_ec2* x) {
   };
 
   // ==================================================================
-  // GRAIN VISUALIZATION DATA (Curtis Roads best practices)
+  // GRAIN VISUALIZATION OUTPUT (for waveform~ display)
   // ==================================================================
-  // This output is designed for waveform and grain cloud visualization
-  // All synthesis parameters are now in the native parameter window (double-click)
+  // Minimal output for visualization: active grain count + scan window
+  // All synthesis parameters available via double-click parameter window
 
-  // 1. Buffer information
-  float buffer_length_samples = 0.0f;
-  float buffer_length_ms = 0.0f;
+  // 1. Active grain count
+  int grain_count = x->engine ? x->engine->getActiveVoiceCount() : 0;
+  add_message(*x->osc_bundle_buffer, "grain_count", static_cast<float>(grain_count));
 
-  if (x->engine) {
-    auto audio_buf = x->engine->getAudioBuffer();
-    if (audio_buf) {
-      buffer_length_samples = static_cast<float>(audio_buf->frames);
-      buffer_length_ms = (buffer_length_samples / x->engine->getSampleRate()) * 1000.0f;
-    }
-  }
+  // 2. Grain region (scan window) - normalized 0-1 for waveform~ compatibility
+  // These values represent the active granulation region in the buffer
+  float grain_start = x->scan_start;  // Normalized 0-1
+  float grain_end = x->scan_start + x->scan_range;
 
-  add_message(*x->osc_bundle_buffer, "buffer_length_samples", buffer_length_samples);
-  add_message(*x->osc_bundle_buffer, "buffer_length_ms", buffer_length_ms);
-
-  // 2. Scan window (selected portion of file for granulation)
-  // Normalized 0-1 values representing the active region
-  float scan_start_norm = x->scan_start;  // Already normalized 0-1
-  float scan_end_norm = x->scan_start + x->scan_range;
-
-  // Clamp scan end to valid range
-  if (scan_end_norm > 1.0f) scan_end_norm = 1.0f;
-  if (scan_end_norm < 0.0f) scan_end_norm = 0.0f;
+  // Handle negative scan range (reverse scanning)
   if (x->scan_range < 0.0f) {
-    // Negative scan range means scanning backwards
-    scan_end_norm = x->scan_start;
-    scan_start_norm = x->scan_start + x->scan_range;
-    if (scan_start_norm < 0.0f) scan_start_norm = 0.0f;
+    grain_end = x->scan_start;
+    grain_start = x->scan_start + x->scan_range;
   }
 
-  add_message(*x->osc_bundle_buffer, "scan_start_norm", scan_start_norm);
-  add_message(*x->osc_bundle_buffer, "scan_end_norm", scan_end_norm);
+  // Clamp to valid range
+  grain_start = std::max(0.0f, std::min(1.0f, grain_start));
+  grain_end = std::max(0.0f, std::min(1.0f, grain_end));
 
-  // Convert to absolute sample positions for convenience
-  add_message(*x->osc_bundle_buffer, "scan_start_samples", scan_start_norm * buffer_length_samples);
-  add_message(*x->osc_bundle_buffer, "scan_end_samples", scan_end_norm * buffer_length_samples);
-
-  // 3. Active grain statistics
-  int active_grain_count = x->engine ? x->engine->getActiveVoiceCount() : 0;
-  add_message(*x->osc_bundle_buffer, "active_grain_count", static_cast<float>(active_grain_count));
-
-  // 4. Individual grain data (following Curtis Roads' recommendations)
-  // For each active grain, output:
-  // - Grain ID (voice pool index)
-  // - Position in buffer (normalized 0-1)
-  // - Position in buffer (absolute samples)
-  // - Envelope phase (0-1, useful for visualizing grain age)
-  // - Amplitude/loudness (for grain brightness in visualization)
-
-  // Note: The voice pool doesn't expose individual grain iteration, so we'll
-  // provide aggregate information. For detailed per-grain data, the engine
-  // would need to expose an iterator over active grains.
-
-  // For now, we output aggregate metrics that are useful for visualization:
-  // - Average grain position (centroid of grain cloud)
-  // - Grain density (grains per second)
-  // - Spatial spread (standard deviation of positions)
-
-  // Grain density (instantaneous emission rate)
-  add_message(*x->osc_bundle_buffer, "grain_density_hz", static_cast<float>(x->grain_rate));
-
-  // Stream count (number of independent grain streams)
-  add_message(*x->osc_bundle_buffer, "stream_count", static_cast<float>(x->streams));
-
-  // Average grain duration (for visualizing grain envelope width)
-  add_message(*x->osc_bundle_buffer, "grain_duration_ms", static_cast<float>(x->grain_duration));
-
-  // Playback rate (affects grain trajectory visualization)
-  add_message(*x->osc_bundle_buffer, "playback_rate", static_cast<float>(x->playback_rate));
-
-  // Scan speed (for visualizing scan window movement)
-  add_message(*x->osc_bundle_buffer, "scan_speed", static_cast<float>(x->scan_speed));
+  add_message(*x->osc_bundle_buffer, "grain_start", grain_start);
+  add_message(*x->osc_bundle_buffer, "grain_end", grain_end);
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];
@@ -2213,7 +2190,9 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "fixedchan") ec2_fixedchan(x, (long)value);
   else if (param_name == "rrstep") ec2_rrstep(x, (long)value);
   else if (param_name == "randspread") ec2_randspread(x, value);
+  else if (param_name == "randspread_weighted") ec2_randspread_weighted(x, value);
   else if (param_name == "spatialcorr") ec2_spatialcorr(x, value);
+  else if (param_name == "spatialcorr_weighted") ec2_spatialcorr_weighted(x, value);
   else if (param_name == "pitchmin") ec2_pitchmin(x, value);
   else if (param_name == "pitchmax") ec2_pitchmax(x, value);
   else if (param_name == "trajshape") ec2_trajshape(x, (long)value);
