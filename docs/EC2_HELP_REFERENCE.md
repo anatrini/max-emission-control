@@ -96,6 +96,20 @@ scanrange 0.5
 | scanrange | float | -1/1 | 0.5 |
 | scanspeed | float | -32/32 | 1 |
 
+### Sound File Selection (polybuffer~)
+
+| Msg | Type | Range | Def |
+|-----|------|-------|-----|
+| soundfile | int | 0-15 | 0 |
+
+Select which buffer to use when loading multiple files via polybuffer~. Value is rounded to nearest integer. LFO modulatable.
+
+```
+soundfile 0
+soundfile 3
+/lfo1_to_soundfile 0.5
+```
+
 ### Deviation (random ± per grain)
 
 | Msg | Range |

@@ -10,12 +10,12 @@
 | Categoria | Numero Parametri | Tipo |
 |-----------|-----------------|------|
 | **Attributi** | 5 | @ (set at creation) |
-| **Sintesi Base** | 14 | messages |
+| **Sintesi Base** | 15 | messages |
 | **Deviazioni** | 14 | messages |
 | **LFO** | 30 | messages (6 LFOs × 5 params) |
-| **Modulation Routing** | 28 | messages (14 params × 2 controls) |
+| **Modulation Routing** | 30 | messages (15 params × 2 controls) |
 | **Spatial Allocation** | 12 | messages |
-| **TOTALE** | **103** | |
+| **TOTALE** | **106** | |
 
 ---
 
@@ -36,7 +36,7 @@ Attributi strutturali configurati con `@` - **da impostare alla creazione dell'o
 
 ---
 
-## 2. PARAMETRI DI SINTESI (14 total)
+## 2. PARAMETRI DI SINTESI (15 total)
 
 Messaggi per controllo real-time dei parametri di sintesi.
 
@@ -61,6 +61,9 @@ Messaggi per controllo real-time dei parametri di sintesi.
 - `scanstart` (float, 0.0-1.0, default: 0.5) - Posizione inizio scansione buffer
 - `scanrange` (float, 0.0-1.0, default: 1.0) - Ampiezza finestra scansione
 - `scanspeed` (float, -32 to 32, default: 1.0) - Velocità scansione automatica
+
+### Sound File Selection (1)
+- `soundfile` (int, 0-15, default: 0) - Indice buffer per polybuffer~ (modulabile via LFO, quantizzato a intero più vicino)
 
 ---
 
@@ -141,7 +144,7 @@ ec2~ include 6 LFO indipendenti (LFO1-LFO6) per modulazione dinamica. Ogni LFO h
 
 ---
 
-## 5. MODULATION ROUTING (28 total = 14 params × 2 controls)
+## 5. MODULATION ROUTING (30 total = 15 params × 2 controls)
 
 Sistema di routing per assegnare LFO ai parametri di sintesi.
 Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
@@ -182,6 +185,10 @@ Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
 - `scanspeed_lfosource` (int, 0-6, default: 0)
 - `scanspeed_moddepth` (float, 0.0-1.0, default: 0.0)
 
+### Sound File Routing (2 = 1 × 2)
+- `soundfile_lfosource` (int, 0-6, default: 0) - LFO sorgente per selezione file
+- `soundfile_moddepth` (float, 0.0-1.0, default: 0.0) - Profondità modulazione (valore quantizzato a intero)
+
 ---
 
 ## 6. SPATIAL ALLOCATION PARAMETERS (12 total)
@@ -194,7 +201,7 @@ Ogni parametro ha 2 controlli: sorgente LFO e profondità modulazione.
   b) Con attrui (inspector Max)
   c) Come messaggi semplici (alcuni attributi)
 
-**PARAMETRI** (tutti gli altri 94: grainrate, async, randspread, weights, etc.):
+**PARAMETRI** (tutti gli altri 101: grainrate, async, soundfile, randspread, weights, etc.):
 - Inviabili in 2 modi:
   1. **Messaggi OSC-style**: `/randspread 0.8`, `/weights 0.5 0.3 0.1 0.1`
   2. **FullPacket bundle** (odot): comunicazione OSC bidirezionale via outlet destro
@@ -327,7 +334,7 @@ Ogni modalità allocazione (@allocmode) usa parametri specifici.
    - Possono essere usati simultaneamente
 
 4. **OSC Output**:
-   - Tutti i 94 parametri sono trasmessi via OSC outlet (rightmost)
+   - Tutti i 101 parametri sono trasmessi via OSC outlet (rightmost)
    - Formato odot-compatible (FullPacket)
    - Automatic transmission on parameter change
 

@@ -65,3 +65,15 @@ source/ec2_tilde/ec2_version.h
 
 # IDE
 .vscode/
+
+# Test files
+test_engine
+test_engine.cpp
+
+# Personal notes and analysis (not for public repo)
+appunti-ec2.txt
+lfo_modulatable_parameters.txt
+EC2_FIDELITY_ANALYSIS.md
+
+# Decompiled/disassembled binaries (never publish)
+decompile/

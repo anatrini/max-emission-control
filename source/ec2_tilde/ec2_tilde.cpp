@@ -209,6 +209,9 @@ void ec2_scanstart(t_ec2* x, double v);
 void ec2_scanrange(t_ec2* x, double v);
 void ec2_scanspeed(t_ec2* x, double v);
 
+// Sound file selection (polybuffer~ support)
+void ec2_soundfile(t_ec2* x, long v);
+
 // Deviation parameters
 void ec2_grainrate_dev(t_ec2* x, double v);
 void ec2_async_dev(t_ec2* x, double v);
@@ -356,6 +359,9 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_scanstart, "scanstart", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_scanrange, "scanrange", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_scanspeed, "scanspeed", A_FLOAT, 0);
+
+  // Sound file selection (polybuffer~ support)
+  class_addmethod(c, (method)ec2_soundfile, "soundfile", A_LONG, 0);
 
   // Deviation parameters
   class_addmethod(c, (method)ec2_grainrate_dev, "grainrate_dev", A_FLOAT, 0);
@@ -958,6 +964,17 @@ void ec2_scanrange(t_ec2* x, double v) {
 
 void ec2_scanspeed(t_ec2* x, double v) {
   x->scan_speed = std::max(-32.0, std::min(32.0, v));
+  ec2_update_engine_params(x);
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
+}
+
+// ==================================================================
+// SOUND FILE SELECTION (for polybuffer~ support)
+// ==================================================================
+
+void ec2_soundfile(t_ec2* x, long v) {
+  x->sound_file = std::max(0L, std::min(15L, v));
   ec2_update_engine_params(x);
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1764,6 +1781,9 @@ void ec2_update_engine_params(t_ec2* x) {
   params.scanRange = x->scan_range;
   params.scanSpeed = x->scan_speed;
 
+  // Sound file selection (for polybuffer~ support)
+  params.soundFile = static_cast<int>(x->sound_file);
+
   // Deviations (direct values - NOT modulatable by LFOs)
   params.grainRateDeviation = x->grain_rate_dev;
   params.asyncDeviation = x->async_dev;
@@ -2146,6 +2166,8 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "scanstart") ec2_scanstart(x, value);
   else if (param_name == "scanrange") ec2_scanrange(x, value);
   else if (param_name == "scanspeed") ec2_scanspeed(x, value);
+  // Sound file selection
+  else if (param_name == "soundfile") ec2_soundfile(x, static_cast<long>(value));
   // Deviations
   else if (param_name == "grainrate_dev") ec2_grainrate_dev(x, value);
   else if (param_name == "async_dev") ec2_async_dev(x, value);
