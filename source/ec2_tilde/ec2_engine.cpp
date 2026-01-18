@@ -79,8 +79,8 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
 void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int numFrames,
                                        const float* scanSignal, const float* rateSignal,
                                        const float* playbackSignal) {
-  // Process LFOs once per audio callback (Phase 9)
-  processLFOs();
+  // Process LFOs for the entire buffer duration (FIX: advance by numFrames, not 1)
+  processLFOs(numFrames);
 
   // Apply modulation to control-rate parameters (Phase 9)
   // If signal inputs provided, average them for control-rate params (Phase 12)
@@ -96,10 +96,18 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
     modulatedGrainRate = applyModulation(mParams.grainRate, mParams.modGrainRate, 0.1f, 500.0f);
   }
 
+  // Apply deviation to scheduler parameters (per-buffer variation)
+  modulatedGrainRate = applyDeviation(modulatedGrainRate, mParams.grainRateDeviation, 0.1f, 500.0f);
+
   float modulatedAsync = applyModulation(mParams.async, mParams.modAsync, 0.0f, 1.0f);
+  modulatedAsync = applyDeviation(modulatedAsync, mParams.asyncDeviation, 0.0f, 1.0f);
+
   float modulatedIntermittency = applyModulation(mParams.intermittency, mParams.modIntermittency, 0.0f, 1.0f);
-  int modulatedStreams = static_cast<int>(applyModulation(static_cast<float>(mParams.streams),
-                                                          mParams.modStreams, 1.0f, 20.0f));
+  modulatedIntermittency = applyDeviation(modulatedIntermittency, mParams.intermittencyDeviation, 0.0f, 1.0f);
+
+  float modulatedStreamsF = applyModulation(static_cast<float>(mParams.streams), mParams.modStreams, 1.0f, 20.0f);
+  modulatedStreamsF = applyDeviation(modulatedStreamsF, mParams.streamsDeviation, 1.0f, 20.0f);
+  int modulatedStreams = static_cast<int>(modulatedStreamsF);
 
   // Update scheduler with modulated parameters
   mScheduler.configure(modulatedGrainRate, modulatedAsync, modulatedIntermittency);
@@ -123,10 +131,15 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
     modulatedSoundFile = mParams.soundFile;  // Use fallback
   }
 
-  // Apply modulation to scan parameters
+  // Apply modulation and deviation to scan parameters
+  // Note: scanBegin deviation is applied per-grain (to individual grain positions)
   float modulatedScanBegin = applyModulation(mParams.scanBegin, mParams.modScanBegin, 0.0f, 1.0f);
+
   float modulatedScanRange = applyModulation(mParams.scanRange, mParams.modScanRange, -1.0f, 1.0f);
+  modulatedScanRange = applyDeviation(modulatedScanRange, mParams.scanRangeDeviation, -1.0f, 1.0f);
+
   float modulatedScanSpeed = applyModulation(mParams.scanSpeed, mParams.modScanSpeed, -32.0f, 32.0f);
+  modulatedScanSpeed = applyDeviation(modulatedScanSpeed, mParams.scanSpeedDeviation, -32.0f, 32.0f);
 
   // SCANNER LOGIC (EC2 original algorithm from ecSynth.cpp:113-169)
   // Update scan index from Line object (moves continuously)
@@ -334,11 +347,15 @@ LFO* GranularEngine::getLFO(int index) {
   return &mLFOs[index];
 }
 
-void GranularEngine::processLFOs() {
-  // Process all LFOs once per audio callback
-  // This updates mLFOValues which are then used for modulation
+void GranularEngine::processLFOs(int numFrames) {
+  // Process all LFOs for the buffer duration
+  // Advance phase by numFrames samples to maintain correct timing
   for (int i = 0; i < MAX_LFOS; ++i) {
-    mLFOValues[i] = mLFOs[i].process();
+    // Process numFrames samples worth of LFO advancement
+    // Use the final value for control-rate modulation
+    for (int j = 0; j < numFrames; ++j) {
+      mLFOValues[i] = mLFOs[i].process();
+    }
   }
 }
 

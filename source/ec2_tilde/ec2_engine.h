@@ -180,9 +180,10 @@ public:
   LFO* getLFO(int index);
 
   /**
-   * Process all LFOs (call once per audio callback)
+   * Process all LFOs for the given number of frames
+   * @param numFrames - Number of samples to advance LFOs
    */
-  void processLFOs();
+  void processLFOs(int numFrames);
 
   /**
    * Apply modulation to a parameter value
