@@ -59,6 +59,17 @@ public:
    */
   void stopAll();
 
+  /**
+   * Get positions of active grains
+   * @param positions - Vector to fill with normalized positions (0-1)
+   * @param maxCount - Maximum number of positions to return
+   * @param bufferFrames - Total buffer frames for normalization
+   * @param minPos - Output: minimum position found
+   * @param maxPos - Output: maximum position found
+   */
+  void getGrainPositions(std::vector<float>& positions, int maxCount,
+                         float bufferFrames, float& minPos, float& maxPos) const;
+
 private:
   std::vector<std::unique_ptr<Grain>> mGrains;  // All grain voices
   std::vector<Grain*> mFreeList;                // Available voices

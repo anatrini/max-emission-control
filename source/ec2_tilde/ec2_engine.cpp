@@ -407,4 +407,28 @@ float GranularEngine::applyDeviation(float baseValue, float deviation,
   return deviatedValue;
 }
 
+float GranularEngine::getScanPosition() const {
+  // Get current buffer to determine frame count for normalization
+  auto buffer = mAudioBuffers.empty() ? nullptr : mAudioBuffers[mParams.soundFile];
+  if (!buffer || buffer->frames == 0) {
+    return 0.0f;
+  }
+
+  // Normalize scan index to 0-1 range
+  float normalizedPos = mCurrentScanIndex / static_cast<float>(buffer->frames);
+
+  // Clamp to valid range
+  return std::max(0.0f, std::min(1.0f, normalizedPos));
+}
+
+void GranularEngine::getGrainPositions(std::vector<float>& positions, int maxCount,
+                                       float& minPos, float& maxPos) const {
+  // Get current buffer frame count for normalization
+  auto buffer = mAudioBuffers.empty() ? nullptr : mAudioBuffers[mParams.soundFile];
+  float bufferFrames = (buffer && buffer->frames > 0) ? static_cast<float>(buffer->frames) : 0.0f;
+
+  // Delegate to voice pool
+  mVoicePool.getGrainPositions(positions, maxCount, bufferFrames, minPos, maxPos);
+}
+
 }  // namespace ec2

@@ -196,6 +196,22 @@ public:
   float applyModulation(float baseValue, const ModulationParameters& modParams,
                        float minValue, float maxValue);
 
+  /**
+   * Get current scan position (normalized 0-1)
+   * @return Current scanner position relative to buffer length
+   */
+  float getScanPosition() const;
+
+  /**
+   * Get positions of active grains (normalized 0-1)
+   * @param positions - Vector to fill with grain positions
+   * @param maxCount - Maximum number of positions to return
+   * @param minPos - Output: minimum grain position (or 0 if no grains)
+   * @param maxPos - Output: maximum grain position (or 0 if no grains)
+   */
+  void getGrainPositions(std::vector<float>& positions, int maxCount,
+                         float& minPos, float& maxPos) const;
+
 private:
   VoicePool mVoicePool;
   GrainScheduler mScheduler;

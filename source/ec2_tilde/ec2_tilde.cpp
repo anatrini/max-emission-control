@@ -175,6 +175,9 @@ typedef struct _ec2 {
   // Parameter window (JUCE)
   ec2::ParameterWindow* param_window;
 
+  // Visualization settings
+  long grain_vis_count;  // Max number of grain positions to output (default 32, max 2048)
+
 } t_ec2;
 
 // Global class pointer
@@ -239,6 +242,7 @@ int ec2_find_lfo_destination(t_ec2* x, int lfo_num, const std::string& param_nam
 int ec2_find_param_lfo_source(t_ec2* x, const std::string& param_name);
 double ec2_get_lfo_modulation(t_ec2* x, const std::string& param_name);
 void ec2_get_lfo_routing_for_engine(t_ec2* x, const std::string& param_name, int& lfo_source, double& depth);
+void ec2_update_lfo_with_modulation(t_ec2* x, int lfo_index);
 
 // Spatial allocation parameters (10 total - converted from attributes to messages)
 void ec2_fixedchan(t_ec2* x, long v);
@@ -302,7 +306,7 @@ t_max_err ec2_buffer_setter(t_ec2* x, void* attr, long argc, t_atom* argv);
 // Special handlers
 void ec2_fullpacket(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
 long ec2_multichanneloutputs(t_ec2* x, long index);
-void ec2_anything(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
+void ec2_osc_handler(t_ec2* x, t_symbol* s, long argc, t_atom* argv);
 
 // Helper functions
 void ec2_update_engine_params(t_ec2* x);
@@ -384,7 +388,7 @@ extern "C" void ext_main(void* r) {
   // LFO modulation system (new map/unmap messages)
   // Format: /lfo<N>_to_<param> map [depth]  or  /lfo<N>_to_<param> unmap
   // These are registered as typed messages with A_GIMME to accept variable arguments
-  class_addmethod(c, (method)ec2_lfo_map, "anything", A_GIMME, 0);  // Catch-all for /lfo* messages
+  // Note: LFO routing messages (/lfo*_to_*) are handled via ec2_osc_handler -> ec2_lfo_map
 
   // Spatial allocation parameters (10 total - real-time control)
   class_addmethod(c, (method)ec2_fixedchan, "fixedchan", A_LONG, 0);
@@ -463,8 +467,14 @@ extern "C" void ext_main(void* r) {
   CLASS_ATTR_LABEL(c, "soundfile", 0, "Sound file index");
   CLASS_ATTR_SAVE(c, "soundfile", 0);
 
+  // Visualization attribute: max grain positions to output
+  CLASS_ATTR_LONG(c, "max_count", 0, t_ec2, grain_vis_count);
+  CLASS_ATTR_FILTER_CLIP(c, "max_count", 1, 2048);  // 1 to max voices
+  CLASS_ATTR_LABEL(c, "max_count", 0, "Max grain positions to output");
+  CLASS_ATTR_SAVE(c, "max_count", 0);
+
   // Register "anything" handler LAST so specific handlers take precedence
-  class_addmethod(c, (method)ec2_anything, "anything", A_GIMME, 0);
+  class_addmethod(c, (method)ec2_osc_handler, "anything", A_GIMME, 0);
 
   class_dspinit(c);
   class_register(CLASS_BOX, c);
@@ -558,6 +568,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->buffer_ref = nullptr;
   x->sound_file = 0;
 
+  // Visualization settings
+  x->grain_vis_count = 32;  // Default: output up to 32 grain positions
+
   // Create parameter window
   x->param_window = new ec2::ParameterWindow((t_object*)x);
 
@@ -604,6 +617,11 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   // Initialize engine
   x->engine->initialize(sys_getsr());
   ec2_update_engine_params(x);
+
+  // Initialize all 6 LFOs on the engine with their default values
+  for (int i = 0; i < 6; i++) {
+    ec2_update_lfo_with_modulation(x, i);
+  }
 
   // Print banner on first instantiation only
   static bool banner_printed = false;
@@ -1754,13 +1772,22 @@ void ec2_fullpacket(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 }
 
 // ==================================================================
-// ANYTHING HANDLER (OSC-style messages)
+// OSC MESSAGE HANDLER
 // ==================================================================
 
-void ec2_anything(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
+void ec2_osc_handler(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
   // Handle OSC-style messages like "/grainrate 50"
   if (s && s->s_name[0] == '/') {
-    std::string param_name = s->s_name + 1;  // Skip '/'
+    std::string msg = s->s_name;
+
+    // Route LFO modulation messages: /lfo<N>_to_<param> <depth>
+    if (msg.find("/lfo") == 0 && msg.find("_to_") != std::string::npos) {
+      ec2_lfo_map(x, s, argc, argv);
+      return;
+    }
+
+    // Standard parameter messages
+    std::string param_name = msg.substr(1);  // Skip '/'
     if (argc > 0) {
       double value = atom_getfloat(&argv[0]);
       ec2_handle_osc_parameter(x, param_name, value);
@@ -2002,19 +2029,68 @@ void ec2_send_osc_bundle(t_ec2* x) {
     vec[start_pos + 3] = static_cast<unsigned char>(msg_size & 0xFF);
   };
 
+  // Helper lambda to add OSC message with float list
+  auto add_message_list = [&](std::vector<unsigned char>& vec, const std::string& addr,
+                              const std::vector<float>& values) {
+    if (values.empty()) return;
+
+    size_t start_pos = vec.size();
+
+    // Add size placeholder (4 zero bytes)
+    vec.push_back(0); vec.push_back(0); vec.push_back(0); vec.push_back(0);
+
+    // Add "/" + address string
+    std::string full_addr = std::string("/") + addr;
+    for (char c : full_addr) {
+      vec.push_back(static_cast<unsigned char>(c));
+    }
+    vec.push_back(0);
+
+    // Pad to 4-byte boundary
+    while (vec.size() % 4 != 0) vec.push_back(0);
+
+    // Type tag string: "," + N 'd' chars + null padding
+    vec.push_back(',');
+    for (size_t i = 0; i < values.size(); ++i) {
+      vec.push_back('d');
+    }
+    vec.push_back(0);
+    while (vec.size() % 4 != 0) vec.push_back(0);
+
+    // Add each value as big-endian double
+    for (float val : values) {
+      double dval = static_cast<double>(val);
+      union { double d; uint64_t i; } u;
+      u.d = dval;
+      uint64_t v = u.i;
+      vec.push_back(static_cast<unsigned char>((v >> 56) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 48) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 40) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 32) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 24) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 16) & 0xFF));
+      vec.push_back(static_cast<unsigned char>((v >> 8) & 0xFF));
+      vec.push_back(static_cast<unsigned char>(v & 0xFF));
+    }
+
+    // Back-fill message size
+    uint32_t msg_size = static_cast<uint32_t>(vec.size() - start_pos - 4);
+    vec[start_pos + 0] = static_cast<unsigned char>((msg_size >> 24) & 0xFF);
+    vec[start_pos + 1] = static_cast<unsigned char>((msg_size >> 16) & 0xFF);
+    vec[start_pos + 2] = static_cast<unsigned char>((msg_size >> 8) & 0xFF);
+    vec[start_pos + 3] = static_cast<unsigned char>(msg_size & 0xFF);
+  };
+
   // ==================================================================
   // GRAIN VISUALIZATION OUTPUT (for waveform~ display)
   // ==================================================================
-  // Minimal output for visualization: active grain count + scan window
-  // All synthesis parameters available via double-click parameter window
 
   // 1. Active grain count
   int grain_count = x->engine ? x->engine->getActiveVoiceCount() : 0;
   add_message(*x->osc_bundle_buffer, "grain_count", static_cast<float>(grain_count));
 
-  // 2. Grain region (scan window) - normalized 0-1 for waveform~ compatibility
-  // These values represent the active granulation region in the buffer
-  float grain_start = x->scan_start;  // Normalized 0-1
+  // 2. Scan window (theoretical region) - normalized 0-1
+  float grain_start = x->scan_start;
   float grain_end = x->scan_start + x->scan_range;
 
   // Handle negative scan range (reverse scanning)
@@ -2029,6 +2105,30 @@ void ec2_send_osc_bundle(t_ec2* x) {
 
   add_message(*x->osc_bundle_buffer, "grain_start", grain_start);
   add_message(*x->osc_bundle_buffer, "grain_end", grain_end);
+
+  // 3. Current scan position (playhead) - normalized 0-1
+  float scan_position = x->engine ? x->engine->getScanPosition() : 0.0f;
+  add_message(*x->osc_bundle_buffer, "scan_position", scan_position);
+
+  // 4. Individual grain positions (up to max_count)
+  // 5. Grain bounds (actual min/max of active grains)
+  if (x->engine) {
+    std::vector<float> positions;
+    float min_pos = 0.0f, max_pos = 0.0f;
+    x->engine->getGrainPositions(positions, static_cast<int>(x->grain_vis_count), min_pos, max_pos);
+
+    // Output grain positions as list
+    if (!positions.empty()) {
+      add_message_list(*x->osc_bundle_buffer, "grain_positions", positions);
+    }
+
+    // Output grain bounds
+    add_message(*x->osc_bundle_buffer, "grain_min_pos", min_pos);
+    add_message(*x->osc_bundle_buffer, "grain_max_pos", max_pos);
+  } else {
+    add_message(*x->osc_bundle_buffer, "grain_min_pos", 0.0f);
+    add_message(*x->osc_bundle_buffer, "grain_max_pos", 0.0f);
+  }
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];

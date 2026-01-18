@@ -33,11 +33,19 @@ Parameters accept OSC-style messages (`/param value`) or FullPacket bundles.
 
 **OSC output format (rightmost outlet):**
 ```
-/grain_count <int>   - Number of active grains
-/grain_start <float> - Scan region start (0-1, normalized)
-/grain_end <float>   - Scan region end (0-1, normalized)
+/grain_count <int>       - Number of active grains
+/grain_start <float>     - Scan region start (0-1, normalized)
+/grain_end <float>       - Scan region end (0-1, normalized)
+/scan_position <float>   - Current scanner playhead position (0-1)
+/grain_positions <list>  - Positions of active grains (0-1, up to @max_count)
+/grain_min_pos <float>   - Minimum position of active grains (0-1)
+/grain_max_pos <float>   - Maximum position of active grains (0-1)
 ```
-Use with `waveform~` for visual feedback of the active granulation region.
+Use with `waveform~` for visual feedback:
+- `grain_start`/`grain_end`: theoretical scan region (selection)
+- `scan_position`: current playhead (where scanner is reading)
+- `grain_positions`: individual grain read positions
+- `grain_min_pos`/`grain_max_pos`: actual range being read (includes deviation effects)
 
 ## Double-Click
 
@@ -61,6 +69,7 @@ Note: `@outputs` and `@mc` require object recreation to take effect.
 | @mc | int | 0-1 | 0 | Multichannel cable mode |
 | @allocmode | int | 0-6 | 1 | Spatial allocation mode (see below) |
 | @soundfile | int | 0-15 | 0 | Buffer index for polybuffer~ |
+| @max_count | int | 1-2048 | 32 | Max grain positions in OSC output |
 
 ---
 

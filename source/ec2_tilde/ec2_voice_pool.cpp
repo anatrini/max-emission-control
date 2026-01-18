@@ -88,4 +88,47 @@ void VoicePool::stopAll() {
   mActiveVoiceCount = 0;
 }
 
+void VoicePool::getGrainPositions(std::vector<float>& positions, int maxCount,
+                                   float bufferFrames, float& minPos, float& maxPos) const {
+  positions.clear();
+
+  if (mActiveVoices.empty() || bufferFrames <= 0.0f) {
+    minPos = 0.0f;
+    maxPos = 0.0f;
+    return;
+  }
+
+  // Initialize min/max tracking
+  minPos = 1.0f;
+  maxPos = 0.0f;
+
+  int count = 0;
+  for (const Grain* grain : mActiveVoices) {
+    if (!grain) continue;
+
+    // Get source index and normalize to 0-1
+    float sourceIndex = grain->getSourceIndex();
+    float normalizedPos = sourceIndex / bufferFrames;
+
+    // Clamp to valid range
+    normalizedPos = std::max(0.0f, std::min(1.0f, normalizedPos));
+
+    // Track min/max
+    if (normalizedPos < minPos) minPos = normalizedPos;
+    if (normalizedPos > maxPos) maxPos = normalizedPos;
+
+    // Add to positions vector (up to maxCount)
+    if (count < maxCount) {
+      positions.push_back(normalizedPos);
+      count++;
+    }
+  }
+
+  // If no valid positions were found, reset min/max
+  if (positions.empty()) {
+    minPos = 0.0f;
+    maxPos = 0.0f;
+  }
+}
+
 }  // namespace ec2
