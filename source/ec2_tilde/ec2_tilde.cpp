@@ -2110,25 +2110,42 @@ void ec2_send_osc_bundle(t_ec2* x) {
   float scan_position = x->engine ? x->engine->getScanPosition() : 0.0f;
   add_message(*x->osc_bundle_buffer, "scan_position", scan_position);
 
-  // 4. Individual grain positions (up to max_count)
+  // 4. Individual grain positions (fixed size = @max_count)
+  // Format: /grain_positions <count> <pos1> <pos2> ... <posN>
+  // Where count = @max_count, and each pos is 0.0-1.0 (active) or -1 (empty slot)
   // 5. Grain bounds (actual min/max of active grains)
-  if (x->engine) {
-    std::vector<float> positions;
-    float min_pos = 0.0f, max_pos = 0.0f;
-    x->engine->getGrainPositions(positions, static_cast<int>(x->grain_vis_count), min_pos, max_pos);
+  float min_pos = 0.0f, max_pos = 0.0f;
 
-    // Output grain positions as list
-    if (!positions.empty()) {
-      add_message_list(*x->osc_bundle_buffer, "grain_positions", positions);
+  if (x->engine) {
+    std::vector<float> active_positions;
+    x->engine->getGrainPositions(active_positions, static_cast<int>(x->grain_vis_count), min_pos, max_pos);
+
+    // Build fixed-size position list with -1 for empty slots
+    std::vector<float> positions_output;
+    positions_output.push_back(static_cast<float>(x->grain_vis_count));  // Count prefix
+
+    for (int i = 0; i < x->grain_vis_count; ++i) {
+      if (i < static_cast<int>(active_positions.size())) {
+        positions_output.push_back(active_positions[i]);
+      } else {
+        positions_output.push_back(-1.0f);  // Empty slot
+      }
     }
 
-    // Output grain bounds
-    add_message(*x->osc_bundle_buffer, "grain_min_pos", min_pos);
-    add_message(*x->osc_bundle_buffer, "grain_max_pos", max_pos);
+    add_message_list(*x->osc_bundle_buffer, "grain_positions", positions_output);
   } else {
-    add_message(*x->osc_bundle_buffer, "grain_min_pos", 0.0f);
-    add_message(*x->osc_bundle_buffer, "grain_max_pos", 0.0f);
+    // No engine - output empty list with all -1
+    std::vector<float> positions_output;
+    positions_output.push_back(static_cast<float>(x->grain_vis_count));
+    for (int i = 0; i < x->grain_vis_count; ++i) {
+      positions_output.push_back(-1.0f);
+    }
+    add_message_list(*x->osc_bundle_buffer, "grain_positions", positions_output);
   }
+
+  // Output grain bounds
+  add_message(*x->osc_bundle_buffer, "grain_min_pos", min_pos);
+  add_message(*x->osc_bundle_buffer, "grain_max_pos", max_pos);
 
   // Output as FullPacket (size + pointer)
   t_atom out_atoms[2];

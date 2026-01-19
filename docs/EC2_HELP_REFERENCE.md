@@ -33,19 +33,31 @@ Parameters accept OSC-style messages (`/param value`) or FullPacket bundles.
 
 **OSC output format (rightmost outlet):**
 ```
-/grain_count <int>       - Number of active grains
-/grain_start <float>     - Scan region start (0-1, normalized)
-/grain_end <float>       - Scan region end (0-1, normalized)
-/scan_position <float>   - Current scanner playhead position (0-1)
-/grain_positions <list>  - Positions of active grains (0-1, up to @max_count)
-/grain_min_pos <float>   - Minimum position of active grains (0-1)
-/grain_max_pos <float>   - Maximum position of active grains (0-1)
+/grain_count <int>                    - Number of active grains
+/grain_start <float>                  - Scan region start (0-1)
+/grain_end <float>                    - Scan region end (0-1)
+/scan_position <float>                - Scanner playhead position (0-1)
+/grain_positions <count> <p1> ... <pN> - Grain positions (fixed-size list)
+/grain_min_pos <float>                - Min position of active grains (0-1)
+/grain_max_pos <float>                - Max position of active grains (0-1)
 ```
-Use with `waveform~` for visual feedback:
+
+**`/grain_positions` format:**
+- First value: count (always = @max_count)
+- Following values: position of each grain slot
+  - `0.0` to `1.0`: active grain at this normalized buffer position
+  - `-1`: empty slot (no grain)
+
+**Example** with `@max_count 4` and 2 active grains:
+```
+/grain_positions 4 0.25 0.67 -1 -1
+```
+
+**Usage with waveform~:**
 - `grain_start`/`grain_end`: theoretical scan region (selection)
-- `scan_position`: current playhead (where scanner is reading)
-- `grain_positions`: individual grain read positions
-- `grain_min_pos`/`grain_max_pos`: actual range being read (includes deviation effects)
+- `scan_position`: current playhead
+- `grain_positions`: individual grain read positions (use with `multislider`)
+- `grain_min_pos`/`grain_max_pos`: actual range being read
 
 ## Double-Click
 

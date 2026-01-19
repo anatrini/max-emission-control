@@ -409,7 +409,13 @@ float GranularEngine::applyDeviation(float baseValue, float deviation,
 
 float GranularEngine::getScanPosition() const {
   // Get current buffer to determine frame count for normalization
-  auto buffer = mAudioBuffers.empty() ? nullptr : mAudioBuffers[mParams.soundFile];
+  // Bounds check to prevent crash
+  if (mAudioBuffers.empty() || mParams.soundFile < 0 ||
+      static_cast<size_t>(mParams.soundFile) >= mAudioBuffers.size()) {
+    return 0.0f;
+  }
+
+  auto buffer = mAudioBuffers[mParams.soundFile];
   if (!buffer || buffer->frames == 0) {
     return 0.0f;
   }
@@ -424,8 +430,15 @@ float GranularEngine::getScanPosition() const {
 void GranularEngine::getGrainPositions(std::vector<float>& positions, int maxCount,
                                        float& minPos, float& maxPos) const {
   // Get current buffer frame count for normalization
-  auto buffer = mAudioBuffers.empty() ? nullptr : mAudioBuffers[mParams.soundFile];
-  float bufferFrames = (buffer && buffer->frames > 0) ? static_cast<float>(buffer->frames) : 0.0f;
+  // Bounds check to prevent crash
+  float bufferFrames = 0.0f;
+  if (!mAudioBuffers.empty() && mParams.soundFile >= 0 &&
+      static_cast<size_t>(mParams.soundFile) < mAudioBuffers.size()) {
+    auto buffer = mAudioBuffers[mParams.soundFile];
+    if (buffer && buffer->frames > 0) {
+      bufferFrames = static_cast<float>(buffer->frames);
+    }
+  }
 
   // Delegate to voice pool
   mVoicePool.getGrainPositions(positions, maxCount, bufferFrames, minPos, maxPos);
