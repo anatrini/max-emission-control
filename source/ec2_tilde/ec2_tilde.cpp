@@ -178,6 +178,14 @@ typedef struct _ec2 {
   // Visualization settings
   long grain_vis_count;  // Max number of grain positions to output (default 32, max 2048)
 
+  // Pre-allocated audio buffers (Priority 1 optimization)
+  float** audio_buffers;      // Pre-allocated output buffers
+  long audio_buffer_size;     // Current buffer size (sampleframes)
+  long audio_buffer_channels; // Number of channels allocated
+
+  // Parameter update optimization (Priority 2)
+  bool params_dirty;          // Flag to track if parameters need update
+
 } t_ec2;
 
 // Global class pointer
@@ -571,6 +579,14 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   // Visualization settings
   x->grain_vis_count = 32;  // Default: output up to 32 grain positions
 
+  // Pre-allocated buffers (will be allocated in dsp64)
+  x->audio_buffers = nullptr;
+  x->audio_buffer_size = 0;
+  x->audio_buffer_channels = 0;
+
+  // Parameter optimization
+  x->params_dirty = true;  // Force initial update
+
   // Create parameter window
   x->param_window = new ec2::ParameterWindow((t_object*)x);
 
@@ -643,6 +659,16 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
 
 void ec2_free(t_ec2* x) {
   dsp_free((t_pxobject*)x);
+
+  // Free pre-allocated audio buffers
+  if (x->audio_buffers) {
+    for (long i = 0; i < x->audio_buffer_channels; ++i) {
+      if (x->audio_buffers[i]) {
+        delete[] x->audio_buffers[i];
+      }
+    }
+    delete[] x->audio_buffers;
+  }
 
   if (x->buffer_ref) object_free(x->buffer_ref);
   if (x->param_window) delete x->param_window;
@@ -815,7 +841,7 @@ t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* d
       auto audio_buf = ec2_buffer_helper::loadFromMaxBuffer(x->buffer_name->s_name);
       if (audio_buf) {
         x->engine->setAudioBuffer(audio_buf, 0);
-        ec2_update_engine_params(x);
+        x->params_dirty = true;
       }
     }
   }
@@ -830,46 +856,61 @@ t_max_err ec2_notify(t_ec2* x, t_symbol* s, t_symbol* msg, void* sender, void* d
 void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long maxvectorsize, long flags) {
   x->engine->setSampleRate(samplerate);
 
-  // Store signal connection status
-  // count[0] = scan inlet connected
-  // count[1] = rate inlet connected
-  // count[2] = playback inlet connected
+  // Pre-allocate audio buffers if needed (Priority 1 optimization)
+  // Reallocate if size or channel count changed
+  if (x->audio_buffer_size != maxvectorsize || x->audio_buffer_channels != x->outputs) {
+    // Free old buffers
+    if (x->audio_buffers) {
+      for (long i = 0; i < x->audio_buffer_channels; ++i) {
+        if (x->audio_buffers[i]) {
+          delete[] x->audio_buffers[i];
+        }
+      }
+      delete[] x->audio_buffers;
+    }
+
+    // Allocate new buffers
+    x->audio_buffers = new float*[x->outputs];
+    for (long i = 0; i < x->outputs; ++i) {
+      x->audio_buffers[i] = new float[maxvectorsize];
+    }
+    x->audio_buffer_size = maxvectorsize;
+    x->audio_buffer_channels = x->outputs;
+  }
+
+  // Force parameter update on DSP start
+  x->params_dirty = true;
+
   object_method(dsp64, gensym("dsp_add64"), x, ec2_perform64, 0, nullptr);
 }
 
 void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam) {
-  // CRITICAL: Update engine parameters every audio callback (matches old ec2~)
-  ec2_update_engine_params(x);
+  // Priority 2: Only update engine parameters when dirty
+  if (x->params_dirty) {
+    ec2_update_engine_params(x);
+    x->params_dirty = false;
+  }
 
-  // Process audio
-  float** outBuffers = new float*[x->outputs];
-  for (int i = 0; i < x->outputs; ++i) {
-    outBuffers[i] = new float[sampleframes];
-    memset(outBuffers[i], 0, sampleframes * sizeof(float));
+  // Clear pre-allocated buffers
+  for (long i = 0; i < x->audio_buffer_channels; ++i) {
+    memset(x->audio_buffers[i], 0, sampleframes * sizeof(float));
   }
 
   // Signal inputs disabled - always use parameter values
-  // TODO: Implement proper signal connection detection using count array from dsp64
   float* scan_in = nullptr;
   float* rate_in = nullptr;
   float* playback_in = nullptr;
 
-  // Process audio through engine
-  x->engine->processWithSignals(outBuffers, x->outputs, sampleframes,
+  // Process audio through engine using pre-allocated buffers
+  x->engine->processWithSignals(x->audio_buffers, x->outputs, sampleframes,
                                 scan_in, rate_in, playback_in);
 
   // Copy to Max outputs and convert to double
-  for (int ch = 0; ch < x->outputs && ch < numouts; ++ch) {
+  for (long ch = 0; ch < x->outputs && ch < numouts; ++ch) {
     for (long i = 0; i < sampleframes; ++i) {
-      outs[ch][i] = outBuffers[ch][i];
+      outs[ch][i] = x->audio_buffers[ch][i];
     }
   }
-
-  // Cleanup
-  for (int i = 0; i < x->outputs; ++i) {
-    delete[] outBuffers[i];
-  }
-  delete[] outBuffers;
 }
 
 // ==================================================================
@@ -889,56 +930,56 @@ long ec2_multichanneloutputs(t_ec2* x, long index) {
 
 void ec2_grainrate(t_ec2* x, double v) {
   x->grain_rate = std::max(0.1, std::min(500.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_async(t_ec2* x, double v) {
   x->async = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_intermittency(t_ec2* x, double v) {
   x->intermittency = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_streams(t_ec2* x, double v) {
   x->streams = std::max(1.0, std::min(20.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_playback(t_ec2* x, double v) {
   x->playback_rate = std::max(-32.0, std::min(32.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_duration(t_ec2* x, double v) {
   x->grain_duration = std::max(0.046, std::min(10000.0, v));  // EC2 original: 0.046-10000 ms
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_envelope(t_ec2* x, double v) {
   x->envelope_shape = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_amplitude(t_ec2* x, double v) {
   x->amplitude = std::max(-180.0, std::min(48.0, v));  // EC2 original: dB range -180 to 48
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -949,14 +990,14 @@ void ec2_amplitude(t_ec2* x, double v) {
 
 void ec2_filterfreq(t_ec2* x, double v) {
   x->filter_freq = std::max(20.0, std::min(24000.0, v));  // EC2 original: 20-24000 Hz
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_resonance(t_ec2* x, double v) {
   x->resonance = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -967,28 +1008,28 @@ void ec2_resonance(t_ec2* x, double v) {
 
 void ec2_pan(t_ec2* x, double v) {
   x->stereo_pan = std::max(-1.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanstart(t_ec2* x, double v) {
   x->scan_start = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanrange(t_ec2* x, double v) {
   x->scan_range = std::max(-1.0, std::min(1.0, v));  // EC2 original: -1 to 1 (negative = reverse)
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanspeed(t_ec2* x, double v) {
   x->scan_speed = std::max(-32.0, std::min(32.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -999,7 +1040,7 @@ void ec2_scanspeed(t_ec2* x, double v) {
 
 void ec2_soundfile(t_ec2* x, long v) {
   x->sound_file = std::max(0L, std::min(15L, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -1010,98 +1051,98 @@ void ec2_soundfile(t_ec2* x, long v) {
 
 void ec2_grainrate_dev(t_ec2* x, double v) {
   x->grain_rate_dev = std::max(0.0, std::min(250.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_async_dev(t_ec2* x, double v) {
   x->async_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_intermittency_dev(t_ec2* x, double v) {
   x->intermittency_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_streams_dev(t_ec2* x, double v) {
   x->streams_dev = std::max(0.0, std::min(10.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_playback_dev(t_ec2* x, double v) {
   x->playback_dev = std::max(0.0, std::min(16.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_duration_dev(t_ec2* x, double v) {
   x->duration_dev = std::max(0.0, std::min(500.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_envelope_dev(t_ec2* x, double v) {
   x->envelope_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_pan_dev(t_ec2* x, double v) {
   x->pan_dev = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_amp_dev(t_ec2* x, double v) {
   x->amp_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_filterfreq_dev(t_ec2* x, double v) {
   x->filterfreq_dev = std::max(0.0, std::min(11000.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_resonance_dev(t_ec2* x, double v) {
   x->resonance_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanstart_dev(t_ec2* x, double v) {
   x->scanstart_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanrange_dev(t_ec2* x, double v) {
   x->scanrange_dev = std::max(0.0, std::min(0.5, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_scanspeed_dev(t_ec2* x, double v) {
   x->scanspeed_dev = std::max(0.0, std::min(16.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -1466,7 +1507,7 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
         post("ec2~: LFO%d disconnected from %s", lfo_num, param_name.c_str());
       }
 
-      ec2_update_engine_params(x);
+      x->params_dirty = true;
       if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
       return;
     }
@@ -1511,7 +1552,7 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
       // Already connected, just update depth
       lfo.destinations[dest_idx].depth = depth;
       post("ec2~: LFO%d to %s depth updated to %.3f", lfo_num, param_name.c_str(), depth);
-      ec2_update_engine_params(x);
+      x->params_dirty = true;
       if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
       return;
     }
@@ -1548,7 +1589,7 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     lfo.destinations.push_back(LFODestination(param_name, depth));
     post("ec2~: LFO%d connected to %s (depth %.3f)", lfo_num, param_name.c_str(), depth);
 
-    ec2_update_engine_params(x);
+    x->params_dirty = true;
     if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
     return;
   }
@@ -1560,91 +1601,91 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 
 void ec2_fixedchan(t_ec2* x, long v) {
   x->fixed_channel = std::max(1L, std::min(16L, v));  // User-facing: 1-16
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_rrstep(t_ec2* x, long v) {
   x->rr_step = std::max(1L, std::min(16L, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_randspread(t_ec2* x, double v) {
   x->random_spread = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_randspread_weighted(t_ec2* x, double v) {
   x->random_spread_weighted = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_spatialcorr(t_ec2* x, double v) {
   x->spatial_corr = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_spatialcorr_weighted(t_ec2* x, double v) {
   x->spatial_corr_weighted = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_pitchmin(t_ec2* x, double v) {
   x->pitch_min = std::max(20.0, std::min(20000.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_pitchmax(t_ec2* x, double v) {
   x->pitch_max = std::max(20.0, std::min(20000.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_trajshape(t_ec2* x, long v) {
   x->traj_shape = std::max(0L, std::min(5L, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_trajrate(t_ec2* x, double v) {
   x->traj_rate = std::max(0.001, std::min(100.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_trajdepth(t_ec2* x, double v) {
   x->traj_depth = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_spiral_factor(t_ec2* x, double v) {
   x->spiral_factor = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
 
 void ec2_pendulum_decay(t_ec2* x, double v) {
   x->pendulum_decay = std::max(0.0, std::min(1.0, v));
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
 }
@@ -1671,7 +1712,7 @@ void ec2_weights(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     }
   }
 
-  ec2_update_engine_params(x);
+  x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
 }
 
@@ -1767,7 +1808,7 @@ void ec2_fullpacket(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
   ec2_parse_osc_bundle(x, x->input_buffer->data(), bundle_size);
   x->suppress_osc_output = false;
 
-  ec2_update_engine_params(x);
+  // Individual handlers already set params_dirty = true
   ec2_send_osc_bundle(x);
 }
 
@@ -2111,8 +2152,8 @@ void ec2_send_osc_bundle(t_ec2* x) {
   add_message(*x->osc_bundle_buffer, "scan_position", scan_position);
 
   // 4. Individual grain positions (fixed size = @max_count)
-  // Format: /grain_positions <count> <pos1> <pos2> ... <posN>
-  // Where count = @max_count, and each pos is 0.0-1.0 (active) or -1 (empty slot)
+  // Format: /grain_positions <pos1> <pos2> ... <posN>
+  // Where N = @max_count, and each pos is 0.0-1.0 (active) or -1 (empty slot)
   // 5. Grain bounds (actual min/max of active grains)
   float min_pos = 0.0f, max_pos = 0.0f;
 
@@ -2120,9 +2161,8 @@ void ec2_send_osc_bundle(t_ec2* x) {
     std::vector<float> active_positions;
     x->engine->getGrainPositions(active_positions, static_cast<int>(x->grain_vis_count), min_pos, max_pos);
 
-    // Build fixed-size position list with -1 for empty slots
+    // Build fixed-size position list with -1 for empty slots (no count prefix)
     std::vector<float> positions_output;
-    positions_output.push_back(static_cast<float>(x->grain_vis_count));  // Count prefix
 
     for (int i = 0; i < x->grain_vis_count; ++i) {
       if (i < static_cast<int>(active_positions.size())) {
@@ -2136,7 +2176,6 @@ void ec2_send_osc_bundle(t_ec2* x) {
   } else {
     // No engine - output empty list with all -1
     std::vector<float> positions_output;
-    positions_output.push_back(static_cast<float>(x->grain_vis_count));
     for (int i = 0; i < x->grain_vis_count; ++i) {
       positions_output.push_back(-1.0f);
     }

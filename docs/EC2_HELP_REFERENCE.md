@@ -37,20 +37,20 @@ Parameters accept OSC-style messages (`/param value`) or FullPacket bundles.
 /grain_start <float>                  - Scan region start (0-1)
 /grain_end <float>                    - Scan region end (0-1)
 /scan_position <float>                - Scanner playhead position (0-1)
-/grain_positions <count> <p1> ... <pN> - Grain positions (fixed-size list)
+/grain_positions <p1> <p2> ... <pN>   - Grain positions (fixed-size list, N = @max_count)
 /grain_min_pos <float>                - Min position of active grains (0-1)
 /grain_max_pos <float>                - Max position of active grains (0-1)
 ```
 
 **`/grain_positions` format:**
-- First value: count (always = @max_count)
-- Following values: position of each grain slot
+- Fixed-size list with exactly @max_count values
+- Each value represents a grain slot:
   - `0.0` to `1.0`: active grain at this normalized buffer position
   - `-1`: empty slot (no grain)
 
 **Example** with `@max_count 4` and 2 active grains:
 ```
-/grain_positions 4 0.25 0.67 -1 -1
+/grain_positions 0.25 0.67 -1 -1
 ```
 
 **Usage with waveform~:**

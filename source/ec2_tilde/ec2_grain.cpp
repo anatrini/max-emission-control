@@ -76,11 +76,14 @@ bool Grain::process(float &outLeft, float &outRight) {
     return false; // Grain finished
   }
 
-  // Safety check
+  // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
+    if (mActiveVoiceCount != nullptr) {
+      (*mActiveVoiceCount)--;
+    }
     outLeft = 0.0f;
     outRight = 0.0f;
-    return true;
+    return false;
   }
 
   // Dispatch to optimized template
@@ -181,9 +184,12 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
     return false; // Grain finished
   }
 
-  // Safety check
+  // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
-    return true;
+    if (mActiveVoiceCount != nullptr) {
+      (*mActiveVoiceCount)--;
+    }
+    return false;
   }
 
   // Dispatch to optimized template (envelope and playback handled inside)
