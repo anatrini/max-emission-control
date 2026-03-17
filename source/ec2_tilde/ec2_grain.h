@@ -12,6 +12,7 @@
 #include "ec2_filter.h"
 #include "ec2_utility.h"
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <memory>
 
@@ -30,7 +31,7 @@ struct GrainParameters {
   float amplitudeDb;     // Amplitude in dB
   float filterFreq;      // Filter center frequency
   float resonance;       // Filter resonance (0-1)
-  int *activeVoiceCount; // Pointer to active voice counter
+  std::atomic<int> *activeVoiceCount; // Pointer to active voice counter
 
   // Multichannel spatial allocation (Phase 5)
   std::array<float, MAX_AUDIO_OUTS>
@@ -118,7 +119,7 @@ private:
   bool mUseMultichannelGains = false;
 
   // Active voice tracking
-  int *mActiveVoiceCount = nullptr;
+  std::atomic<int> *mActiveVoiceCount = nullptr;
 
   // Temp variables for interpolation
   float mBefore, mAfter, mDecimal;

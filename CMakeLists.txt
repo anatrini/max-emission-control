@@ -13,3 +13,9 @@ set(EXTERNALS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/externals" CACHE PATH "Output dir
 
 # Add the ec2~ external
 add_subdirectory(source/ec2_tilde)
+
+# Unit tests (standalone, no Max SDK required)
+option(EC2_BUILD_TESTS "Build unit tests for engine components" OFF)
+if(EC2_BUILD_TESTS)
+  add_subdirectory(tests)
+endif()

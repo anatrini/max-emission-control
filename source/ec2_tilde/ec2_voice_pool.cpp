@@ -41,10 +41,11 @@ Grain* VoicePool::getFreeVoice() {
 void VoicePool::releaseVoice(Grain* voice) {
   if (!voice) return;
 
-  // Remove from active list
+  // Swap-and-pop: O(1) removal (order in active list is not significant)
   auto it = std::find(mActiveVoices.begin(), mActiveVoices.end(), voice);
   if (it != mActiveVoices.end()) {
-    mActiveVoices.erase(it);
+    *it = mActiveVoices.back();
+    mActiveVoices.pop_back();
     mActiveVoiceCount--;
   }
 

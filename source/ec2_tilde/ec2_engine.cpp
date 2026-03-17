@@ -11,7 +11,8 @@ namespace ec2 {
 
 GranularEngine::GranularEngine(size_t maxVoices)
   : mVoicePool(maxVoices),
-    mScheduler(DEFAULT_SAMPLE_RATE) {
+    mScheduler(DEFAULT_SAMPLE_RATE),
+    mDeviationRng(std::random_device{}()) {
 
   mAudioBuffers.resize(1);  // Start with one buffer slot
   mScanner.setSamplingRate(DEFAULT_SAMPLE_RATE);
@@ -266,7 +267,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         metadata.pitch = grainPlaybackRate * 440.0f;  // Approximate pitch from playback rate
         metadata.spectralCentroid = mParams.filterFreq;
         metadata.streamId = 0;  // TODO: Implement stream routing
-        metadata.grainIndex = mActiveVoiceCount;
+        metadata.grainIndex = mGrainCounter++;
 
         // Get spatial allocation (multichannel panning gains)
         PanningVector panning = mSpatialAllocator.allocate(metadata);
@@ -313,7 +314,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         grainParams.channelGains = panning.gains;
 
         grain->configure(grainParams, mSampleRate);
-        mActiveVoiceCount++;
+        mActiveVoiceCount.fetch_add(1, std::memory_order_relaxed);
 
       } else {
         // Out of voices - voice pool exhausted
@@ -335,7 +336,7 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
 
 void GranularEngine::stopAllGrains() {
   mVoicePool.stopAll();
-  mActiveVoiceCount = 0;
+  mActiveVoiceCount.store(0, std::memory_order_relaxed);
 }
 
 // LFO System (Phase 9)
@@ -394,8 +395,8 @@ float GranularEngine::applyDeviation(float baseValue, float deviation,
     return baseValue;
   }
 
-  // Generate uniform random number in range [-1, 1]
-  float randomFactor = 2.0f * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) - 1.0f;
+  // Generate uniform random number in range [-1, 1] using MT19937
+  float randomFactor = mDeviationDist(mDeviationRng);
 
   // Apply deviation: baseValue ± (deviation * randomFactor)
   float deviatedValue = baseValue + (deviation * randomFactor);

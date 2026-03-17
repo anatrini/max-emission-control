@@ -11,7 +11,7 @@
 
 namespace ec2 {
 
-const std::string VERSION = "1.0.0-max";
+const std::string VERSION = "1.0.2-alpha";
 
 // Synthesis constants
 const int CR_EVERY_N_SAMPLES = 4;  // Control rate decimation

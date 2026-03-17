@@ -6,6 +6,7 @@
 
 #include "ec2_grain.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #ifndef M_PI
@@ -24,8 +25,12 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
   if (static_cast<int>(sampleRate) != mPrevSampleRate) {
     mPrevSampleRate = static_cast<int>(sampleRate);
     mSampleRate = sampleRate;
-    initFilters(sampleRate);
   }
+
+  // Always reset filter state for each new grain to prevent DC offset
+  // contamination from previous grain's delay lines
+  mBpf1L.zero(); mBpf2L.zero(); mBpf3L.zero();
+  mBpf1R.zero(); mBpf2R.zero(); mBpf3R.zero();
 
   // Set duration
   mDurationS = params.durationMs / 1000.0f;
@@ -41,7 +46,7 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
   configurePlayback(params.currentIndex, params.transposition);
 
   // Configure amplitude (with voice count compensation)
-  int voiceCount = (mActiveVoiceCount != nullptr) ? *mActiveVoiceCount : 1;
+  int voiceCount = (mActiveVoiceCount != nullptr) ? mActiveVoiceCount->load(std::memory_order_relaxed) : 1;
 
   configureAmplitude(params.amplitudeDb, voiceCount);
 
@@ -69,7 +74,7 @@ bool Grain::process(float &outLeft, float &outRight) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     outLeft = 0.0f;
     outRight = 0.0f;
@@ -79,7 +84,7 @@ bool Grain::process(float &outLeft, float &outRight) {
   // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     outLeft = 0.0f;
     outRight = 0.0f;
@@ -179,7 +184,7 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     return false; // Grain finished
   }
@@ -187,7 +192,7 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
   // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     return false;
   }

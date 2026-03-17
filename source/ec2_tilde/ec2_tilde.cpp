@@ -184,7 +184,9 @@ typedef struct _ec2 {
   long audio_buffer_channels; // Number of channels allocated
 
   // Parameter update optimization (Priority 2)
-  bool params_dirty;          // Flag to track if parameters need update
+  // volatile prevents the compiler from caching this in a register across
+  // the message-thread/audio-thread boundary
+  volatile bool params_dirty;  // Flag to track if parameters need update
 
 } t_ec2;
 
