@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <vector>
 #include "ec2_constants.h"
@@ -221,6 +222,11 @@ private:
   SynthParameters mParams;
 
   std::vector<std::shared_ptr<AudioBuffer<float>>> mAudioBuffers;
+
+  // Thread-safe buffer swap: setAudioBuffer (main thread) → processWithSignals (audio thread)
+  std::vector<std::shared_ptr<AudioBuffer<float>>> mPendingBuffers;
+  std::atomic_flag mBufferLock = ATOMIC_FLAG_INIT;
+  std::atomic<bool> mBufferUpdatePending{false};
 
   float mSampleRate = DEFAULT_SAMPLE_RATE;
   float mCurrentScanIndex = 0.0f;

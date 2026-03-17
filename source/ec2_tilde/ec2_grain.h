@@ -69,6 +69,16 @@ public:
   bool processMultichannel(float **outputs, int numChannels);
 
   /**
+   * Process a full audio buffer (grain-major loop, eliminates per-frame stack allocation).
+   * Accumulates output for all frames in one pass.
+   * @param outBuffers - Array of output buffers, each numFrames long
+   * @param numChannels - Number of output channels
+   * @param numFrames  - Samples per buffer
+   * @return true if grain is still active, false if it completed during this buffer
+   */
+  bool processBuffer(float** outBuffers, int numChannels, int numFrames);
+
+  /**
    * Check if grain has finished
    */
   bool isDone() const { return mEnvelope.isDone(); }
@@ -140,6 +150,9 @@ private:
 
   template <int SourceChannels, bool FilterActive>
   bool processMultichannelTemplate(float **outputs, int numChannels);
+
+  template <int SourceChannels, bool FilterActive>
+  bool processBufferTemplate(float** outBuffers, int numChannels, int numFrames);
 };
 
 } // namespace ec2

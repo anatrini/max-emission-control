@@ -79,6 +79,12 @@ public:
     float process();
 
     /**
+     * Process numFrames samples, return the average value over the block.
+     * Provides better control-rate accuracy than using only the final sample.
+     */
+    float processBlockAverage(int numFrames);
+
+    /**
      * Get current value without advancing
      */
     float getCurrentValue() const { return mCurrentValue; }

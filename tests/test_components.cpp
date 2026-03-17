@@ -159,6 +159,41 @@ TEST(test_lfo_frequency_change) {
   pass();
 }
 
+TEST(test_lfo_processblock_average_advances_phase) {
+  ec2::LFO lfo;
+  lfo.setSampleRate(48000.0f);
+  lfo.setFrequency(1.0f);
+  lfo.setShape(ec2::LFOShape::SINE);
+  lfo.setPolarity(ec2::LFOPolarity::BIPOLAR);
+
+  // Process the same number of samples both ways and verify same result
+  ec2::LFO lfo2;
+  lfo2.setSampleRate(48000.0f);
+  lfo2.setFrequency(1.0f);
+  lfo2.setShape(ec2::LFOShape::SINE);
+  lfo2.setPolarity(ec2::LFOPolarity::BIPOLAR);
+
+  // processBlockAverage must advance phase by numFrames samples
+  float avg = lfo.processBlockAverage(512);
+  float last = 0.0f;
+  for (int i = 0; i < 512; ++i) last = lfo2.process();
+
+  // Both LFOs should now be at the same phase (same number of samples processed)
+  EXPECT_NEAR(lfo.getCurrentValue(), lfo2.getCurrentValue(), 0.001f);
+  // Average over a sub-period should be non-trivially different from last value
+  // (it is an average, not the last sample - we just check it's a valid float)
+  EXPECT_TRUE(std::isfinite(avg));
+  pass();
+}
+
+TEST(test_lfo_max_frequency_clamped) {
+  ec2::LFO lfo;
+  lfo.setSampleRate(48000.0f);
+  lfo.setFrequency(10000.0f);  // Should be clamped to 100 Hz
+  EXPECT_NEAR(lfo.getFrequency(), 100.0f, 0.001f);
+  pass();
+}
+
 // ---------------------------------------------------------------------------
 // GrainEnvelope tests
 // ---------------------------------------------------------------------------
@@ -282,6 +317,56 @@ TEST(test_voice_pool_stop_all) {
 
   pool.stopAll();
   EXPECT_EQ(pool.getActiveVoiceCount(), 0);
+  pass();
+}
+
+TEST(test_voice_pool_process_buffer) {
+  // Test that processActiveVoices (per-buffer) accumulates output correctly
+  ec2::VoicePool pool(4);
+
+  auto buf = std::make_shared<ec2::AudioBuffer<float>>();
+  buf->frames = 4096;
+  buf->channels = 1;
+  buf->size = 4096;
+  buf->data = new float[4096];
+  // Fill with a simple DC signal
+  for (int i = 0; i < 4096; ++i) buf->data[i] = 0.5f;
+
+  std::atomic<int> counter{0};
+
+  ec2::Grain* g = pool.getFreeVoice();
+  EXPECT_TRUE(g != nullptr);
+
+  ec2::GrainParameters params;
+  params.sourceBuffer = buf;
+  params.currentIndex = 0.0f;
+  params.transposition = 1.0f;
+  params.durationMs = 100.0f;  // 100 ms
+  params.envelope = 0.5f;
+  params.pan = 0.0f;
+  params.amplitudeDb = -6.0f;
+  params.filterFreq = 1000.0f;
+  params.resonance = 0.0f;
+  params.activeVoiceCount = &counter;
+  params.useMultichannelGains = false;
+  counter.store(1);
+
+  g->configure(params, 48000.0f);
+
+  // processBuffer over 512 frames
+  float out0[512] = {};
+  float out1[512] = {};
+  float* outBuffers[2] = { out0, out1 };
+
+  bool active = g->processBuffer(outBuffers, 2, 512);
+  EXPECT_TRUE(active);  // 100ms grain should survive a 512-sample (~10ms) buffer
+
+  // Output should be non-zero (we have a non-zero source and non-zero envelope)
+  bool hasOutput = false;
+  for (int i = 0; i < 512; ++i) {
+    if (out0[i] != 0.0f || out1[i] != 0.0f) { hasOutput = true; break; }
+  }
+  EXPECT_TRUE(hasOutput);
   pass();
 }
 
@@ -504,6 +589,8 @@ int main() {
   RUN(test_lfo_unipolar_pos_non_negative);
   RUN(test_lfo_unipolar_neg_non_positive);
   RUN(test_lfo_frequency_change);
+  RUN(test_lfo_processblock_average_advances_phase);
+  RUN(test_lfo_max_frequency_clamped);
 
   printf("\nGrainEnvelope\n");
   RUN(test_envelope_completes_after_duration);
@@ -517,6 +604,7 @@ int main() {
   RUN(test_voice_pool_allocation_and_release);
   RUN(test_voice_pool_exhaustion);
   RUN(test_voice_pool_stop_all);
+  RUN(test_voice_pool_process_buffer);
 
   printf("\nSpatialAllocator\n");
   RUN(test_spatial_allocator_roundrobin_cycles);

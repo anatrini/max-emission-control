@@ -6,7 +6,7 @@ High-performance multichannel granular synthesis external for Max, implementing 
 
 ## Status
 
-**Version**: 1.0.2-alpha
+**Version**: 1.0.3-alpha
 **Platform**: macOS (Universal Binary: Apple Silicon + Intel)
 **Max Version**: 8.0+
 **License**: GPL-3.0

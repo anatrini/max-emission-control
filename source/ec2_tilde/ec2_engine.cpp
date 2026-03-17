@@ -47,14 +47,21 @@ void GranularEngine::setSampleRate(float sampleRate) {
 }
 
 void GranularEngine::setAudioBuffer(std::shared_ptr<AudioBuffer<float>> buffer, int index) {
-  // Expand buffer array if needed
-  if (index >= static_cast<int>(mAudioBuffers.size())) {
-    mAudioBuffers.resize(index + 1);
+  // Spinlock: protects mPendingBuffers from concurrent access (main vs audio thread).
+  // The critical section is tiny (pointer copy), so spinning is acceptable.
+  while (mBufferLock.test_and_set(std::memory_order_acquire)) {}
+
+  if (index >= static_cast<int>(mPendingBuffers.size())) {
+    mPendingBuffers.resize(index + 1);
   }
-  mAudioBuffers[index] = buffer;
+  mPendingBuffers[index] = buffer;
+
+  mBufferLock.clear(std::memory_order_release);
+  mBufferUpdatePending.store(true, std::memory_order_release);
 }
 
 std::shared_ptr<AudioBuffer<float>> GranularEngine::getAudioBuffer(int index) {
+  // Caller is responsible for thread safety: called from audio thread only during normal operation.
   if (index < 0 || index >= static_cast<int>(mAudioBuffers.size())) {
     return nullptr;
   }
@@ -80,6 +87,21 @@ void GranularEngine::process(float** outBuffers, int numChannels, int numFrames)
 void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int numFrames,
                                        const float* scanSignal, const float* rateSignal,
                                        const float* playbackSignal) {
+  // Swap any pending buffers in (submitted from main thread via setAudioBuffer).
+  // try_lock: if spinlock is currently held by setAudioBuffer, skip this cycle.
+  if (mBufferUpdatePending.load(std::memory_order_acquire)) {
+    if (!mBufferLock.test_and_set(std::memory_order_acquire)) {
+      for (size_t i = 0; i < mPendingBuffers.size(); ++i) {
+        if (mPendingBuffers[i]) {
+          if (i >= mAudioBuffers.size()) mAudioBuffers.resize(i + 1);
+          mAudioBuffers[i] = std::move(mPendingBuffers[i]);
+        }
+      }
+      mBufferUpdatePending.store(false, std::memory_order_release);
+      mBufferLock.clear(std::memory_order_release);
+    }
+  }
+
   // Process LFOs for the entire buffer duration (FIX: advance by numFrames, not 1)
   processLFOs(numFrames);
 
@@ -349,14 +371,10 @@ LFO* GranularEngine::getLFO(int index) {
 }
 
 void GranularEngine::processLFOs(int numFrames) {
-  // Process all LFOs for the buffer duration
-  // Advance phase by numFrames samples to maintain correct timing
+  // Process LFOs over the full buffer duration, using block-average for
+  // better control-rate accuracy than taking only the final sample
   for (int i = 0; i < MAX_LFOS; ++i) {
-    // Process numFrames samples worth of LFO advancement
-    // Use the final value for control-rate modulation
-    for (int j = 0; j < numFrames; ++j) {
-      mLFOValues[i] = mLFOs[i].process();
-    }
+    mLFOValues[i] = mLFOs[i].processBlockAverage(numFrames);
   }
 }
 

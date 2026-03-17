@@ -26,7 +26,7 @@ void LFO::setSampleRate(float sampleRate) {
 }
 
 void LFO::setFrequency(float frequency) {
-    mFrequency = std::max(0.001f, std::min(frequency, 10000.0f));
+    mFrequency = std::max(0.001f, std::min(frequency, 100.0f));
     updatePhaseIncrement();
 }
 
@@ -190,6 +190,15 @@ float LFO::generateWaveform() {
     }
 
     return result;
+}
+
+float LFO::processBlockAverage(int numFrames) {
+    if (numFrames <= 0) return mCurrentValue;
+    float sum = 0.0f;
+    for (int i = 0; i < numFrames; ++i) {
+        sum += process();
+    }
+    return sum / static_cast<float>(numFrames);
 }
 
 }  // namespace ec2

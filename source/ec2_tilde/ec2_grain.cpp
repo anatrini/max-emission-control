@@ -311,6 +311,121 @@ bool Grain::processMultichannelTemplate(float **outputs, int numChannels) {
   return true; // Grain still active
 }
 
+bool Grain::processBuffer(float** outBuffers, int numChannels, int numFrames) {
+  // Safety check — terminate if no valid source
+  if (mSource == nullptr || mSource->size == 0) {
+    if (mActiveVoiceCount != nullptr) {
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
+    }
+    return false;
+  }
+
+  if (mSource->channels == 1) {
+    if (mBypassFilter) {
+      return processBufferTemplate<1, false>(outBuffers, numChannels, numFrames);
+    } else {
+      return processBufferTemplate<1, true>(outBuffers, numChannels, numFrames);
+    }
+  } else {
+    if (mBypassFilter) {
+      return processBufferTemplate<2, false>(outBuffers, numChannels, numFrames);
+    } else {
+      return processBufferTemplate<2, true>(outBuffers, numChannels, numFrames);
+    }
+  }
+}
+
+template <int SourceChannels, bool FilterActive>
+bool Grain::processBufferTemplate(float** outBuffers, int numChannels, int numFrames) {
+  for (int frame = 0; frame < numFrames; ++frame) {
+    // Check envelope before generating sample
+    if (mEnvelope.isDone()) {
+      if (mActiveVoiceCount != nullptr) {
+        mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
+      }
+      return false;  // Grain finished mid-buffer; caller leaves remaining frames at 0
+    }
+
+    float envVal = mEnvelope();
+
+    // Get playback index and wrap to buffer bounds
+    float sourceIndex = mPlaybackIndex();
+    int iSourceIndex = static_cast<int>(sourceIndex);
+
+    if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
+        iSourceIndex < 0) {
+      sourceIndex = std::fmod(
+          sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+      iSourceIndex = static_cast<int>(sourceIndex);
+      if (iSourceIndex < 0) {
+        sourceIndex += (mSource->frames - mSource->channels);
+        iSourceIndex += (mSource->frames - mSource->channels);
+      }
+    }
+
+    mSourceIndex = sourceIndex;
+
+    float currentSampleL = 0.0f;
+    float currentSampleR = 0.0f;
+
+    if constexpr (SourceChannels == 1) {
+      mBefore = mSource->data[iSourceIndex];
+      mAfter  = mSource->data[iSourceIndex + 1];
+      mDecimal = sourceIndex - iSourceIndex;
+      currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+      }
+
+      currentSampleL *= envVal;
+
+      if (mUseMultichannelGains) {
+        int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+        for (int ch = 0; ch < maxCh; ++ch) {
+          outBuffers[ch][frame] += currentSampleL * mChannelGains[ch];
+        }
+      } else {
+        if (numChannels >= 1) outBuffers[0][frame] += currentSampleL * mLeftGain;
+        if (numChannels >= 2) outBuffers[1][frame] += currentSampleL * mRightGain;
+      }
+
+    } else {  // SourceChannels == 2
+      mBefore = mSource->data[iSourceIndex * 2];
+      mAfter  = mSource->data[iSourceIndex * 2 + 2];
+      mDecimal = sourceIndex - iSourceIndex;
+      currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+      }
+
+      mBefore = mSource->get(iSourceIndex * 2 + 1);
+      mAfter  = mSource->get(iSourceIndex * 2 + 3);
+      mDecimal = (sourceIndex + 1.0f) - (iSourceIndex + 1);
+      currentSampleR = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleR = filterSample(currentSampleR, mCascadeFilterMix, true);
+      }
+
+      float monoMix = (currentSampleL + currentSampleR) * 0.5f * envVal;
+
+      if (mUseMultichannelGains) {
+        int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+        for (int ch = 0; ch < maxCh; ++ch) {
+          outBuffers[ch][frame] += monoMix * mChannelGains[ch];
+        }
+      } else {
+        if (numChannels >= 1) outBuffers[0][frame] += currentSampleL * envVal * mLeftGain;
+        if (numChannels >= 2) outBuffers[1][frame] += currentSampleR * envVal * mRightGain;
+      }
+    }
+  }
+
+  return true;
+}
+
 void Grain::reset() {
   mEnvelope.reset();
   mSource = nullptr;
@@ -365,8 +480,9 @@ void Grain::configureFilter(float freq, float resonance, int sourceChannels) {
   // EC2's custom resonance curve: 13^(2.9 * (resonance - 0.5))
   float resProcess = std::pow(13.0f, 2.9f * (resonance - 0.5f));
 
-  // Normalize cascade mix (max resonance is 41.2304)
-  mCascadeFilterMix = resProcess / 41.2304f;
+  // Derive normalizer from the same formula (avoids magic number)
+  static const float kMaxResProcess = std::pow(13.0f, 2.9f * 0.5f);  // = 41.2304
+  mCascadeFilterMix = resProcess / kMaxResProcess;
 
   // EC2 original uses:
   // bpf_1.res(res_process) - where Gamma res() sets Q directly

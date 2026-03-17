@@ -13,6 +13,9 @@
 #include <string>
 #include <algorithm>
 #include <arpa/inet.h>  // for htonl (network byte order)
+#ifdef __SSE3__
+#include <pmmintrin.h>
+#endif
 
 // EC2 engine includes
 #include "ec2_constants.h"
@@ -187,6 +190,10 @@ typedef struct _ec2 {
   // volatile prevents the compiler from caching this in a register across
   // the message-thread/audio-thread boundary
   volatile bool params_dirty;  // Flag to track if parameters need update
+
+  // Signal inlet connectivity flags (set in dsp64, read in perform64)
+  short inlet_connected[3];   // 1=signal connected: [0]=scan, [1]=rate, [2]=playback
+  float* signal_conv_bufs[3]; // Float conversion buffers for double->float (allocated in dsp64)
 
 } t_ec2;
 
@@ -586,6 +593,9 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->audio_buffer_size = 0;
   x->audio_buffer_channels = 0;
 
+  x->inlet_connected[0] = x->inlet_connected[1] = x->inlet_connected[2] = 0;
+  x->signal_conv_bufs[0] = x->signal_conv_bufs[1] = x->signal_conv_bufs[2] = nullptr;
+
   // Parameter optimization
   x->params_dirty = true;  // Force initial update
 
@@ -670,6 +680,11 @@ void ec2_free(t_ec2* x) {
       }
     }
     delete[] x->audio_buffers;
+  }
+
+  for (int i = 0; i < 3; ++i) {
+    delete[] x->signal_conv_bufs[i];
+    x->signal_conv_bufs[i] = nullptr;
   }
 
   if (x->buffer_ref) object_free(x->buffer_ref);
@@ -880,6 +895,17 @@ void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long 
     x->audio_buffer_channels = x->outputs;
   }
 
+  // Store signal inlet connectivity
+  x->inlet_connected[0] = count[0];  // scan position inlet
+  x->inlet_connected[1] = count[1];  // grain rate inlet
+  x->inlet_connected[2] = count[2];  // playback rate inlet
+
+  // Allocate/reallocate signal conversion buffers (double→float)
+  for (int i = 0; i < 3; ++i) {
+    delete[] x->signal_conv_bufs[i];
+    x->signal_conv_bufs[i] = new float[maxvectorsize]();
+  }
+
   // Force parameter update on DSP start
   x->params_dirty = true;
 
@@ -887,6 +913,11 @@ void ec2_dsp64(t_ec2* x, t_object* dsp64, short* count, double samplerate, long 
 }
 
 void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double** outs, long numouts, long sampleframes, long flags, void* userparam) {
+#ifdef __SSE3__
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+  _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
+
   // Priority 2: Only update engine parameters when dirty
   if (x->params_dirty) {
     ec2_update_engine_params(x);
@@ -898,10 +929,26 @@ void ec2_perform64(t_ec2* x, t_object* dsp64, double** ins, long numins, double*
     memset(x->audio_buffers[i], 0, sampleframes * sizeof(float));
   }
 
-  // Signal inputs disabled - always use parameter values
+  // Convert signal inlets from double to float when connected
   float* scan_in = nullptr;
   float* rate_in = nullptr;
   float* playback_in = nullptr;
+
+  if (x->inlet_connected[0] && x->signal_conv_bufs[0]) {
+    for (long i = 0; i < sampleframes; ++i)
+      x->signal_conv_bufs[0][i] = static_cast<float>(ins[0][i]);
+    scan_in = x->signal_conv_bufs[0];
+  }
+  if (x->inlet_connected[1] && x->signal_conv_bufs[1]) {
+    for (long i = 0; i < sampleframes; ++i)
+      x->signal_conv_bufs[1][i] = static_cast<float>(ins[1][i]);
+    rate_in = x->signal_conv_bufs[1];
+  }
+  if (x->inlet_connected[2] && x->signal_conv_bufs[2]) {
+    for (long i = 0; i < sampleframes; ++i)
+      x->signal_conv_bufs[2][i] = static_cast<float>(ins[2][i]);
+    playback_in = x->signal_conv_bufs[2];
+  }
 
   // Process audio through engine using pre-allocated buffers
   x->engine->processWithSignals(x->audio_buffers, x->outputs, sampleframes,

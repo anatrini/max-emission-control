@@ -11,14 +11,14 @@
 
 namespace ec2 {
 
-const std::string VERSION = "1.0.2-alpha";
+const std::string VERSION = "1.0.3-alpha";
 
 // Synthesis constants
 const int CR_EVERY_N_SAMPLES = 4;  // Control rate decimation
 const unsigned MAX_NUM_FLOATS_PER_AUDIO_FILE = 256000000;  // 1 GB worth of floats
 
 // Parameter counts
-const int NUM_PARAMS = 15;
+const int NUM_PARAMS = 70;
 const int NUM_LFOS = 6;
 
 // Audio I/O
