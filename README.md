@@ -1,19 +1,15 @@
 # ec2~ - Granular Synthesis for Max
 
-**⚠️ ALPHA VERSION - UNDER ACTIVE TESTING ⚠️**
-
 High-performance multichannel granular synthesis external for Max, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and real-time parameter control.
 
 ---
 
 ## Status
 
-**Version**: 1.0.0-alpha
+**Version**: 1.0.1
 **Platform**: macOS (Universal Binary: Apple Silicon + Intel)
 **Max Version**: 8.0+
 **License**: GPL-3.0
-
-This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While the core engine is functional, please report any issues you encounter.
 
 ---
 
@@ -32,7 +28,9 @@ This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While t
 
 ## Installation
 
-###For precompiled binary for Apple Silicon (M1/M2/M3) Macs or Intel will be avaliable in the releases page
+### Precompiled Binary
+
+Precompiled binaries for Apple Silicon (M1/M2/M3) and Intel are available in the [releases page](https://github.com/anatrini/max-emission-control/releases).
 
 ### Build from Source
 
@@ -52,7 +50,7 @@ This is an **ALPHA RELEASE** currently undergoing comprehensive testing. While t
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/yourusername/max-emission-control.git
+git clone https://github.com/anatrini/max-emission-control.git
 cd max-emission-control
 
 # 2. Initialize submodules
@@ -99,7 +97,7 @@ Send parameter changes as messages:
 - `pan -0.5` - Set stereo pan position (-1 to 1)
 - `scanstart 0.2` - Set buffer scan start position (0-1)
 
-Double-click the `ec2~` object to open the buffer~ editor.
+Double-click the `ec2~` object to open the parameter window.
 
 ---
 
@@ -128,7 +126,7 @@ Double-click the `ec2~` object to open the buffer~ editor.
 - **pan**: Stereo pan position (-1 to 1, default: 0)
 - **outputs**: Number of output channels (2-16, default: 2)
 
-###Allocation Modes
+### Allocation Modes
 - **allocmode**: Spatial allocation strategy (0-6, default: 1)
   - 0: Fixed channel
   - 1: Round-robin
@@ -185,25 +183,11 @@ max-emission-control/
 │   ├── ec2_lfo.*           # LFO oscillators
 │   ├── ec2_spatial_allocator.* # Multichannel routing
 │   └── ec2_voice_pool.*    # Voice management
+├── patchers/               # Max patchers (GUI, test)
+├── docs/                   # Reference documentation
 ├── build/                  # Build artifacts (git ignored)
 └── README.md
 ```
-
----
-
-## Known Issues & Testing
-
-This is an ALPHA release. Known areas under testing:
-
-- [ ] Long-term stability with continuous grain generation
-- [ ] Buffer change notifications in various Max scenarios
-- [ ] OSC message parsing edge cases
-- [ ] Multichannel cable (MC) mode with >8 channels
-- [ ] LFO modulation depth calibration
-- [ ] Filter stability at high resonance
-- [ ] Signal-rate input implementation (planned)
-
-**Please report issues at**: [GitHub Issues](https://github.com/yourusername/max-emission-control/issues)
 
 ---
 
@@ -258,4 +242,4 @@ Copyright © 2025 Alessandro Anatrini
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: March 2026
