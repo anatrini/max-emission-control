@@ -149,7 +149,7 @@ typedef struct _ec2 {
   double lfo1_duty, lfo2_duty, lfo3_duty, lfo4_duty, lfo5_duty, lfo6_duty;
 
   // Spatial allocation parameters (11 total + weights)
-  long alloc_mode;       // 0-6
+  long alloc_mode;       // 0-7
   long fixed_channel;    // 1-16
   long rr_step;          // 1-16
   double random_spread;          // 0.0-1.0 (mode 2: random)
@@ -472,8 +472,8 @@ extern "C" void ext_main(void* r) {
 
   // Spatial allocation mode attribute (structural - set at creation)
   CLASS_ATTR_LONG(c, "allocmode", 0, t_ec2, alloc_mode);
-  CLASS_ATTR_FILTER_CLIP(c, "allocmode", 0, 6);
-  CLASS_ATTR_LABEL(c, "allocmode", 0, "Spatial allocation mode (0-6)");
+  CLASS_ATTR_FILTER_CLIP(c, "allocmode", 0, 7);
+  CLASS_ATTR_LABEL(c, "allocmode", 0, "Spatial allocation mode (0-7)");
   CLASS_ATTR_SAVE(c, "allocmode", 0);
 
   // Note: allocation mode parameters (fixedchan, rrstep, etc.) are now MESSAGES
@@ -770,7 +770,7 @@ void ec2_get_all_parameters(t_ec2* x, std::vector<ec2::ParameterInfo>& params) {
   params.push_back({"scanspeed_dev", "Deviations", x->scanspeed_dev, 0.0, 16.0, "Scan speed deviation", false});
 
   // Spatial Allocation
-  params.push_back({"allocmode", "Allocation", (double)x->alloc_mode, 0.0, 6.0, "Allocation mode", true});
+  params.push_back({"allocmode", "Allocation", (double)x->alloc_mode, 0.0, 7.0, "Allocation mode", true});
   params.push_back({"fixedchan", "Allocation", (double)x->fixed_channel, 1.0, 16.0, "Fixed channel", true});
   params.push_back({"rrstep", "Allocation", (double)x->rr_step, 1.0, 16.0, "Round-robin step", true});
   params.push_back({"randspread", "Allocation", x->random_spread, 0.0, 1.0, "Random spread (mode 2)", false});
