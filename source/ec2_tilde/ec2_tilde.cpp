@@ -1598,9 +1598,8 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     // Check if this LFO already has this destination
     int dest_idx = ec2_find_lfo_destination(x, lfo_num, param_name);
     if (dest_idx >= 0) {
-      // Already connected, just update depth
+      // Already connected, just update depth silently
       lfo.destinations[dest_idx].depth = depth;
-      post("ec2~: LFO%d to %s depth updated to %.3f", lfo_num, param_name.c_str(), depth);
       x->params_dirty = true;
       if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
       return;
