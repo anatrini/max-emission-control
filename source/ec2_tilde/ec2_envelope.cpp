@@ -59,7 +59,7 @@ void GrainEnvelope::reset() {
 
 void GrainEnvelope::setDuration(float duration) {
   if (duration <= 0.0f) {
-    mDuration = 0.001f;  // Minimum duration
+    mDuration = 0.000046f;  // Minimum: matches grain minimum (0.046 ms)
   } else {
     mDuration = duration;
   }

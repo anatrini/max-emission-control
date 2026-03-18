@@ -8,6 +8,7 @@
 #define EC2_SCHEDULER_H
 
 #include <random>
+#include <vector>
 #include "ec2_constants.h"
 
 namespace ec2 {
@@ -34,9 +35,18 @@ public:
   void configure(double frequency, double async, double intermittence);
 
   /**
-   * Call at audio rate - returns true when a grain should be triggered
+   * Call at audio rate - returns true when a grain should be triggered.
+   * Equivalent to triggerCount() > 0; kept for backward compatibility.
    */
   bool trigger();
+
+  /**
+   * Call at audio rate - returns how many grains should be triggered this frame.
+   * For SYNCHRONOUS: 0 or 1.
+   * For ASYNCHRONOUS: 0 to numStreams (independent per-stream counters).
+   * For SEQUENCED: 0 or 1 (base rate, streamId cycles in engine).
+   */
+  int triggerCount();
 
   /**
    * Set frequency (grain rate in Hz)
@@ -75,6 +85,11 @@ private:
   double mFrequency{1.0};
   double mIncrement{0.0};
   double mIntermittence{0.0};
+
+  // Multi-stream state
+  StreamType mStreamType{SYNCHRONOUS};
+  int mNumStreams{1};
+  std::vector<double> mAsyncCounters;  // Per-stream counters (ASYNCHRONOUS mode)
 
   // Helper: generate uniform random value
   double uniform();

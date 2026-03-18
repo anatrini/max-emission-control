@@ -45,24 +45,40 @@ void GrainScheduler::configure(double frequency, double async, double intermitte
   mIncrement = mFrequency / mSamplingRate;
 }
 
-bool GrainScheduler::trigger() {
+int GrainScheduler::triggerCount() {
+  if (mStreamType == ASYNCHRONOUS) {
+    // N independent counters, each at the base frequency with random phase.
+    int count = 0;
+    for (auto& cnt : mAsyncCounters) {
+      cnt += mIncrement;
+      if (cnt >= 1.0) {
+        cnt -= 1.0;
+        if (uniform() < mIntermittence) continue;  // Drop this stream's trigger
+        cnt += uniform(-mAsync, mAsync);
+        ++count;
+      }
+    }
+    return count;
+  }
+
+  // SYNCHRONOUS (mIncrement = freq*N/sr) and SEQUENCED (mIncrement = freq/sr):
+  // single main counter.
   if (mCounter >= 1.0) {
     mCounter -= 1.0;
-
-    // Check intermittency - randomly drop grains
     if (uniform() < mIntermittence) {
-      return false;
+      return 0;
     }
-
-    // Add asynchronicity - random timing jitter
     mCounter += uniform(-mAsync, mAsync);
     mCounter += mIncrement;
-
-    return true;
+    return 1;
   }
 
   mCounter += mIncrement;
-  return false;
+  return 0;
+}
+
+bool GrainScheduler::trigger() {
+  return triggerCount() > 0;
 }
 
 void GrainScheduler::setFrequency(double frequency) {
@@ -78,10 +94,24 @@ void GrainScheduler::setIntermittence(double intermittence) {
 }
 
 void GrainScheduler::setPolyStream(StreamType type, int numStreams) {
+  mStreamType = type;
+  mNumStreams = std::max(1, numStreams);
+
   if (type == SYNCHRONOUS) {
-    setFrequency(static_cast<double>(mFrequency * numStreams));
-  } else {
-    std::cerr << "ec2~: Non-synchronous stream types not implemented yet" << std::endl;
+    // Multiply the increment so N streams all fire within the same timing cycle
+    mIncrement = mFrequency * mNumStreams / mSamplingRate;
+  } else if (type == ASYNCHRONOUS) {
+    // Each stream runs at the base frequency with an independent random phase
+    mIncrement = mFrequency / mSamplingRate;
+    if (static_cast<int>(mAsyncCounters.size()) != mNumStreams) {
+      mAsyncCounters.resize(mNumStreams);
+      for (auto& cnt : mAsyncCounters) {
+        cnt = uniform(0.0, 1.0);  // Randomise initial phase for each stream
+      }
+    }
+  } else if (type == SEQUENCED) {
+    // Single trigger at base frequency; engine cycles streamId per emission
+    mIncrement = mFrequency / mSamplingRate;
   }
 }
 

@@ -7,7 +7,10 @@
 #ifndef EC2_ENGINE_H
 #define EC2_ENGINE_H
 
+#include <atomic>
 #include <memory>
+#include <mutex>
+#include <random>
 #include <vector>
 #include "ec2_constants.h"
 #include "ec2_scheduler.h"
@@ -32,6 +35,7 @@ struct SynthParameters {
   float async = 0.0f;            // 0-1
   float intermittency = 0.0f;    // 0-1
   int streams = 1;               // 1-20
+  StreamType streamType = SYNCHRONOUS;  // Stream scheduling mode
 
   // Grain characteristics
   float playbackRate = 1.0f;     // -32 to 32
@@ -220,6 +224,11 @@ private:
 
   std::vector<std::shared_ptr<AudioBuffer<float>>> mAudioBuffers;
 
+  // Thread-safe buffer swap: setAudioBuffer (main thread) → processWithSignals (audio thread)
+  std::vector<std::shared_ptr<AudioBuffer<float>>> mPendingBuffers;
+  std::atomic_flag mBufferLock = ATOMIC_FLAG_INIT;
+  std::atomic<bool> mBufferUpdatePending{false};
+
   float mSampleRate = DEFAULT_SAMPLE_RATE;
   float mCurrentScanIndex = 0.0f;
   Line<double> mScanner;  // For scan position control
@@ -231,12 +240,18 @@ private:
   int mPrevSoundFile = 0;
   bool mScannerNeedsReset = true;  // Force reset on first run
 
-  int mActiveVoiceCount = 0;
-  float mGrainEmissionTime = 0.0f;  // Track time for spatial allocator
+  std::atomic<int> mActiveVoiceCount{0};
+  int mGrainCounter = 0;                // Monotonically incrementing ID per emitted grain
+  int mCurrentStreamId = 0;             // Cycles 0..streams-1 for per-stream routing
+  float mGrainEmissionTime = 0.0f;      // Track time for spatial allocator
 
   // LFO system (Phase 9)
   LFO mLFOs[MAX_LFOS];
   float mLFOValues[MAX_LFOS];  // Current LFO values (updated once per audio callback)
+
+  // Random number generator for stochastic deviation (MT19937, better than rand())
+  std::mt19937 mDeviationRng;
+  std::uniform_real_distribution<float> mDeviationDist{-1.0f, 1.0f};
 
   /**
    * Apply statistical deviation to a parameter value

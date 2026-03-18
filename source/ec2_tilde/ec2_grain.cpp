@@ -6,6 +6,7 @@
 
 #include "ec2_grain.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #ifndef M_PI
@@ -24,8 +25,13 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
   if (static_cast<int>(sampleRate) != mPrevSampleRate) {
     mPrevSampleRate = static_cast<int>(sampleRate);
     mSampleRate = sampleRate;
-    initFilters(sampleRate);
   }
+
+  // Reset filter delay lines to prevent DC contamination from the previous grain.
+  // zeroState() preserves coefficients so configureFilter() can skip expensive
+  // recomputation (pow/sin/cos) when freq/resonance haven't changed.
+  mBpf1L.zeroState(); mBpf2L.zeroState(); mBpf3L.zeroState();
+  mBpf1R.zeroState(); mBpf2R.zeroState(); mBpf3R.zeroState();
 
   // Set duration
   mDurationS = params.durationMs / 1000.0f;
@@ -41,7 +47,7 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
   configurePlayback(params.currentIndex, params.transposition);
 
   // Configure amplitude (with voice count compensation)
-  int voiceCount = (mActiveVoiceCount != nullptr) ? *mActiveVoiceCount : 1;
+  int voiceCount = (mActiveVoiceCount != nullptr) ? mActiveVoiceCount->load(std::memory_order_relaxed) : 1;
 
   configureAmplitude(params.amplitudeDb, voiceCount);
 
@@ -69,7 +75,7 @@ bool Grain::process(float &outLeft, float &outRight) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     outLeft = 0.0f;
     outRight = 0.0f;
@@ -79,7 +85,7 @@ bool Grain::process(float &outLeft, float &outRight) {
   // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     outLeft = 0.0f;
     outRight = 0.0f;
@@ -179,7 +185,7 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
   // Check if envelope is done
   if (mEnvelope.isDone()) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     return false; // Grain finished
   }
@@ -187,7 +193,7 @@ bool Grain::processMultichannel(float **outputs, int numChannels) {
   // Safety check - terminate grain if no valid source
   if (mSource == nullptr || mSource->size == 0) {
     if (mActiveVoiceCount != nullptr) {
-      (*mActiveVoiceCount)--;
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
     }
     return false;
   }
@@ -306,12 +312,131 @@ bool Grain::processMultichannelTemplate(float **outputs, int numChannels) {
   return true; // Grain still active
 }
 
+bool Grain::processBuffer(float** outBuffers, int numChannels, int numFrames) {
+  // Safety check — terminate if no valid source
+  if (mSource == nullptr || mSource->size == 0) {
+    if (mActiveVoiceCount != nullptr) {
+      mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
+    }
+    return false;
+  }
+
+  if (mSource->channels == 1) {
+    if (mBypassFilter) {
+      return processBufferTemplate<1, false>(outBuffers, numChannels, numFrames);
+    } else {
+      return processBufferTemplate<1, true>(outBuffers, numChannels, numFrames);
+    }
+  } else {
+    if (mBypassFilter) {
+      return processBufferTemplate<2, false>(outBuffers, numChannels, numFrames);
+    } else {
+      return processBufferTemplate<2, true>(outBuffers, numChannels, numFrames);
+    }
+  }
+}
+
+template <int SourceChannels, bool FilterActive>
+bool Grain::processBufferTemplate(float** outBuffers, int numChannels, int numFrames) {
+  for (int frame = 0; frame < numFrames; ++frame) {
+    // Check envelope before generating sample
+    if (mEnvelope.isDone()) {
+      if (mActiveVoiceCount != nullptr) {
+        mActiveVoiceCount->fetch_sub(1, std::memory_order_relaxed);
+      }
+      return false;  // Grain finished mid-buffer; caller leaves remaining frames at 0
+    }
+
+    float envVal = mEnvelope();
+
+    // Get playback index and wrap to buffer bounds
+    float sourceIndex = mPlaybackIndex();
+    int iSourceIndex = static_cast<int>(sourceIndex);
+
+    if (iSourceIndex >= static_cast<int>(mSource->frames) - mSource->channels ||
+        iSourceIndex < 0) {
+      sourceIndex = std::fmod(
+          sourceIndex, static_cast<float>(mSource->frames - mSource->channels));
+      iSourceIndex = static_cast<int>(sourceIndex);
+      if (iSourceIndex < 0) {
+        sourceIndex += (mSource->frames - mSource->channels);
+        iSourceIndex += (mSource->frames - mSource->channels);
+      }
+    }
+
+    mSourceIndex = sourceIndex;
+
+    float currentSampleL = 0.0f;
+    float currentSampleR = 0.0f;
+
+    if constexpr (SourceChannels == 1) {
+      mBefore = mSource->data[iSourceIndex];
+      mAfter  = mSource->data[iSourceIndex + 1];
+      mDecimal = sourceIndex - iSourceIndex;
+      currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+      }
+
+      currentSampleL *= envVal;
+
+      if (mUseMultichannelGains) {
+        int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+        for (int ch = 0; ch < maxCh; ++ch) {
+          outBuffers[ch][frame] += currentSampleL * mChannelGains[ch];
+        }
+      } else {
+        if (numChannels >= 1) outBuffers[0][frame] += currentSampleL * mLeftGain;
+        if (numChannels >= 2) outBuffers[1][frame] += currentSampleL * mRightGain;
+      }
+
+    } else {  // SourceChannels == 2
+      mBefore = mSource->data[iSourceIndex * 2];
+      mAfter  = mSource->data[iSourceIndex * 2 + 2];
+      mDecimal = sourceIndex - iSourceIndex;
+      currentSampleL = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleL = filterSample(currentSampleL, mCascadeFilterMix, false);
+      }
+
+      mBefore = mSource->get(iSourceIndex * 2 + 1);
+      mAfter  = mSource->get(iSourceIndex * 2 + 3);
+      mDecimal = (sourceIndex + 1.0f) - (iSourceIndex + 1);
+      currentSampleR = mBefore * (1.0f - mDecimal) + mAfter * mDecimal;
+
+      if constexpr (FilterActive) {
+        currentSampleR = filterSample(currentSampleR, mCascadeFilterMix, true);
+      }
+
+      float monoMix = (currentSampleL + currentSampleR) * 0.5f * envVal;
+
+      if (mUseMultichannelGains) {
+        int maxCh = std::min(numChannels, MAX_AUDIO_OUTS);
+        for (int ch = 0; ch < maxCh; ++ch) {
+          outBuffers[ch][frame] += monoMix * mChannelGains[ch];
+        }
+      } else {
+        if (numChannels >= 1) outBuffers[0][frame] += currentSampleL * envVal * mLeftGain;
+        if (numChannels >= 2) outBuffers[1][frame] += currentSampleR * envVal * mRightGain;
+      }
+    }
+  }
+
+  return true;
+}
+
 void Grain::reset() {
   mEnvelope.reset();
   mSource = nullptr;
   mSourceIndex = 0.0f;
   mUseMultichannelGains = false;
   mChannelGains.fill(0.0f);
+  // Invalidate filter cache so the next grain reconfigures from scratch
+  mLastFilterFreq = -1.0f;
+  mLastFilterResonance = -1.0f;
+  mLastSourceChannels = -1;
 }
 
 //=============================================================================
@@ -351,17 +476,29 @@ void Grain::configureFilter(float freq, float resonance, int sourceChannels) {
   // Bypass filter if resonance is near zero
   if (resonance >= 0.0f && resonance < 0.00001f) {
     mBypassFilter = true;
+    mLastFilterFreq = -1.0f;  // Invalidate cache on bypass transition
     return;
   }
 
   mBypassFilter = false;
 
+  // Cache hit: coefficients are still valid (zeroState() only cleared delay lines).
+  // Skip the expensive pow/sin/cos recomputation if params are unchanged.
+  if (freq == mLastFilterFreq && resonance == mLastFilterResonance &&
+      sourceChannels == mLastSourceChannels) {
+    return;
+  }
+  mLastFilterFreq = freq;
+  mLastFilterResonance = resonance;
+  mLastSourceChannels = sourceChannels;
+
   // Process resonance with exponential curve
   // EC2's custom resonance curve: 13^(2.9 * (resonance - 0.5))
   float resProcess = std::pow(13.0f, 2.9f * (resonance - 0.5f));
 
-  // Normalize cascade mix (max resonance is 41.2304)
-  mCascadeFilterMix = resProcess / 41.2304f;
+  // Derive normalizer from the same formula (avoids magic number)
+  static const float kMaxResProcess = std::pow(13.0f, 2.9f * 0.5f);  // = 41.2304
+  mCascadeFilterMix = resProcess / kMaxResProcess;
 
   // EC2 original uses:
   // bpf_1.res(res_process) - where Gamma res() sets Q directly

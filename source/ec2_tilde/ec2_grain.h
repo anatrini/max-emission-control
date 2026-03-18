@@ -12,6 +12,7 @@
 #include "ec2_filter.h"
 #include "ec2_utility.h"
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <memory>
 
@@ -30,7 +31,7 @@ struct GrainParameters {
   float amplitudeDb;     // Amplitude in dB
   float filterFreq;      // Filter center frequency
   float resonance;       // Filter resonance (0-1)
-  int *activeVoiceCount; // Pointer to active voice counter
+  std::atomic<int> *activeVoiceCount; // Pointer to active voice counter
 
   // Multichannel spatial allocation (Phase 5)
   std::array<float, MAX_AUDIO_OUTS>
@@ -66,6 +67,16 @@ public:
    * @return true if grain is still active, false if done
    */
   bool processMultichannel(float **outputs, int numChannels);
+
+  /**
+   * Process a full audio buffer (grain-major loop, eliminates per-frame stack allocation).
+   * Accumulates output for all frames in one pass.
+   * @param outBuffers - Array of output buffers, each numFrames long
+   * @param numChannels - Number of output channels
+   * @param numFrames  - Samples per buffer
+   * @return true if grain is still active, false if it completed during this buffer
+   */
+  bool processBuffer(float** outBuffers, int numChannels, int numFrames);
 
   /**
    * Check if grain has finished
@@ -118,7 +129,14 @@ private:
   bool mUseMultichannelGains = false;
 
   // Active voice tracking
-  int *mActiveVoiceCount = nullptr;
+  std::atomic<int> *mActiveVoiceCount = nullptr;
+
+  // Filter coefficient cache: avoids expensive recomputation (pow/sin/cos)
+  // when freq/resonance/sourceChannels are unchanged between grains.
+  // zeroState() only resets delay lines, so cached coefficients remain valid.
+  float mLastFilterFreq = -1.0f;
+  float mLastFilterResonance = -1.0f;
+  int mLastSourceChannels = -1;
 
   // Temp variables for interpolation
   float mBefore, mAfter, mDecimal;
@@ -139,6 +157,9 @@ private:
 
   template <int SourceChannels, bool FilterActive>
   bool processMultichannelTemplate(float **outputs, int numChannels);
+
+  template <int SourceChannels, bool FilterActive>
+  bool processBufferTemplate(float** outBuffers, int numChannels, int numFrames);
 };
 
 } // namespace ec2

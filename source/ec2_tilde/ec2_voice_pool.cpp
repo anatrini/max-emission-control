@@ -41,10 +41,11 @@ Grain* VoicePool::getFreeVoice() {
 void VoicePool::releaseVoice(Grain* voice) {
   if (!voice) return;
 
-  // Remove from active list
+  // Swap-and-pop: O(1) removal (order in active list is not significant)
   auto it = std::find(mActiveVoices.begin(), mActiveVoices.end(), voice);
   if (it != mActiveVoices.end()) {
-    mActiveVoices.erase(it);
+    *it = mActiveVoices.back();
+    mActiveVoices.pop_back();
     mActiveVoiceCount--;
   }
 
@@ -56,26 +57,13 @@ void VoicePool::releaseVoice(Grain* voice) {
 }
 
 void VoicePool::processActiveVoices(float** outBuffers, int numChannels, int numFrames) {
-  // Process each active grain
-  // We iterate backwards so we can safely remove finished grains
+  // Grain-major processing: each grain processes the entire buffer before moving to the next.
+  // Eliminates per-frame stack allocation (previously MAX_AUDIO_OUTS pointers × numFrames).
   for (int i = static_cast<int>(mActiveVoices.size()) - 1; i >= 0; --i) {
     Grain* grain = mActiveVoices[i];
-
-    for (int frame = 0; frame < numFrames; ++frame) {
-      // Prepare per-frame output pointers
-      float* frameOutputs[MAX_AUDIO_OUTS];
-      for (int ch = 0; ch < numChannels; ++ch) {
-        frameOutputs[ch] = &outBuffers[ch][frame];
-      }
-
-      // Process grain (multichannel or stereo)
-      bool isActive = grain->processMultichannel(frameOutputs, numChannels);
-
-      if (!isActive) {
-        // Grain finished - release it
-        releaseVoice(grain);
-        break;  // Don't process more frames for this grain
-      }
+    bool stillActive = grain->processBuffer(outBuffers, numChannels, numFrames);
+    if (!stillActive) {
+      releaseVoice(grain);
     }
   }
 }
