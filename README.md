@@ -30,7 +30,16 @@ High-performance multichannel granular synthesis external for Max, implementing 
 
 ### Precompiled Binary
 
-No precompiled binaries are currently distributed. Build from source using the steps below.
+A precompiled Universal Binary (Apple Silicon + Intel) is available in the [Releases](https://github.com/anatrini/max-emission-control/releases/latest) section.
+
+1. Download `ec2~-<version>-macos.zip` and unzip
+2. Copy `ec2~.mxo` to `~/Documents/Max 9/Library/`
+3. If macOS blocks the file, remove the quarantine attribute:
+   ```bash
+   xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
+   ```
+
+### Build from Source
 
 ### Build from Source
 
