@@ -1,176 +1,147 @@
-# ec2~ - Granular Synthesis for Max
+# ec2~
 
-High-performance multichannel granular synthesis external for Max, implementing Curtis Roads's granular synthesis principles with advanced spatial allocation, LFO modulation, and real-time parameter control.
+ec2~ is a multichannel granular synthesis external for Max, based on the concepts from Curtis Roads's *Microsound* and the original EmissionControl2 project. It runs a pool of up to 2048 simultaneous grain voices with flexible spatial routing across up to 16 output channels, six independent LFOs, per-parameter stochastic deviation, and full OSC control.
 
----
-
-## Status
-
-**Version**: 1.0.5-alpha
-**Platform**: macOS (Universal Binary: Apple Silicon + Intel)
-**Max Version**: 8.0+
-**License**: GPL-3.0
-
----
-
-## Features
-
-- **2048-voice grain pool** for dense textures
-- **Up to 16 output channels** with flexible multichannel routing
-- **8 spatial allocation modes** (Fixed, Round-robin, Random, Weighted, Load-balance, Pitch-map, Trajectory, Distance)
-- **6 independent LFOs** with modulation routing to 25+ parameters
-- **Statistical deviation** for all synthesis parameters (Curtis Roads: stochastic grain clouds)
-- **OSC integration** compatible with odot for Max
-- **Native Max integration** with buffer~ and buffer_ref monitoring
-- **Multichannel cable support** (@mc mode)
+**Version**: 1.0.5-alpha — macOS only (Universal Binary: Apple Silicon + Intel), Max 8.0+
 
 ---
 
 ## Installation
 
-### Precompiled Binary
+### Precompiled binary
 
-A precompiled Universal Binary (Apple Silicon + Intel) is available in the [Releases](https://github.com/anatrini/max-emission-control/releases/latest) section.
-
-1. Download `ec2~-<version>-macos.zip` and unzip
-2. Copy `ec2~.mxo` to `~/Documents/Max 9/Library/`
-3. If macOS blocks the file, remove the quarantine attribute:
-   ```bash
-   xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
-   ```
-
-### Build from Source
-
-### Build from Source
-
-#### Prerequisites
-
-1. **Max 8.0 or later**
-2. **Xcode Command Line Tools**
-   ```bash
-   xcode-select --install
-   ```
-3. **CMake 3.19 or later**
-   ```bash
-   brew install cmake
-   ```
-
-#### Build Steps
+Download `ec2~-1.0.5-alpha-macos.zip` from the [Releases](https://github.com/anatrini/max-emission-control/releases/latest) page, unzip it, and copy `ec2~.mxo` to your Max library folder:
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/anatrini/max-emission-control.git
-cd max-emission-control
-
-# 2. Initialize submodules
-git submodule update --init --recursive
-
-# 3. Install Max SDK package (REQUIRED)
-# Download and install the Max SDK from Cycling '74 Package Manager
-# Or manually from: https://cycling74.com/downloads/sdk
-# Install it to: ~/Documents/Max 9/Packages/max-sdk
-# Then create symlink in project root:
-ln -s ~/Documents/Max\ 9/Packages/max-sdk max-sdk
-
-# 4. Build
-mkdir build && cd build
-cmake .. && cmake --build . --config Release
-
-# 5. Install to Max externals folder
-cp -r ../externals/ec2~.mxo ~/Documents/Max\ 9/Library/
+cp -r ec2~.mxo ~/Documents/Max\ 9/Library/
 ```
 
-**Important**: The Max SDK package must be installed in `~/Documents/Max 9/Packages/max-sdk`. This is the standard location for Max SDK. Download it from Cycling '74's Package Manager or website.
+If macOS blocks the file on first load, remove the quarantine attribute:
 
-**macOS Security Note**: Remove quarantine attribute if needed:
 ```bash
 xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
 ```
 
+### Build from source
+
+You need Xcode Command Line Tools, CMake 3.19+, and the Max SDK installed via Cycling '74's Package Manager (standard location: `~/Documents/Max 9/Packages/max-sdk`).
+
+```bash
+git clone https://github.com/anatrini/max-emission-control.git
+cd max-emission-control
+
+git submodule update --init --recursive
+
+# Symlink the SDK into the project root
+ln -s ~/Documents/Max\ 9/Packages/max-sdk max-sdk
+
+mkdir build && cd build
+cmake .. && cmake --build . --config Release
+
+cp -r ../externals/ec2~.mxo ~/Documents/Max\ 9/Library/
+```
+
 ---
 
-## Quick Start
+## Getting started
 
-```
-[buffer~ mysound]
-|
-[ec2~ mysound @grainrate 20 @duration 100 @amplitude 0.5 @outputs 2]
-|             |
-[dac~ 1 2]   [comment: Audio output]
-```
+There is no dedicated help patch yet. For a complete parameter reference, open `docs/EC2_HELP_REFERENCE.md`.
 
-Send parameter changes as messages (OSC `/param value` format):
-- `/grainrate 30` — Set grain emission rate (Hz)
-- `/duration 150` — Set grain duration (ms)
-- `/amp -6` — Set output amplitude (dBFS)
-- `/pan -0.5` — Set stereo pan position (−1 to 1)
-- `/scanstart 0.2` — Set buffer scan start position (0–1)
+The `patchers/` folder contains two files:
 
-Double-click the `ec2~` object to open the parameter window.
+- **`ec2_testpatch.maxpat`** — a ready-to-use patch for testing the external. It requires the [odot](https://github.com/CNMAT/CNMAT-odot) library for Max to be installed, since ec2~ uses OSC bundles for parameter communication.
+- **`ec2_GUI.maxpat`** — the graphical control interface that opens when you double-click the ec2~ object. This file must be in Max's search path, otherwise the GUI will not open. Add the `patchers/` folder to your Max file preferences.
 
 ---
 
-## Core Parameters
+## Parameters
+
+All parameters are sent as OSC messages to the left inlet: `/parametername value`.
 
 ### Synthesis
-- `/grainrate` (Hz): Grain emission rate (0.1–500, default: 20)
-- `/duration` (ms): Grain length (0.046–10000, default: 100)
-- `/amp` (dBFS): Output amplitude (−180 to 48, default: −6)
-- `/playback`: Playback rate/transposition (−32 to 32, default: 1)
-- `/envelope`: Envelope shape (0–1, Tukey to Expodec, default: 0.5)
-- `/streams`: Synchronous grain streams (1–20, default: 1)
-- `/async`: Timing jitter (0–1, default: 0)
-- `/intermittency`: Grain dropout probability (0–1, default: 0)
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `/grainrate` | 0.1–500 Hz | 20 | Grain emission rate |
+| `/duration` | 0.046–10000 ms | 100 | Grain length |
+| `/amp` | −180–48 dBFS | −6 | Output amplitude |
+| `/playback` | −32–32 | 1 | Playback rate / transposition |
+| `/envelope` | 0–1 | 0.5 | Envelope shape (0=Tukey, 1=Expodec) |
+| `/streams` | 1–20 | 1 | Number of simultaneous grain streams |
+| `/async` | 0–1 | 0 | Timing jitter |
+| `/intermittency` | 0–1 | 0 | Grain dropout probability |
 
 ### Scanning
-- `/scanstart`: Buffer scan position (0–1, default: 0)
-- `/scanrange`: Scan window size, negative = reverse (−1 to 1, default: 0.5)
-- `/scanspeed`: Automatic scanning speed (−32 to 32, default: 1)
 
-### Filtering
-- `/filterfreq` (Hz): Bandpass filter center frequency (20–24000, default: 1000)
-- `/resonance`: Filter resonance / cascade mix (0–1, default: 0; 0 = bypassed)
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `/scanstart` | 0–1 | 0 | Read position in the buffer |
+| `/scanrange` | −1–1 | 0.5 | Scan window size (negative = reverse) |
+| `/scanspeed` | −32–32 | 1 | Automatic scan speed |
+
+### Filter
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `/filterfreq` | 20–24000 Hz | 1000 | Bandpass center frequency |
+| `/resonance` | 0–1 | 0 | Resonance / cascade mix (0 = bypassed) |
 
 ### Spatial
-- `/pan`: Stereo pan position (−1 to 1, default: 0)
-- `@outputs`: Number of output channels (1–16, default: 2)
 
-### Allocation Modes
-- `@allocmode`: Spatial allocation strategy (0–7, default: 1)
-  - 0: Fixed channel
-  - 1: Round-robin
-  - 2: Random (uniform)
-  - 3: Weighted random
-  - 4: Load-balanced
-  - 5: Pitch-mapped
-  - 6: Trajectory-based
-  - 7: Distance (spectral centroid → virtual distance attenuation)
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `/pan` | −1–1 | 0 | Stereo pan position |
+| `@outputs` | 1–16 | 2 | Number of output channels (set at instantiation) |
+| `@allocmode` | 0–7 | 1 | Spatial allocation mode (see below) |
 
-### Deviation Parameters (Stochastic Variation)
-Add `_dev` suffix for per-grain random deviation (uniform ±):
-- `/grainrate_dev`, `/duration_dev`, `/playback_dev`, `/amp_dev`, `/filterfreq_dev`, etc.
-- Value = maximum deviation; 0 = no variation
+**Allocation modes:**
 
-### LFO System
-6 independent LFOs with per-buffer block-average computation:
-- `/lfo[1-6]shape`: Waveform (0=Sine, 1=Square, 2=Rise, 3=Fall, 4=Noise)
-- `/lfo[1-6]rate` (Hz): LFO frequency (0.001–100)
-- `/lfo[1-6]polarity`: 0=bipolar (±1), 1=unipolar+ (0–1), 2=unipolar− (−1–0)
-- `/lfo[1-6]duty`: Pulse width for square wave (0–1)
-- `/lfo<N>_to_<param> <depth>`: Route LFO N to parameter at given depth (0–1)
+| Value | Name | Behaviour |
+|-------|------|-----------|
+| 0 | Fixed | All grains to a single channel (`/fixedchan`) |
+| 1 | Round-robin | Grains cycle through channels in order |
+| 2 | Random | Uniform random channel selection |
+| 3 | Weighted random | Random with per-channel probability weights |
+| 4 | Load-balanced | Grains routed to the least-busy channel |
+| 5 | Pitch-map | Low pitch → first channel, high pitch → last channel |
+| 6 | Trajectory | Grains follow an automated spatial path over time |
+| 7 | Distance | Spectral centroid mapped to virtual listener distance |
+
+### Stochastic deviation
+
+Any parameter can have per-grain random variation by appending `_dev`:
+
+```
+/grainrate_dev 5       → each grain's rate varies ± 5 Hz
+/duration_dev 20       → each grain's duration varies ± 20 ms
+/playback_dev 0.1      → etc.
+```
+
+### LFOs
+
+Six independent LFOs can modulate any parameter:
+
+```
+/lfo1rate 0.5          → LFO 1 frequency in Hz
+/lfo1shape 0           → 0=Sine, 1=Square, 2=Rise, 3=Fall, 4=Noise
+/lfo1polarity 0        → 0=bipolar, 1=unipolar+, 2=unipolar−
+/lfo1_to_grainrate 0.3 → route LFO 1 to grainrate at depth 0.3
+```
 
 ---
 
-## Multichannel Output
+## Multichannel output
 
-### Separated Mode (Default)
+Default mode gives one outlet per channel:
+
 ```
 [ec2~ @outputs 4]
 |    |    |    |
 ch1  ch2  ch3  ch4
 ```
 
-### MC Mode (Multichannel Cable)
+With `@mc 1`, all channels are packed into a single multichannel cable:
+
 ```
 [ec2~ @outputs 8 @mc 1]
 |
@@ -179,78 +150,16 @@ ch1  ch2  ch3  ch4
 
 ---
 
-## Project Structure
-
-```
-max-emission-control/
-├── externals/              # Compiled binaries
-│   └── ec2~.mxo
-├── source/ec2_tilde/       # Source code
-│   ├── ec2_tilde.cpp       # Max SDK wrapper
-│   ├── ec2_engine.*        # Granular engine
-│   ├── ec2_grain.*         # Grain voice implementation
-│   ├── ec2_scheduler.*     # Grain scheduling
-│   ├── ec2_envelope.*      # Envelope generators
-│   ├── ec2_lfo.*           # LFO oscillators
-│   ├── ec2_spatial_allocator.* # Multichannel routing
-│   └── ec2_voice_pool.*    # Voice management
-├── patchers/               # Max patchers (GUI, test)
-├── docs/                   # Reference documentation
-├── build/                  # Build artifacts (git ignored)
-└── README.md
-```
-
----
-
-## Technical Details
-
-### Architecture
-- Pure Max SDK implementation (C++17)
-- 2048-voice grain pool with dynamic allocation
-- Voice count compensation using 1/e law
-- Constant-power stereo panning
-- Sample-accurate grain scheduling
-- Hermite interpolation for pitch shifting
-
-### Performance
-- CPU: 5-50% depending on grain density (tested on M1)
-- Memory: ~4 MB + buffer sizes
-- Latency: Max's I/O vector size
-- Max grain rate: 500 Hz (limited for stability)
-
----
-
 ## Credits
 
-### Original EmissionControl2
-- **Curtis Roads** - Concept and granular synthesis theory
-- **Greg Surges** - Original implementation
-- **Rodney DuPlessis** - Development
-- **Karl Yerkes** - Spatial audio
+ec2~ is a Max port of [EmissionControl2](https://github.com/EmissionControl2/EmissionControl2), originally developed by Greg Surges, Rodney DuPlessis, and Karl Yerkes, based on Curtis Roads's granular synthesis theory.
 
-### Max Port (ec2~)
-- **Alessandro Anatrini** - Max port, spatial audio engine, multichannel allocation, and OSC integration
-
-### Theoretical Foundation
-- Curtis Roads - *Microsound* (MIT Press, 2001)
+Max port, spatial audio engine, multichannel allocation, and OSC integration by Alessandro Anatrini.
 
 ---
 
 ## License
 
-**GPL-3.0** - This project is a derivative work of EmissionControl2
+GPL-3.0 — derivative work of EmissionControl2
 
-Copyright © 2025 Alessandro Anatrini
-
----
-
-## References
-
-- **EmissionControl2**: https://github.com/EmissionControl2/EmissionControl2
-- **Curtis Roads - Microsound**: https://mitpress.mit.edu/books/microsound
-- **Max**: https://cycling74.com
-- **GPL-3.0 License**: https://www.gnu.org/licenses/gpl-3.0.en.html
-
----
-
-**Last Updated**: March 2026
+Copyright © 2026 Alessandro Anatrini
