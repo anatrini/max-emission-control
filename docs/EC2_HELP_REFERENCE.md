@@ -194,14 +194,12 @@ Trajectory shapes:
 
 Maps each grain's spectral centroid (set via `/filterfreq`) to a virtual distance from a fixed listener position. Closer grains (high spectral content) are louder; farther grains (low spectral content) are attenuated by an inverse power-law. Channel assignment cycles round-robin through the active channel list.
 
-Reuses pitch-map parameters for the spectral–distance mapping and the distance model parameters from the engine.
-
 | Parameter | Type | Range | Default | Description |
 |-----------|------|-------|---------|-------------|
-| `/pitchmin` | float | 20–20000 Hz | 20 | Spectral centroid mapped to far distance |
-| `/pitchmax` | float | 20–20000 Hz | 20000 | Spectral centroid mapped to near distance |
+| `/distfreqmin` | float | 20–20000 Hz | 20 | Spectral centroid mapped to far distance |
+| `/distfreqmax` | float | 20–20000 Hz | 20000 | Spectral centroid mapped to near distance |
 
-Distance model is controlled internally via engine defaults: attenuation exponent = 2.0 (inverse square law), near clip = 1.0, far clip = 100.0.
+Distance model is controlled internally via engine defaults: attenuation exponent = 2.0 (inverse square law), near clip = 0.1, far clip = 100.0.
 
 > **Practical note:** Use `/filterfreq` to control perceived distance. Low `/filterfreq` values (< 500 Hz) place grains far away (quiet); high values (> 5000 Hz) bring them close (loud).
 
@@ -341,7 +339,7 @@ Connect an LFO to any modulatable parameter with:
 
 **Modulatable parameters:**
 
-`grainrate`, `async`, `intermittency`, `streams`, `playback`, `duration`, `envelope`, `amplitude`, `filterfreq`, `resonance`, `pan`, `scanstart`, `scanrange`, `scanspeed`, `soundfile`, `fixedchan`, `rrstep`, `randspread`, `randspread_weighted`, `spatialcorr`, `spatialcorr_weighted`, `pitchmin`, `pitchmax`, `trajshape`, `trajrate`, `trajdepth`
+`grainrate`, `async`, `intermittency`, `streams`, `playback`, `duration`, `envelope`, `amplitude`, `filterfreq`, `resonance`, `pan`, `scanstart`, `scanrange`, `scanspeed`, `soundfile`, `fixedchan`, `rrstep`, `randspread`, `randspread_weighted`, `spatialcorr`, `spatialcorr_weighted`, `pitchmin`, `pitchmax`, `distfreqmin`, `distfreqmax`, `trajshape`, `trajrate`, `trajdepth`
 
 **Not modulatable:** deviation parameters (`*_dev`), LFO configuration parameters
 

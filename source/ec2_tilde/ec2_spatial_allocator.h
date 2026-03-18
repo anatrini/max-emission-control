@@ -109,7 +109,9 @@ struct SpatialParameters {
   float spiralFactor = 0.0f;      // 0-1, controls spiral tightness (0=circle, 1=tight spiral)
   float pendulumDecay = 0.1f;     // 0-1, damping factor for pendulum motion
 
-  // Distance mode (optional)
+  // Distance mode
+  float distFreqMin = 20.0f;         // Hz — maps to far distance
+  float distFreqMax = 20000.0f;      // Hz — maps to near distance
   float distanceAttenuation = 2.0f;  // Distance exponent
   float nearClip = 0.1f;
   float farClip = 100.0f;

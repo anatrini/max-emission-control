@@ -156,8 +156,10 @@ typedef struct _ec2 {
   double random_spread_weighted; // 0.0-1.0 (mode 3: weighted)
   double spatial_corr;           // 0.0-1.0 (mode 2: random)
   double spatial_corr_weighted;  // 0.0-1.0 (mode 3: weighted)
-  double pitch_min;      // 20-20000 Hz
-  double pitch_max;      // 20-20000 Hz
+  double pitch_min;      // 20-20000 Hz (Pitch-map mode 5)
+  double pitch_max;      // 20-20000 Hz (Pitch-map mode 5)
+  double dist_freq_min;  // 20-20000 Hz (Distance mode 7: maps to far)
+  double dist_freq_max;  // 20-20000 Hz (Distance mode 7: maps to near)
   long traj_shape;       // 0-5: 0=Sine, 1=Saw, 2=Triangle, 3=Random, 4=Spiral, 5=Pendulum
   double traj_rate;      // 0.001-100.0 Hz
   double traj_depth;     // 0.0-1.0
@@ -269,6 +271,8 @@ void ec2_randspread_weighted(t_ec2* x, double v);  // Mode 3: Weighted
 void ec2_spatialcorr(t_ec2* x, double v);
 void ec2_pitchmin(t_ec2* x, double v);
 void ec2_pitchmax(t_ec2* x, double v);
+void ec2_distfreqmin(t_ec2* x, double v);  // Mode 7: Distance
+void ec2_distfreqmax(t_ec2* x, double v);  // Mode 7: Distance
 void ec2_trajshape(t_ec2* x, long v);
 void ec2_trajrate(t_ec2* x, double v);
 void ec2_trajdepth(t_ec2* x, double v);
@@ -416,6 +420,8 @@ extern "C" void ext_main(void* r) {
   class_addmethod(c, (method)ec2_spatialcorr_weighted, "spatialcorr_weighted", A_FLOAT, 0); // Mode 3: Weighted
   class_addmethod(c, (method)ec2_pitchmin, "pitchmin", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_pitchmax, "pitchmax", A_FLOAT, 0);
+  class_addmethod(c, (method)ec2_distfreqmin, "distfreqmin", A_FLOAT, 0);  // Mode 7: Distance
+  class_addmethod(c, (method)ec2_distfreqmax, "distfreqmax", A_FLOAT, 0);  // Mode 7: Distance
   class_addmethod(c, (method)ec2_trajshape, "trajshape", A_LONG, 0);
   class_addmethod(c, (method)ec2_trajrate, "trajrate", A_FLOAT, 0);
   class_addmethod(c, (method)ec2_trajdepth, "trajdepth", A_FLOAT, 0);
@@ -574,6 +580,8 @@ void* ec2_new(t_symbol* s, long argc, t_atom* argv) {
   x->spatial_corr_weighted = 0.0;   // Mode 3: Weighted
   x->pitch_min = 20.0;
   x->pitch_max = 20000.0;
+  x->dist_freq_min = 20.0;
+  x->dist_freq_max = 20000.0;
   x->traj_shape = 0;
   x->traj_rate = 0.5;
   x->traj_depth = 1.0;
@@ -769,8 +777,10 @@ void ec2_get_all_parameters(t_ec2* x, std::vector<ec2::ParameterInfo>& params) {
   params.push_back({"randspread_weighted", "Allocation", x->random_spread_weighted, 0.0, 1.0, "Random spread (mode 3)", false});
   params.push_back({"spatialcorr", "Allocation", x->spatial_corr, 0.0, 1.0, "Spatial corr (mode 2)", false});
   params.push_back({"spatialcorr_weighted", "Allocation", x->spatial_corr_weighted, 0.0, 1.0, "Spatial corr (mode 3)", false});
-  params.push_back({"pitchmin", "Allocation", x->pitch_min, 20.0, 20000.0, "Pitch min (Hz)", false});
-  params.push_back({"pitchmax", "Allocation", x->pitch_max, 20.0, 20000.0, "Pitch max (Hz)", false});
+  params.push_back({"pitchmin", "Allocation", x->pitch_min, 20.0, 20000.0, "Pitch min Hz (mode 5)", false});
+  params.push_back({"pitchmax", "Allocation", x->pitch_max, 20.0, 20000.0, "Pitch max Hz (mode 5)", false});
+  params.push_back({"distfreqmin", "Allocation", x->dist_freq_min, 20.0, 20000.0, "Dist freq min Hz (mode 7)", false});
+  params.push_back({"distfreqmax", "Allocation", x->dist_freq_max, 20.0, 20000.0, "Dist freq max Hz (mode 7)", false});
   params.push_back({"trajshape", "Allocation", (double)x->traj_shape, 0.0, 5.0, "Trajectory shape", true});
   params.push_back({"trajrate", "Allocation", x->traj_rate, 0.001, 100.0, "Trajectory rate (Hz)", false});
   params.push_back({"trajdepth", "Allocation", x->traj_depth, 0.0, 1.0, "Trajectory depth", false});
@@ -1627,6 +1637,9 @@ void ec2_lfo_map(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
     } else if ((param_name == "pitchmin" || param_name == "pitchmax") && x->alloc_mode != 5) {
       object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Pitch-to-Space mode 5). This parameter has no effect.",
                  lfo_num, param_name.c_str(), x->alloc_mode);
+    } else if ((param_name == "distfreqmin" || param_name == "distfreqmax") && x->alloc_mode != 7) {
+      object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Distance mode 7). This parameter has no effect.",
+                 lfo_num, param_name.c_str(), x->alloc_mode);
     } else if ((param_name == "trajshape" || param_name == "trajrate" || param_name == "trajdepth") &&
                x->alloc_mode != 6) {
       object_warn((t_object*)x, "LFO%d connected to '%s', but allocmode is %ld (not Trajectory mode 6). This parameter has no effect.",
@@ -1698,6 +1711,20 @@ void ec2_pitchmin(t_ec2* x, double v) {
 
 void ec2_pitchmax(t_ec2* x, double v) {
   x->pitch_max = std::max(20.0, std::min(20000.0, v));
+  x->params_dirty = true;
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
+}
+
+void ec2_distfreqmin(t_ec2* x, double v) {
+  x->dist_freq_min = std::max(20.0, std::min(20000.0, v));
+  x->params_dirty = true;
+  if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
+  ec2_refresh_param_window(x);
+}
+
+void ec2_distfreqmax(t_ec2* x, double v) {
+  x->dist_freq_max = std::max(20.0, std::min(20000.0, v));
   x->params_dirty = true;
   if (!x->suppress_osc_output) ec2_send_osc_bundle(x);
   ec2_refresh_param_window(x);
@@ -1960,6 +1987,8 @@ void ec2_update_engine_params(t_ec2* x) {
   double spatialcorr_weighted_mod = ec2_get_lfo_modulation(x, "spatialcorr_weighted");
   double pitchmin_mod = ec2_get_lfo_modulation(x, "pitchmin");
   double pitchmax_mod = ec2_get_lfo_modulation(x, "pitchmax");
+  double distfreqmin_mod = ec2_get_lfo_modulation(x, "distfreqmin");
+  double distfreqmax_mod = ec2_get_lfo_modulation(x, "distfreqmax");
   double trajshape_mod = ec2_get_lfo_modulation(x, "trajshape");
   double trajrate_mod = ec2_get_lfo_modulation(x, "trajrate");
   double trajdepth_mod = ec2_get_lfo_modulation(x, "trajdepth");
@@ -1994,6 +2023,8 @@ void ec2_update_engine_params(t_ec2* x) {
 
   params.spatial.pitchMin = x->pitch_min * (1.0 + pitchmin_mod);
   params.spatial.pitchMax = x->pitch_max * (1.0 + pitchmax_mod);
+  params.spatial.distFreqMin = x->dist_freq_min * (1.0 + distfreqmin_mod);
+  params.spatial.distFreqMax = x->dist_freq_max * (1.0 + distfreqmax_mod);
   params.spatial.trajShape = static_cast<ec2::TrajectoryShape>(x->traj_shape + static_cast<int>(trajshape_mod * 6));
   params.spatial.trajRate = x->traj_rate * (1.0 + trajrate_mod);
   params.spatial.trajDepth = x->traj_depth * (1.0 + trajdepth_mod);
@@ -2412,6 +2443,8 @@ void ec2_handle_osc_parameter(t_ec2* x, const std::string& param_name, double va
   else if (param_name == "spatialcorr_weighted") ec2_spatialcorr_weighted(x, value);
   else if (param_name == "pitchmin") ec2_pitchmin(x, value);
   else if (param_name == "pitchmax") ec2_pitchmax(x, value);
+  else if (param_name == "distfreqmin") ec2_distfreqmin(x, value);
+  else if (param_name == "distfreqmax") ec2_distfreqmax(x, value);
   else if (param_name == "trajshape") ec2_trajshape(x, (long)value);
   else if (param_name == "trajrate") ec2_trajrate(x, value);
   else if (param_name == "trajdepth") ec2_trajdepth(x, value);

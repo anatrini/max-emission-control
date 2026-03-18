@@ -405,12 +405,12 @@ PanningVector SpatialAllocator::allocateDistance(const GrainMetadata& grain) {
 
   // Derive a virtual "distance" from the grain's spectral centroid using a
   // log-frequency mapping: high spectral content is perceived as near,
-  // low spectral content as far.  Parameters re-use pitchMin/pitchMax and
-  // distanceAttenuation/nearClip/farClip from SpatialParameters.
+  // low spectral content as far.  Uses distFreqMin/distFreqMax to define the
+  // frequency range that spans the nearClip–farClip distance interval.
   float centroid = std::max(grain.spectralCentroid, 1.0f);
   float logCentroid = std::log2(centroid);
-  float logMin = std::log2(std::max(mParams.pitchMin, 1.0f));
-  float logMax = std::log2(std::max(mParams.pitchMax, mParams.pitchMin + 1.0f));
+  float logMin = std::log2(std::max(mParams.distFreqMin, 1.0f));
+  float logMax = std::log2(std::max(mParams.distFreqMax, mParams.distFreqMin + 1.0f));
   float centroidNorm = (logMax > logMin)
       ? std::clamp((logCentroid - logMin) / (logMax - logMin), 0.0f, 1.0f)
       : 0.5f;
