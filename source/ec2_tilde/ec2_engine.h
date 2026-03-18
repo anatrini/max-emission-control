@@ -35,6 +35,7 @@ struct SynthParameters {
   float async = 0.0f;            // 0-1
   float intermittency = 0.0f;    // 0-1
   int streams = 1;               // 1-20
+  StreamType streamType = SYNCHRONOUS;  // Stream scheduling mode
 
   // Grain characteristics
   float playbackRate = 1.0f;     // -32 to 32
@@ -241,6 +242,7 @@ private:
 
   std::atomic<int> mActiveVoiceCount{0};
   int mGrainCounter = 0;                // Monotonically incrementing ID per emitted grain
+  int mCurrentStreamId = 0;             // Cycles 0..streams-1 for per-stream routing
   float mGrainEmissionTime = 0.0f;      // Track time for spatial allocator
 
   // LFO system (Phase 9)

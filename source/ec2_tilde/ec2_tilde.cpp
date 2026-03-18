@@ -1889,6 +1889,19 @@ void ec2_osc_handler(t_ec2* x, t_symbol* s, long argc, t_atom* argv) {
 // HELPER FUNCTIONS
 // ==================================================================
 
+// ec2_update_engine_params — single authoritative copy point
+//
+// Parameters live in TWO places: t_ec2 (Max attribute system, message-thread
+// owner) and ec2::SynthParameters (engine, read on the audio thread).
+// This function is the ONLY place where they are synchronised.
+//
+// CHECKLIST when adding a new parameter:
+//   1. Add field to t_ec2 struct (ec2_tilde.cpp, struct _ec2)
+//   2. Add field to SynthParameters (ec2_engine.h)
+//   3. Register a message/attribute handler (ext_main)
+//   4. Copy t_ec2 field → SynthParameters here
+//   5. Initialise the t_ec2 field in ec2_new
+//
 void ec2_update_engine_params(t_ec2* x) {
   ec2::SynthParameters params;
 

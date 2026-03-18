@@ -73,7 +73,7 @@ void GranularEngine::updateParameters(const SynthParameters& params) {
 
   // Update scheduler
   mScheduler.configure(params.grainRate, params.async, params.intermittency);
-  mScheduler.setPolyStream(SYNCHRONOUS, params.streams);
+  mScheduler.setPolyStream(params.streamType, params.streams);
 
   // Update spatial allocator (Phase 5)
   mSpatialAllocator.updateParameters(params.spatial);
@@ -134,7 +134,10 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
 
   // Update scheduler with modulated parameters
   mScheduler.configure(modulatedGrainRate, modulatedAsync, modulatedIntermittency);
-  mScheduler.setPolyStream(SYNCHRONOUS, modulatedStreams);
+  mScheduler.setPolyStream(mParams.streamType, modulatedStreams);
+
+  // Inform spatial allocator of current stream count for stream-aware routing
+  mSpatialAllocator.setNumActiveStreams(modulatedStreams);
 
   // Apply modulation to soundFile (matches original EC2 ecSynth.cpp:201-204)
   // Round to nearest integer for buffer index selection
@@ -250,17 +253,15 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
 
   // Process frame by frame
   for (int frame = 0; frame < numFrames; ++frame) {
-    // Check if scheduler wants to trigger a new grain
-    if (mScheduler.trigger()) {
+    // How many grains to emit this frame (0 for SYNCHRONOUS/SEQUENCED, 0-N for ASYNCHRONOUS)
+    int numTriggers = mScheduler.triggerCount();
 
+    for (int t = 0; t < numTriggers; ++t) {
       // Update scan position from signal input if provided
-      // When using signal input, override scanner automation
       if (scanSignal) {
-        // Clamp scan signal to 0.0-1.0 range
         float scanPos = std::max(0.0f, std::min(scanSignal[frame], 1.0f));
         mCurrentScanIndex = scanPos * frames;
       }
-      // Otherwise mCurrentScanIndex is already set by scanner logic above
 
       // Apply statistical deviation to scan position
       float deviatedScanIndex = mCurrentScanIndex;
@@ -280,15 +281,19 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         // Get playback rate for this grain (Phase 12: use signal if provided)
         float grainPlaybackRate;
         if (playbackSignal) {
-          // Clamp playback signal to valid range
           grainPlaybackRate = std::max(-32.0f, std::min(playbackSignal[frame], 32.0f));
         } else {
           grainPlaybackRate = applyModulation(mParams.playbackRate, mParams.modPlaybackRate, -32.0f, 32.0f);
         }
 
-        metadata.pitch = grainPlaybackRate * 440.0f;  // Approximate pitch from playback rate
+        metadata.pitch = grainPlaybackRate * 440.0f;
         metadata.spectralCentroid = mParams.filterFreq;
-        metadata.streamId = 0;  // TODO: Implement stream routing
+        // Assign stream ID and advance the cyclic counter (0..streams-1).
+        // SYNCHRONOUS: cycles through N stream IDs at N× rate.
+        // ASYNCHRONOUS: multiple triggers per frame each get the next ID.
+        // SEQUENCED: single trigger per period, ID cycles at base rate.
+        metadata.streamId = mCurrentStreamId;
+        mCurrentStreamId = (mCurrentStreamId + 1) % std::max(1, modulatedStreams);
         metadata.grainIndex = mGrainCounter++;
 
         // Get spatial allocation (multichannel panning gains)
@@ -298,58 +303,44 @@ void GranularEngine::processWithSignals(float** outBuffers, int numChannels, int
         float modulatedDuration = applyModulation(mParams.grainDuration, mParams.modGrainDuration, 1.0f, 10000.0f);
         float modulatedEnvelope = applyModulation(mParams.envelope, mParams.modEnvelope, 0.0f, 1.0f);
         float modulatedPan = applyModulation(mParams.pan, mParams.modPan, -1.0f, 1.0f);
-        float modulatedAmplitude = applyModulation(mParams.amplitude, mParams.modAmplitude, -180.0f, 48.0f);  // dB range
+        float modulatedAmplitude = applyModulation(mParams.amplitude, mParams.modAmplitude, -180.0f, 48.0f);
         float modulatedFilterFreq = applyModulation(mParams.filterFreq, mParams.modFilterFreq, 20.0f, 24000.0f);
         float modulatedResonance = applyModulation(mParams.resonance, mParams.modResonance, 0.0f, 1.0f);
 
         // Apply statistical deviation (Curtis Roads: stochastic grain clouds)
-        // Each grain gets slightly randomized parameters for organic variation
         grainPlaybackRate = applyDeviation(grainPlaybackRate, mParams.playbackDeviation, -32.0f, 32.0f);
         modulatedDuration = applyDeviation(modulatedDuration, mParams.durationDeviation, 0.046f, 10000.0f);
         modulatedEnvelope = applyDeviation(modulatedEnvelope, mParams.envelopeDeviation, 0.0f, 1.0f);
         modulatedPan = applyDeviation(modulatedPan, mParams.panDeviation, -1.0f, 1.0f);
-        modulatedAmplitude = applyDeviation(modulatedAmplitude, mParams.amplitudeDeviation, -180.0f, 48.0f);  // dB range
+        modulatedAmplitude = applyDeviation(modulatedAmplitude, mParams.amplitudeDeviation, -180.0f, 48.0f);
         modulatedFilterFreq = applyDeviation(modulatedFilterFreq, mParams.filterFreqDeviation, 20.0f, 24000.0f);
         modulatedResonance = applyDeviation(modulatedResonance, mParams.resonanceDeviation, 0.0f, 1.0f);
 
         // Configure grain parameters
         GrainParameters grainParams;
         grainParams.sourceBuffer = currentBuffer;
-        grainParams.currentIndex = deviatedScanIndex;  // Use deviated scan position
-        grainParams.transposition = grainPlaybackRate;  // Use signal-rate or modulated value
+        grainParams.currentIndex = deviatedScanIndex;
+        grainParams.transposition = grainPlaybackRate;
         grainParams.durationMs = modulatedDuration;
         grainParams.envelope = modulatedEnvelope;
-        grainParams.pan = modulatedPan;  // Legacy stereo pan (fallback)
-
-        // Amplitude is already in dB (EC2 original behavior)
+        grainParams.pan = modulatedPan;
         grainParams.amplitudeDb = modulatedAmplitude;
-
         grainParams.filterFreq = modulatedFilterFreq;
         grainParams.resonance = modulatedResonance;
         grainParams.activeVoiceCount = &mActiveVoiceCount;
 
-        // Apply spatial allocation
-        // Use multichannel gains ONLY when spatial mode is active AND we have > 2 channels
-        // For stereo (2 channels), always use legacy panning
         grainParams.useMultichannelGains = (mParams.spatial.mode != AllocationMode::FIXED &&
                                             mParams.spatial.numChannels > 2);
         grainParams.channelGains = panning.gains;
 
         grain->configure(grainParams, mSampleRate);
         mActiveVoiceCount.fetch_add(1, std::memory_order_relaxed);
-
-      } else {
-        // Out of voices - voice pool exhausted
       }
+      // else: voice pool exhausted — grain dropped silently
     }
 
     // Advance grain emission time
     mGrainEmissionTime += 1.0f / mSampleRate;
-
-    // Process all active grains for this frame
-    for (int i = static_cast<int>(mVoicePool.getActiveVoiceCount()) - 1; i >= 0; --i) {
-      // Voice pool handles grain processing internally
-    }
   }
 
   // Process all active voices (batch processing for efficiency)

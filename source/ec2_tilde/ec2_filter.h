@@ -99,7 +99,14 @@ public:
   }
 
   /**
-   * Zero out filter state
+   * Zero out delay-line state only (preserve coefficients).
+   * Use this when reconfiguring a grain to avoid DC contamination without
+   * discarding cached coefficients.
+   */
+  void zeroState() { d1 = d2 = T{0}; }
+
+  /**
+   * Zero out filter state and coefficients.
    */
   void zero() {
     d1 = d2 = 0;

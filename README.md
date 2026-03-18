@@ -6,7 +6,7 @@ High-performance multichannel granular synthesis external for Max, implementing 
 
 ## Status
 
-**Version**: 1.0.3-alpha
+**Version**: 1.0.4-alpha
 **Platform**: macOS (Universal Binary: Apple Silicon + Intel)
 **Max Version**: 8.0+
 **License**: GPL-3.0
@@ -17,8 +17,8 @@ High-performance multichannel granular synthesis external for Max, implementing 
 
 - **2048-voice grain pool** for dense textures
 - **Up to 16 output channels** with flexible multichannel routing
-- **7 spatial allocation modes** (Fixed, Round-robin, Random, Weighted, Load-balance, Pitch-map, Trajectory)
-- **6 independent LFOs** with modulation routing to 14 parameters
+- **8 spatial allocation modes** (Fixed, Round-robin, Random, Weighted, Load-balance, Pitch-map, Trajectory, Distance)
+- **6 independent LFOs** with modulation routing to 25+ parameters
 - **Statistical deviation** for all synthesis parameters (Curtis Roads: stochastic grain clouds)
 - **OSC integration** compatible with odot for Max
 - **Native Max integration** with buffer~ and buffer_ref monitoring
@@ -30,7 +30,7 @@ High-performance multichannel granular synthesis external for Max, implementing 
 
 ### Precompiled Binary
 
-Precompiled binaries for Apple Silicon (M1/M2/M3) and Intel are available in the [releases page](https://github.com/anatrini/max-emission-control/releases).
+No precompiled binaries are currently distributed. Build from source using the steps below.
 
 ### Build from Source
 
@@ -90,12 +90,12 @@ xattr -cr ~/Documents/Max\ 9/Library/ec2~.mxo
 [dac~ 1 2]   [comment: Audio output]
 ```
 
-Send parameter changes as messages:
-- `grainrate 30` - Set grain emission rate (Hz)
-- `duration 150` - Set grain duration (ms)
-- `amplitude 0.7` - Set output amplitude (0-1)
-- `pan -0.5` - Set stereo pan position (-1 to 1)
-- `scanstart 0.2` - Set buffer scan start position (0-1)
+Send parameter changes as messages (OSC `/param value` format):
+- `/grainrate 30` — Set grain emission rate (Hz)
+- `/duration 150` — Set grain duration (ms)
+- `/amp -6` — Set output amplitude (dBFS)
+- `/pan -0.5` — Set stereo pan position (−1 to 1)
+- `/scanstart 0.2` — Set buffer scan start position (0–1)
 
 Double-click the `ec2~` object to open the parameter window.
 
@@ -104,49 +104,51 @@ Double-click the `ec2~` object to open the parameter window.
 ## Core Parameters
 
 ### Synthesis
-- **grainrate** (Hz): Grain emission rate (0.1-500, default: 20)
-- **duration** (ms): Grain length (1-1000, default: 100)
-- **amplitude**: Output level (0-1, default: 0.5)
-- **playback**: Playback rate/transposition (-32 to 32, default: 1)
-- **envelope**: Envelope shape (0-1, Hann to Exp, default: 0.5)
-- **streams**: Polyphonic grain streams (1-20, default: 1)
-- **async**: Stream randomization (0-1, default: 0)
-- **intermittency**: Grain skipping probability (0-1, default: 0)
+- `/grainrate` (Hz): Grain emission rate (0.1–500, default: 20)
+- `/duration` (ms): Grain length (0.046–10000, default: 100)
+- `/amp` (dBFS): Output amplitude (−180 to 48, default: −6)
+- `/playback`: Playback rate/transposition (−32 to 32, default: 1)
+- `/envelope`: Envelope shape (0–1, Tukey to Expodec, default: 0.5)
+- `/streams`: Synchronous grain streams (1–20, default: 1)
+- `/async`: Timing jitter (0–1, default: 0)
+- `/intermittency`: Grain dropout probability (0–1, default: 0)
 
 ### Scanning
-- **scanstart**: Buffer scan position (0-1, default: 0)
-- **scanrange**: Scan window size (0-1, default: 1)
-- **scanspeed**: Automatic scanning speed (-32 to 32, default: 0)
+- `/scanstart`: Buffer scan position (0–1, default: 0)
+- `/scanrange`: Scan window size, negative = reverse (−1 to 1, default: 0.5)
+- `/scanspeed`: Automatic scanning speed (−32 to 32, default: 1)
 
 ### Filtering
-- **filterfreq** (Hz): Lowpass filter frequency (20-22000, default: 22000)
-- **resonance**: Filter resonance (0-1, default: 0)
+- `/filterfreq` (Hz): Bandpass filter center frequency (20–24000, default: 1000)
+- `/resonance`: Filter resonance / cascade mix (0–1, default: 0; 0 = bypassed)
 
 ### Spatial
-- **pan**: Stereo pan position (-1 to 1, default: 0)
-- **outputs**: Number of output channels (2-16, default: 2)
+- `/pan`: Stereo pan position (−1 to 1, default: 0)
+- `@outputs`: Number of output channels (1–16, default: 2)
 
 ### Allocation Modes
-- **allocmode**: Spatial allocation strategy (0-6, default: 1)
+- `@allocmode`: Spatial allocation strategy (0–7, default: 1)
   - 0: Fixed channel
   - 1: Round-robin
-  - 2: Random
+  - 2: Random (uniform)
   - 3: Weighted random
   - 4: Load-balanced
   - 5: Pitch-mapped
   - 6: Trajectory-based
+  - 7: Distance (spectral centroid → virtual distance attenuation)
 
 ### Deviation Parameters (Stochastic Variation)
-Add `_dev` suffix to any parameter for statistical deviation:
-- **grainrate_dev**, **duration_dev**, **playback_dev**, **amplitude_dev**, etc.
-- Range: 0-1 (0 = no variation, 1 = maximum variation)
+Add `_dev` suffix for per-grain random deviation (uniform ±):
+- `/grainrate_dev`, `/duration_dev`, `/playback_dev`, `/amp_dev`, `/filterfreq_dev`, etc.
+- Value = maximum deviation; 0 = no variation
 
 ### LFO System
-6 independent LFOs with parameters:
-- **lfo[1-6]shape**: Waveform (0-5: Sine, Triangle, Square, Saw Up, Saw Down, Random)
-- **lfo[1-6]rate** (Hz): LFO frequency (0.001-100)
-- **lfo[1-6]polarity**: Bipolar/Unipolar (0-1)
-- **lfo[1-6]duty**: Pulse width for square wave (0-1)
+6 independent LFOs with per-buffer block-average computation:
+- `/lfo[1-6]shape`: Waveform (0=Sine, 1=Square, 2=Rise, 3=Fall, 4=Noise)
+- `/lfo[1-6]rate` (Hz): LFO frequency (0.001–100)
+- `/lfo[1-6]polarity`: 0=bipolar (±1), 1=unipolar+ (0–1), 2=unipolar− (−1–0)
+- `/lfo[1-6]duty`: Pulse width for square wave (0–1)
+- `/lfo<N>_to_<param> <depth>`: Route LFO N to parameter at given depth (0–1)
 
 ---
 

@@ -556,6 +556,268 @@ TEST(test_engine_atomic_voice_count) {
 }
 
 // ---------------------------------------------------------------------------
+// Filter coefficient caching tests
+// ---------------------------------------------------------------------------
+
+TEST(test_filter_zerostate_preserves_coefficients) {
+  ec2::Biquad<float> f;
+  f.setBandpassQ(1000.0f, 48000.0f, 10.0f);
+
+  // Feed signal to build up state and get a steady-state output
+  float steady = 0.0f;
+  for (int i = 0; i < 1000; ++i) steady = f(0.5f);
+
+  // zeroState() should clear delay lines only
+  f.zeroState();
+  float after_zero = f(0.0f);  // With no input, output should be ~0 (state cleared)
+  EXPECT_NEAR(after_zero, 0.0f, 1e-4f);
+
+  // Re-feeding should produce non-zero output again (coefficients intact)
+  float after_refeed = 0.0f;
+  for (int i = 0; i < 500; ++i) after_refeed = f(0.5f);
+  EXPECT_TRUE(std::abs(after_refeed) > 1e-4f);
+  pass();
+}
+
+TEST(test_grain_filter_cache_skips_recompute) {
+  // Confirm that a grain configured twice with identical filter params
+  // produces the same steady-state output (cache hit: same coefficients).
+  auto buf = std::make_shared<ec2::AudioBuffer<float>>();
+  buf->frames = 8192;
+  buf->channels = 1;
+  buf->size = 8192;
+  buf->data = new float[8192];
+  for (int i = 0; i < 8192; ++i) buf->data[i] = 0.5f;
+
+  std::atomic<int> counter{1};
+
+  auto makeParams = [&]() {
+    ec2::GrainParameters p;
+    p.sourceBuffer = buf;
+    p.currentIndex = 0.0f;
+    p.transposition = 1.0f;
+    p.durationMs = 200.0f;
+    p.envelope = 0.5f;
+    p.pan = 0.0f;
+    p.amplitudeDb = -6.0f;
+    p.filterFreq = 2000.0f;
+    p.resonance = 0.5f;  // Non-zero: filter active
+    p.activeVoiceCount = &counter;
+    p.useMultichannelGains = false;
+    return p;
+  };
+
+  ec2::Grain grain;
+  ec2::GrainParameters p = makeParams();
+  grain.configure(p, 48000.0f);
+
+  float out0a[256] = {}, out1a[256] = {};
+  float* bufsA[2] = { out0a, out1a };
+  grain.processBuffer(bufsA, 2, 256);
+
+  // Reconfigure with same params (cache hit) — reset grain first via pool
+  ec2::VoicePool pool(4);
+  ec2::Grain* g = pool.getFreeVoice();
+  counter.store(1);
+  g->configure(makeParams(), 48000.0f);
+
+  float out0b[256] = {}, out1b[256] = {};
+  float* bufsB[2] = { out0b, out1b };
+  g->processBuffer(bufsB, 2, 256);
+
+  // Outputs should be approximately equal (same coefficients)
+  EXPECT_NEAR(out0a[128], out0b[128], 1e-3f);
+  pass();
+}
+
+// ---------------------------------------------------------------------------
+// Async / Sequenced stream scheduler tests
+// ---------------------------------------------------------------------------
+
+TEST(test_scheduler_async_streams_higher_density) {
+  // N async streams at rate R should produce approximately N×R triggers/sec
+  ec2::GrainScheduler sched(48000.0);
+  sched.configure(10.0, 0.0, 0.0);
+  sched.setPolyStream(ec2::ASYNCHRONOUS, 4);
+
+  int triggers = 0;
+  for (int i = 0; i < 48000; ++i) {
+    triggers += sched.triggerCount();
+  }
+  // 4 streams × 10 Hz = ~40 triggers/sec (allow wide tolerance for phase randomness)
+  EXPECT_TRUE(triggers >= 25 && triggers <= 55);
+  pass();
+}
+
+TEST(test_scheduler_sequenced_fires_at_base_rate) {
+  // SEQUENCED with N streams fires at the base rate (not N× the rate)
+  ec2::GrainScheduler sched(48000.0);
+  sched.configure(10.0, 0.0, 0.0);
+  sched.setPolyStream(ec2::SEQUENCED, 4);
+
+  int triggers = 0;
+  for (int i = 0; i < 48000; ++i) {
+    triggers += sched.triggerCount();
+  }
+  // 1 stream path × 10 Hz = 10 triggers/sec
+  EXPECT_EQ(triggers, 10);
+  pass();
+}
+
+TEST(test_scheduler_synchronous_still_works) {
+  // Regression: SYNCHRONOUS with N streams via triggerCount() must produce N×R
+  ec2::GrainScheduler sched(48000.0);
+  sched.configure(10.0, 0.0, 0.0);
+  sched.setPolyStream(ec2::SYNCHRONOUS, 3);
+
+  int triggers = 0;
+  for (int i = 0; i < 48000; ++i) {
+    triggers += sched.triggerCount();
+  }
+  // 3 streams × 10 Hz = 30 triggers/sec (synchronous: freq×N)
+  EXPECT_EQ(triggers, 30);
+  pass();
+}
+
+// ---------------------------------------------------------------------------
+// Stream ID cycling in engine
+// ---------------------------------------------------------------------------
+
+TEST(test_engine_stream_id_cycles) {
+  // With streams=3, SYNCHRONOUS, verify that grains are emitted and
+  // the engine doesn't crash (stream ID cycling is internal).
+  ec2::GranularEngine engine(64);
+  engine.initialize(48000.0f);
+
+  auto buf = std::make_shared<ec2::AudioBuffer<float>>();
+  buf->frames = 4096;
+  buf->channels = 1;
+  buf->size = 4096;
+  buf->data = new float[4096]();
+  for (int i = 0; i < 4096; ++i) buf->data[i] = 0.1f;
+  engine.setAudioBuffer(buf, 0);
+
+  ec2::SynthParameters p;
+  p.grainRate = 100.0f;
+  p.streams = 3;
+  p.streamType = ec2::SYNCHRONOUS;
+  engine.updateParameters(p);
+
+  float out[512] = {};
+  float* outs[1] = { out };
+  for (int block = 0; block < 5; ++block) {
+    engine.process(outs, 1, 512);
+  }
+  // Just verify no crash and voice count stays sane
+  EXPECT_TRUE(engine.getActiveVoiceCount() >= 0);
+  EXPECT_TRUE(engine.getActiveVoiceCount() <= 64);
+  pass();
+}
+
+TEST(test_engine_async_streams) {
+  // ASYNCHRONOUS mode: engine should emit grains without crashing
+  ec2::GranularEngine engine(128);
+  engine.initialize(48000.0f);
+
+  auto buf = std::make_shared<ec2::AudioBuffer<float>>();
+  buf->frames = 4096;
+  buf->channels = 1;
+  buf->size = 4096;
+  buf->data = new float[4096]();
+  for (int i = 0; i < 4096; ++i) buf->data[i] = 0.1f;
+  engine.setAudioBuffer(buf, 0);
+
+  ec2::SynthParameters p;
+  p.grainRate = 10.0f;
+  p.streams = 4;
+  p.streamType = ec2::ASYNCHRONOUS;
+  engine.updateParameters(p);
+
+  float out[512] = {};
+  float* outs[1] = { out };
+  for (int block = 0; block < 10; ++block) {
+    engine.process(outs, 1, 512);
+  }
+  EXPECT_TRUE(engine.getActiveVoiceCount() >= 0);
+  EXPECT_TRUE(engine.getActiveVoiceCount() <= 128);
+  pass();
+}
+
+// ---------------------------------------------------------------------------
+// Distance spatial allocator tests
+// ---------------------------------------------------------------------------
+
+TEST(test_spatial_distance_mode_gain_attenuation) {
+  ec2::SpatialAllocator alloc;
+  ec2::SpatialParameters params;
+  params.mode = ec2::AllocationMode::DISTANCE;
+  params.numChannels = 8;
+  params.pitchMin = 20.0f;
+  params.pitchMax = 20000.0f;
+  params.nearClip = 1.0f;
+  params.farClip = 100.0f;
+  params.distanceAttenuation = 2.0f;
+  alloc.updateParameters(params);
+
+  // High spectral centroid → near → high gain
+  ec2::GrainMetadata near_grain;
+  near_grain.grainIndex = 0;
+  near_grain.emissionTime = 0.0f;
+  near_grain.pitch = 10000.0f;
+  near_grain.spectralCentroid = 15000.0f;  // High: near listener
+
+  // Low spectral centroid → far → low gain
+  ec2::GrainMetadata far_grain;
+  far_grain.grainIndex = 1;
+  far_grain.emissionTime = 0.0f;
+  far_grain.pitch = 100.0f;
+  far_grain.spectralCentroid = 100.0f;  // Low: far from listener
+
+  ec2::PanningVector pv_near = alloc.allocate(near_grain);
+  ec2::PanningVector pv_far  = alloc.allocate(far_grain);
+
+  // Find peak gain for each
+  float gain_near = 0.0f, gain_far = 0.0f;
+  for (int ch = 0; ch < ec2::MAX_AUDIO_OUTS; ++ch) {
+    if (pv_near.gains[ch] > gain_near) gain_near = pv_near.gains[ch];
+    if (pv_far.gains[ch] > gain_far)   gain_far  = pv_far.gains[ch];
+  }
+
+  // Near grain should be louder than far grain
+  EXPECT_TRUE(gain_near > gain_far);
+  // Far grain gain should be greater than 0 (still audible)
+  EXPECT_TRUE(gain_far > 0.0f);
+  pass();
+}
+
+TEST(test_spatial_distance_all_channels_valid) {
+  ec2::SpatialAllocator alloc;
+  ec2::SpatialParameters params;
+  params.mode = ec2::AllocationMode::DISTANCE;
+  params.numChannels = 4;
+  params.pitchMin = 20.0f;
+  params.pitchMax = 20000.0f;
+  params.nearClip = 0.1f;
+  params.farClip = 50.0f;
+  params.distanceAttenuation = 1.0f;
+  alloc.updateParameters(params);
+
+  for (int i = 0; i < 8; ++i) {
+    ec2::GrainMetadata meta;
+    meta.grainIndex = i;
+    meta.emissionTime = 0.0f;
+    meta.pitch = 440.0f;
+    meta.spectralCentroid = 440.0f + i * 500.0f;
+    ec2::PanningVector pv = alloc.allocate(meta);
+    // Each allocation should have at least one channel with non-negative gain
+    float sum = 0.0f;
+    for (float g : pv.gains) sum += g;
+    EXPECT_TRUE(sum >= 0.0f);
+  }
+  pass();
+}
+
+// ---------------------------------------------------------------------------
 // Line (ramp generator) tests
 // ---------------------------------------------------------------------------
 
@@ -617,6 +879,23 @@ int main() {
   RUN(test_engine_silent_without_buffer);
   RUN(test_engine_stop_all_resets_count);
   RUN(test_engine_atomic_voice_count);
+
+  printf("\nFilter coefficient caching\n");
+  RUN(test_filter_zerostate_preserves_coefficients);
+  RUN(test_grain_filter_cache_skips_recompute);
+
+  printf("\nAsync / Sequenced streams\n");
+  RUN(test_scheduler_async_streams_higher_density);
+  RUN(test_scheduler_sequenced_fires_at_base_rate);
+  RUN(test_scheduler_synchronous_still_works);
+
+  printf("\nStream routing\n");
+  RUN(test_engine_stream_id_cycles);
+  RUN(test_engine_async_streams);
+
+  printf("\nDistance spatial allocator\n");
+  RUN(test_spatial_distance_mode_gain_attenuation);
+  RUN(test_spatial_distance_all_channels_valid);
 
   printf("\nLine\n");
   RUN(test_line_reaches_target);

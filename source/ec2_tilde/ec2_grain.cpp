@@ -27,10 +27,11 @@ void Grain::configure(const GrainParameters &params, float sampleRate) {
     mSampleRate = sampleRate;
   }
 
-  // Always reset filter state for each new grain to prevent DC offset
-  // contamination from previous grain's delay lines
-  mBpf1L.zero(); mBpf2L.zero(); mBpf3L.zero();
-  mBpf1R.zero(); mBpf2R.zero(); mBpf3R.zero();
+  // Reset filter delay lines to prevent DC contamination from the previous grain.
+  // zeroState() preserves coefficients so configureFilter() can skip expensive
+  // recomputation (pow/sin/cos) when freq/resonance haven't changed.
+  mBpf1L.zeroState(); mBpf2L.zeroState(); mBpf3L.zeroState();
+  mBpf1R.zeroState(); mBpf2R.zeroState(); mBpf3R.zeroState();
 
   // Set duration
   mDurationS = params.durationMs / 1000.0f;
@@ -432,6 +433,10 @@ void Grain::reset() {
   mSourceIndex = 0.0f;
   mUseMultichannelGains = false;
   mChannelGains.fill(0.0f);
+  // Invalidate filter cache so the next grain reconfigures from scratch
+  mLastFilterFreq = -1.0f;
+  mLastFilterResonance = -1.0f;
+  mLastSourceChannels = -1;
 }
 
 //=============================================================================
@@ -471,10 +476,21 @@ void Grain::configureFilter(float freq, float resonance, int sourceChannels) {
   // Bypass filter if resonance is near zero
   if (resonance >= 0.0f && resonance < 0.00001f) {
     mBypassFilter = true;
+    mLastFilterFreq = -1.0f;  // Invalidate cache on bypass transition
     return;
   }
 
   mBypassFilter = false;
+
+  // Cache hit: coefficients are still valid (zeroState() only cleared delay lines).
+  // Skip the expensive pow/sin/cos recomputation if params are unchanged.
+  if (freq == mLastFilterFreq && resonance == mLastFilterResonance &&
+      sourceChannels == mLastSourceChannels) {
+    return;
+  }
+  mLastFilterFreq = freq;
+  mLastFilterResonance = resonance;
+  mLastSourceChannels = sourceChannels;
 
   // Process resonance with exponential curve
   // EC2's custom resonance curve: 13^(2.9 * (resonance - 0.5))

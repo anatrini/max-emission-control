@@ -401,9 +401,41 @@ PanningVector SpatialAllocator::allocateTrajectory(const GrainMetadata& grain) {
 PanningVector SpatialAllocator::allocateDistance(const GrainMetadata& grain) {
   PanningVector pv;
 
-  // TODO Phase 5b: Implement 3D distance-based allocation
-  // For now, fall back to random
-  return allocateRandom(grain);
+  if (mParams.channelList.empty()) return pv;
+
+  // Derive a virtual "distance" from the grain's spectral centroid using a
+  // log-frequency mapping: high spectral content is perceived as near,
+  // low spectral content as far.  Parameters re-use pitchMin/pitchMax and
+  // distanceAttenuation/nearClip/farClip from SpatialParameters.
+  float centroid = std::max(grain.spectralCentroid, 1.0f);
+  float logCentroid = std::log2(centroid);
+  float logMin = std::log2(std::max(mParams.pitchMin, 1.0f));
+  float logMax = std::log2(std::max(mParams.pitchMax, mParams.pitchMin + 1.0f));
+  float centroidNorm = (logMax > logMin)
+      ? std::clamp((logCentroid - logMin) / (logMax - logMin), 0.0f, 1.0f)
+      : 0.5f;
+
+  // High centroid → near (distance = nearClip), low centroid → far (= farClip)
+  float distance = mParams.nearClip +
+                   (1.0f - centroidNorm) * (mParams.farClip - mParams.nearClip);
+  distance = std::clamp(distance, mParams.nearClip, mParams.farClip);
+
+  // Inverse power-law attenuation: gain = (nearClip / distance)^attenuation
+  float gain = 1.0f;
+  if (distance > 0.0f && mParams.nearClip > 0.0f) {
+    gain = std::pow(mParams.nearClip / distance, mParams.distanceAttenuation);
+    gain = std::clamp(gain, 0.0f, 1.0f);
+  }
+
+  // Channel assignment: round-robin through allowed channels
+  int listSize = static_cast<int>(mParams.channelList.size());
+  int idx = std::abs(grain.grainIndex) % listSize;
+  int ch = std::clamp(mParams.channelList[idx], 0, MAX_AUDIO_OUTS - 1);
+
+  pv.gains[ch] = gain;
+  mActiveCount[ch]++;
+
+  return pv;
 }
 
 // ============================================================================

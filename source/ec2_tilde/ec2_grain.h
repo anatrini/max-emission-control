@@ -131,6 +131,13 @@ private:
   // Active voice tracking
   std::atomic<int> *mActiveVoiceCount = nullptr;
 
+  // Filter coefficient cache: avoids expensive recomputation (pow/sin/cos)
+  // when freq/resonance/sourceChannels are unchanged between grains.
+  // zeroState() only resets delay lines, so cached coefficients remain valid.
+  float mLastFilterFreq = -1.0f;
+  float mLastFilterResonance = -1.0f;
+  int mLastSourceChannels = -1;
+
   // Temp variables for interpolation
   float mBefore, mAfter, mDecimal;
   int mPrevSampleRate = -1;

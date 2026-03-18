@@ -203,6 +203,12 @@ public:
   void setSampleRate(float sr) { mSampleRate = sr; }
 
   /**
+   * Inform the allocator how many active streams the engine is running.
+   * Used by ROUNDROBIN and DISTANCE modes to partition channels per stream.
+   */
+  void setNumActiveStreams(int n) { mNumActiveStreams = std::max(1, n); }
+
+  /**
    * Reset internal state
    */
   void reset();
@@ -218,6 +224,7 @@ private:
   float mLastRandomChannel = 0.0f;                // For spatial correlation
   float mSampleRate = DEFAULT_SAMPLE_RATE;
   int mGrainCounter = 0;                          // Global grain counter
+  int mNumActiveStreams = 1;                       // Active stream count (stream routing)
 
   // Mode-specific allocation functions
   PanningVector allocateFixed(const GrainMetadata& grain);
